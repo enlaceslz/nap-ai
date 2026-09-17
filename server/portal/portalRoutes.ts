@@ -15,7 +15,7 @@ export const setupPortalRoutes = (app: express.Express) => {
   router.post('/erp/pix/:id', (req, res) => {
     res.json({
       sucesso: true,
-      codigo_pix: "00020126360014BR.GOV.BCB.PIX011412345678901234520400005303986540510.005802BR5912Seu Provedor6009Sao Paulo62070503***63041D3D"
+      codigo_pix: "00020126360014BR.GOV.BCB.PIX011412345678901234520400005303986540510.005802BR5912DJD Telecom6009Sao Paulo62070503***63041D3D"
     });
   });
 

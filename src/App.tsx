@@ -44,222 +44,222 @@ import HistoricoConversas from "./pages/admin/relatorios/HistoricoConversas";
 import NapSaasLanding from "./pages/NapSaasLanding";
 
 export default function App() {
-  return (
-    <ThemeProvider>
-      <AuthProvider>
-        <ConfigProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<ErrorBoundary fallbackTitle="Falha na Vitrine da Landing Page"><LandingPage /></ErrorBoundary>} />
-              <Route path="/landingpage" element={<ErrorBoundary fallbackTitle="Falha na Vitrine da Landing Page"><LandingPage /></ErrorBoundary>} />
-              <Route path="/nap" element={<ErrorBoundary fallbackTitle="Erro na Landing Page SaaS"><NapSaasLanding /></ErrorBoundary>} />
-              <Route path="/landing" element={<ErrorBoundary fallbackTitle="Falha na Vitrine da Landing Page"><LandingPage /></ErrorBoundary>} />
-              <Route path="/setup" element={<SetupWizard />} />
-              <Route path="/login" element={<Login />} />
+ return (
+ <ThemeProvider>
+ <AuthProvider>
+ <ConfigProvider>
+ <BrowserRouter>
+ <Routes>
+ <Route path="/" element={<ErrorBoundary fallbackTitle="Falha na Vitrine da Landing Page"><LandingPage /></ErrorBoundary>} />
+ <Route path="/landingpage" element={<ErrorBoundary fallbackTitle="Falha na Vitrine da Landing Page"><LandingPage /></ErrorBoundary>} />
+ <Route path="/nap" element={<ErrorBoundary fallbackTitle="Erro na Landing Page SaaS"><NapSaasLanding /></ErrorBoundary>} />
+ <Route path="/landing" element={<ErrorBoundary fallbackTitle="Falha na Vitrine da Landing Page"><LandingPage /></ErrorBoundary>} />
+ <Route path="/setup" element={<SetupWizard />} />
+ <Route path="/login" element={<Login />} />
 
-            {/* Operador / Admin Routes */}
-            <Route element={<ProtectedRoute />}>
-              <Route path="/admin" element={<Layout />}>
-                <Route
-                  element={
-                    <ProtectedRoute
-                      allowedRoles={[
-                        "operador",
-                        "tecnico_noc",
-                        "tecnico_campo",
-                      ]}
-                    />
-                  }
-                >
-                  <Route index element={<Inbox />} />
-                </Route>
+ {/* Operador / Admin Routes */}
+ <Route element={<ProtectedRoute />}>
+ <Route path="/admin" element={<Layout />}>
+ <Route
+ element={
+ <ProtectedRoute
+ allowedRoles={[
+ "operador",
+ "tecnico_noc",
+ "tecnico_campo",
+ ]}
+ />
+ }
+ >
+ <Route index element={<Inbox />} />
+ </Route>
 
-                <Route
-                  path="dashboard"
-                  element={<ProtectedRoute allowedRoles={["tecnico_noc"]} />}
-                >
-                  <Route index element={<Analytics />} />
-                </Route>
+ <Route
+ path="dashboard"
+ element={<ProtectedRoute allowedRoles={["tecnico_noc"]} />}
+ >
+ <Route index element={<Analytics />} />
+ </Route>
 
-                <Route
-                  path="suporte"
-                  element={
-                    <ProtectedRoute
-                      allowedRoles={[
-                        "operador",
-                        "tecnico_noc",
-                        "tecnico_campo",
-                      ]}
-                    />
-                  }
-                >
-                  <Route index element={<Kanban type="Suporte" />} />
-                </Route>
+ <Route
+ path="suporte"
+ element={
+ <ProtectedRoute
+ allowedRoles={[
+ "operador",
+ "tecnico_noc",
+ "tecnico_campo",
+ ]}
+ />
+ }
+ >
+ <Route index element={<Kanban type="Suporte" />} />
+ </Route>
 
-                <Route
-                  path="cobranca"
-                  element={<ProtectedRoute allowedRoles={["operador"]} />}
-                >
-                  <Route index element={<Kanban type="Cobranca" />} />
-                </Route>
+ <Route
+ path="cobranca"
+ element={<ProtectedRoute allowedRoles={["operador"]} />}
+ >
+ <Route index element={<Kanban type="Cobranca" />} />
+ </Route>
 
-                <Route
-                  path="vendas"
-                  element={<ProtectedRoute allowedRoles={["operador"]} />}
-                >
-                  <Route index element={<Kanban type="Vendas" />} />
-                </Route>
+ <Route
+ path="vendas"
+ element={<ProtectedRoute allowedRoles={["operador"]} />}
+ >
+ <Route index element={<Kanban type="Vendas" />} />
+ </Route>
 
-                <Route
-                  path="crm"
-                  element={
-                    <ProtectedRoute
-                      allowedRoles={["operador", "tecnico_noc"]}
-                    />
-                  }
-                >
-                  <Route index element={<CRM />} />
-                </Route>
+ <Route
+ path="crm"
+ element={
+ <ProtectedRoute
+ allowedRoles={["operador", "tecnico_noc"]}
+ />
+ }
+ >
+ <Route index element={<CRM />} />
+ </Route>
 
-                <Route
-                  path="sgp"
-                  element={
-                    <ProtectedRoute
-                      allowedRoles={[
-                        "operador",
-                        "tecnico_noc",
-                        "tecnico_campo",
-                      ]}
-                    />
-                  }
-                >
-                  <Route index element={<ConsultaSGP />} />
-                </Route>
+ <Route
+ path="sgp"
+ element={
+ <ProtectedRoute
+ allowedRoles={[
+ "operador",
+ "tecnico_noc",
+ "tecnico_campo",
+ ]}
+ />
+ }
+ >
+ <Route index element={<ConsultaSGP />} />
+ </Route>
 
-                <Route
-                  path="genieacs"
-                  element={<ProtectedRoute allowedRoles={["tecnico_noc"]} />}
-                >
-                  <Route index element={<GenieACSDashboard />} />
-                </Route>
+ <Route
+ path="genieacs"
+ element={<ProtectedRoute allowedRoles={["tecnico_noc"]} />}
+ >
+ <Route index element={<GenieACSDashboard />} />
+ </Route>
 
-                <Route
-                  path="infra"
-                  element={<ProtectedRoute allowedRoles={["tecnico_noc"]} />}
-                >
-                  <Route index element={<NocMonitoramento />} />
-                </Route>
+ <Route
+ path="infra"
+ element={<ProtectedRoute allowedRoles={["tecnico_noc"]} />}
+ >
+ <Route index element={<NocMonitoramento />} />
+ </Route>
 
-                <Route
-                  path="olts"
-                  element={<ProtectedRoute allowedRoles={["tecnico_noc", "tecnico_campo", "operador"]} />}
-                >
-                  <Route index element={<OltManagement />} />
-                </Route>
+ <Route
+ path="olts"
+ element={<ProtectedRoute allowedRoles={["tecnico_noc", "tecnico_campo", "operador"]} />}
+ >
+ <Route index element={<OltManagement />} />
+ </Route>
 
-                <Route
-                  path="erp-integracoes"
-                  element={<ProtectedRoute allowedRoles={[]} />}
-                >
-                  <Route index element={<ErpIntegracoes />} />
-                </Route>
+ <Route
+ path="erp-integracoes"
+ element={<ProtectedRoute allowedRoles={[]} />}
+ >
+ <Route index element={<ErpIntegracoes />} />
+ </Route>
 
-                <Route
-                  path="telefonia"
-                  element={<ProtectedRoute allowedRoles={["tecnico_noc", "operador"]} />}
-                >
-                  <Route index element={<Telefonia />} />
-                </Route>
-                <Route
-                  path="estoque"
-                  element={<ProtectedRoute allowedRoles={["tecnico_noc", "tecnico_campo", "operador"]} />}
-                >
-                  <Route index element={<EstoqueFrota />} />
-                </Route>
-                <Route
-                  path="mapa-rede"
-                  element={<ProtectedRoute allowedRoles={["tecnico_noc", "tecnico_campo"]} />}
-                >
-                  <Route index element={<MapaRede />} />
-                </Route>
-                <Route path="gis" element={<ProtectedRoute allowedRoles={["tecnico_noc", "tecnico_campo"]} />}>
-                  <Route index element={<GisDashboard />} />
-                </Route>
+ <Route
+ path="telefonia"
+ element={<ProtectedRoute allowedRoles={["tecnico_noc", "operador"]} />}
+ >
+ <Route index element={<Telefonia />} />
+ </Route>
+ <Route
+ path="estoque"
+ element={<ProtectedRoute allowedRoles={["tecnico_noc", "tecnico_campo", "operador"]} />}
+ >
+ <Route index element={<EstoqueFrota />} />
+ </Route>
+ <Route
+ path="mapa-rede"
+ element={<ProtectedRoute allowedRoles={["tecnico_noc", "tecnico_campo"]} />}
+ >
+ <Route index element={<MapaRede />} />
+ </Route>
+ <Route path="gis" element={<ProtectedRoute allowedRoles={["tecnico_noc", "tecnico_campo"]} />}>
+ <Route index element={<GisDashboard />} />
+ </Route>
 
-                <Route
-                  path="campanhas"
-                  element={<ProtectedRoute allowedRoles={["operador"]} />}
-                >
-                  <Route index element={<Campanhas />} />
-                </Route>
+ <Route
+ path="campanhas"
+ element={<ProtectedRoute allowedRoles={["operador"]} />}
+ >
+ <Route index element={<Campanhas />} />
+ </Route>
 
-                <Route
-                  path="operadores"
-                  element={<ProtectedRoute allowedRoles={[]} />}
-                >
-                  <Route index element={<Operadores />} />
-                </Route>
+ <Route
+ path="operadores"
+ element={<ProtectedRoute allowedRoles={[]} />}
+ >
+ <Route index element={<Operadores />} />
+ </Route>
 
-                <Route
-                  path="usuarios"
-                  element={<ProtectedRoute allowedRoles={[]} />}
-                >
-                  <Route index element={<UsuariosHierarquia />} />
-                </Route>
+ <Route
+ path="usuarios"
+ element={<ProtectedRoute allowedRoles={[]} />}
+ >
+ <Route index element={<UsuariosHierarquia />} />
+ </Route>
 
-                <Route
-                  path="campo"
-                  element={<ProtectedRoute allowedRoles={["tecnico_campo"]} />}
-                >
-                  <Route index element={<TecnicoCampo />} />
-                </Route>
+ <Route
+ path="campo"
+ element={<ProtectedRoute allowedRoles={["tecnico_campo"]} />}
+ >
+ <Route index element={<TecnicoCampo />} />
+ </Route>
 
-                <Route
-                  path="automacoes"
-                  element={<ProtectedRoute allowedRoles={[]} />}
-                >
-                  <Route index element={<Automacoes />} />
-                </Route>
+ <Route
+ path="automacoes"
+ element={<ProtectedRoute allowedRoles={[]} />}
+ >
+ <Route index element={<Automacoes />} />
+ </Route>
 
-                <Route
-                  path="auditoria"
-                  element={<ProtectedRoute allowedRoles={[]} />}
-                >
-                  <Route index element={<Auditoria />} />
-                </Route>
-                <Route path="historico" element={<HistoricoConversas />} />
+ <Route
+ path="auditoria"
+ element={<ProtectedRoute allowedRoles={[]} />}
+ >
+ <Route index element={<Auditoria />} />
+ </Route>
+ <Route path="historico" element={<HistoricoConversas />} />
 
-                <Route
-                  path="configuracoes"
-                  element={<ProtectedRoute allowedRoles={[]} />}
-                >
-                  <Route index element={<SuperAdmin />} />
-                </Route>
+ <Route
+ path="configuracoes"
+ element={<ProtectedRoute allowedRoles={[]} />}
+ >
+ <Route index element={<SuperAdmin />} />
+ </Route>
 
-                <Route path="landingpage" element={<Navigate to="/admin/configuracoes?tab=landingpage" replace />} />
-                <Route path="landing" element={<Navigate to="/admin/configuracoes?tab=landingpage" replace />} />
+ <Route path="landingpage" element={<Navigate to="/admin/configuracoes?tab=landingpage" replace />} />
+ <Route path="landing" element={<Navigate to="/admin/configuracoes?tab=landingpage" replace />} />
 
-                <Route path="helpdesk" element={<HelpDeskDashboard />} />
-                <Route path="ipam" element={<IpamDashboard />} />
+ <Route path="helpdesk" element={<HelpDeskDashboard />} />
+ <Route path="ipam" element={<IpamDashboard />} />
 
-                <Route path="ajuda" element={<Helpers />} />
-              </Route>
-            </Route>
+ <Route path="ajuda" element={<Helpers />} />
+ </Route>
+ </Route>
 
-            {/* Cliente PWA Routes */}
-            <Route path="/portal/login" element={<PortalLogin />} />
-            <Route path="/portal" element={<PortalLayout />}>
-              <Route index element={<PortalDashboard />} />
-              <Route path="faturas" element={<PortalFaturas />} />
-              <Route path="suporte" element={<PortalSuporte />} />
-              <Route path="conta" element={<PortalConta />} />
-            </Route>
+ {/* Cliente PWA Routes */}
+ <Route path="/portal/login" element={<PortalLogin />} />
+ <Route path="/portal" element={<PortalLayout />}>
+ <Route index element={<PortalDashboard />} />
+ <Route path="faturas" element={<PortalFaturas />} />
+ <Route path="suporte" element={<PortalSuporte />} />
+ <Route path="conta" element={<PortalConta />} />
+ </Route>
 
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </ConfigProvider>
-    </AuthProvider>
-  </ThemeProvider>
-  );
+ <Route path="*" element={<Navigate to="/" replace />} />
+ </Routes>
+ </BrowserRouter>
+ </ConfigProvider>
+ </AuthProvider>
+ </ThemeProvider>
+ );
 }

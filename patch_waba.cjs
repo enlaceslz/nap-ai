@@ -1,48 +1,50 @@
 const fs = require('fs');
-let code = fs.readFileSync('server/waba.ts', 'utf8');
 
-const handoffLogic = `
-             // Adiciona a "memória do sistema" se uma ferramenta foi invocada
-             if (agentResult.tool_executada) {
-                await db.insert(mensagens).values({
-                  conversaId: chatId,
-                  remetente: 'sistema',
-                  conteudo: \`[WABA LOG] Ferramenta executada: \${agentResult.tool_executada}\`,
-                  tipo: 'interno'
-                });
+const file = 'server/waba.ts';
+let content = fs.readFileSync(file, 'utf8');
 
-                if (agentResult.handoff) {
-                   await db.update(conversas).set({ fila: agentResult.tool_dados?.fila_destino || 'vendas', updatedAt: new Date() }).where(eq(conversas.id, chatId));
-                   await db.insert(mensagens).values({
-                     conversaId: chatId,
-                     remetente: 'sistema',
-                     conteudo: \`[HANDOFF IA] Transferido para a fila de vendas. Novo Lead Prospect: \${agentResult.tool_dados?.plano_interesse}\`,
-                     tipo: 'interno'
-                   });
+const targetWaba = `const agentResult = await processGeminiAgentRun({
+                prompt: texto,
+                telefone: telefone,
+                contexto: \`O cliente se chama \${nome_cliente}. Analise a intenção e resolva com as ferramentas.\`
+             });
+             
+             let respostaDefinitiva = agentResult.resposta;`;
 
-                   try {
-                     const { CrmService } = require('./crm/crmService');
-                     const crmService = CrmService.getInstance();
-                     await crmService.addDeal({
-                       titulo: agentResult.tool_dados?.titulo || 'Novo Lead Handoff IA',
-                       contato: agentResult.tool_dados?.contato || nome_cliente,
-                       telefone: agentResult.tool_dados?.telefone || telefone,
-                       estagio: 'Nova Oportunidade',
-                       pipeline: 'Vendas',
-                       prioridade: 1,
-                       valor: agentResult.tool_dados?.plano_interesse?.includes('1 Giga') ? 149.9 : 99.9,
-                       contexto_ia: \`Handoff automático gerado via Áudio/Texto. Plano desejado: \${agentResult.tool_dados?.plano_interesse}. Endereço: \${agentResult.tool_dados?.endereco}\`
+const replacementWaba = `const agentResult = await processGeminiAgentRun({
+                prompt: texto,
+                telefone: telefone,
+                contexto: \`O cliente se chama \${nome_cliente}. Analise a intenção e resolva com as ferramentas.\`
+             });
+             
+             let respostaDefinitiva = agentResult.resposta;
+             
+             // Detecta se a IA falhou por cota (Resource Exhausted)
+             if (agentResult.toolExecutada === "QUOTA_EXHAUSTED") {
+                 // Força o transbordo para a fila de atendimento humano
+                 try {
+                     await db.update(conversas)
+                         .set({ fila: 'atendimento_humano', unread: 1 })
+                         .where(eq(conversas.telefone, telefone));
+                         
+                     // Simula uma notificação de sistema para o operador no painel
+                     // usando a mesma tabela de mensagens, mas com uma flag de erro interno.
+                     const erroMsg = \`[SISTEMA - ALERTA CRÍTICO] A cota da API da Inteligência Artificial (Gemini) foi atingida (Resource Exhausted 429). O cliente foi transferido automaticamente para esta fila humana. Se você for o Administrador, ative a chave do 9router na aba Inteligência Artificial em Configurações para realizar o bypass.\`;
+                     await db.insert(mensagens).values({
+                         conversaId: chat[0]?.id || 1,
+                         remetente: 'sistema',
+                         texto: erroMsg,
+                         timestamp: new Date().toISOString(),
+                         status: 'sent'
                      });
-                   } catch (crmErr) {
-                     console.error('Erro ao integrar Lead no CRM:', crmErr);
-                   }
-                }
-             }
-`;
+                 } catch(err) {
+                     console.error("Erro ao transferir cliente por cota", err);
+                 }
+             }`;
 
-code = code.replace(
-  /             \/\/ Adiciona a "memória do sistema" se uma ferramenta foi invocada\n             if \(agentResult\.tool_executada\) \{\n                await db\.insert\(mensagens\)\.values\(\{\n                  conversaId: chatId,\n                  remetente: 'sistema',\n                  conteudo: \`\[WABA LOG\] Ferramenta executada: \$\{agentResult\.tool_executada\}\`,\n                  tipo: 'interno'\n                \}\);\n             \}/g,
-  handoffLogic
-);
-
-fs.writeFileSync('server/waba.ts', code);
+// Only patch if we haven't already
+if (!content.includes("QUOTA_EXHAUSTED")) {
+    content = content.replace(targetWaba, replacementWaba);
+    fs.writeFileSync(file, content);
+    console.log('Updated waba.ts with handoff logic');
+}

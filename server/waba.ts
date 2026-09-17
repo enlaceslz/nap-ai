@@ -196,7 +196,7 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
         resposta_ia = `👤 Entendido, ${nome || 'Assinante'}! Estou pausando a automação e transferindo sua solicitação diretamente para nossos operadores humanos no Inbox Unificado. Um atendente estará com você em instantes.`;
       } else {
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const prompt = `Você é a MaIA, assistente de suporte ultra-humanizada e gentil do provedor NAP. O cliente ${nome} (${telefone}) enviou no Webchat: "${texto}". O sinal da ONU dele está normal (-19.5 dBm). Responda de forma curta, prestativa e em português. Lembre-o que se desejar falar com um humano, basta solicitar a qualquer momento.`;
+        const prompt = `Você é a MaIA, assistente de suporte ultra-humanizada e gentil do provedor DJD Telecom. O cliente ${nome} (${telefone}) enviou no Webchat: "${texto}". O sinal da ONU dele está normal (-19.5 dBm). Responda de forma curta, prestativa e em português. Lembre-o que se desejar falar com um humano, basta solicitar a qualquer momento.`;
         
         const geminiResponse = await ai.models.generateContent({
           model: "gemini-2.5-flash",
@@ -234,7 +234,7 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
       if (isSolicitacaoHumano) {
         resposta_mock = `👤 Entendido! Estou transferindo seu atendimento diretamente para nossos operadores humanos no Inbox Unificado. Aguarde um instante...`;
       } else {
-        resposta_mock = `Olá! Sou a MaIA do seu provedor de internet. Recebi sua mensagem: "${texto}". Se precisar falar com um atendente humano a qualquer momento, é só me avisar!`;
+        resposta_mock = `Olá! Sou a MaIA do DJD Telecom de internet. Recebi sua mensagem: "${texto}". Se precisar falar com um atendente humano a qualquer momento, é só me avisar!`;
       }
       
       mockWabaMessages.push({ conversaId: chat.id, remetente: isSolicitacaoHumano ? 'sistema' : 'ia', conteudo: resposta_mock, createdAt: new Date() });
@@ -323,7 +323,7 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
           type: 'BUTTONS',
           buttons: [
             { type: 'QUICK_REPLY', text: 'Já efetuei o pagamento' },
-            { type: 'URL', text: 'Ver Fatura Completa (PDF)', url: 'https://cliente.meuprovedor.com.br/fatura/{{1}}' }
+            { type: 'URL', text: 'Ver Fatura Completa (PDF)', url: 'https://cliente.djdtelecom.com.br/fatura/{{1}}' }
           ]
         }
       ]
@@ -508,7 +508,7 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
     return res.status(403).json({ error: "Token de verificação inválido" });
   });
 
-  // 2. Recebimento de Mensagens e Atendimento 24h MaIA (POST)
+  // 2. Recebimento de Mensagens e Atendimento 24h Lia (POST)
   app.post("/api/webhooks/whatsapp", async (req, res) => {
     try {
       const { entry } = req.body;
@@ -537,7 +537,7 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
             if (isSolicitacaoHumano) {
               respostaIA = `Entendido, ${contactName}! Estou pausando o atendimento automático e transferindo você imediatamente para um de nossos operadores humanos. Um momento, por favor...`;
             } else {
-              respostaIA = `Olá, ${contactName}! Sou a MaIA, assistente virtual do seu provedor de internet. Recebi sua mensagem: "${msgText}". Como posso te ajudar hoje? Se precisar de suporte na sua fibra, segunda via ou falar com nossa equipe, estou à disposição 24h!`;
+              respostaIA = `Olá, ${contactName}! Sou a MaIA, assistente virtual do DJD Telecom de internet. Recebi sua mensagem: "${msgText}". Como posso te ajudar hoje? Se precisar de suporte na sua fibra, segunda via ou falar com nossa equipe, estou à disposição 24h!`;
             }
 
             mockWabaMessages.push({

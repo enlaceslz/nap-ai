@@ -3,12 +3,12 @@ import { Tooltip } from './Tooltip';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { 
-  MessageSquare, Settings, BookOpen, Users, Trello, PieChart, 
-  ShieldUser, Megaphone, Workflow, Server, LogOut, 
-  ChevronLeft, ChevronRight, Menu, X, ExternalLink,
-  PhoneCall, Activity, Sparkles, PanelLeftClose, PanelLeftOpen,
-  CreditCard, Headphones, ShoppingCart, Router, Wrench, MapPin, Navigation, Compass,
-  ShieldCheck, Package, Globe, Cpu, Network, Ticket, FileText
+ MessageSquare, Settings, BookOpen, Users, Trello, PieChart, 
+ ShieldUser, Megaphone, Workflow, Server, LogOut, 
+ ChevronLeft, ChevronRight, Menu, X, ExternalLink,
+ PhoneCall, Activity, Sparkles, PanelLeftClose, PanelLeftOpen,
+ CreditCard, Headphones, ShoppingCart, Router, Wrench, MapPin, Navigation, Compass,
+ ShieldCheck, Package, Globe, Cpu, Network, Ticket, FileText
 } from 'lucide-react';
 import CTIReverso from './CTIReverso';
 import Webphone from './Webphone';
@@ -20,465 +20,465 @@ import { useGeolocationTracker } from '../hooks/useGeolocationTracker';
 import { useConfig } from '../contexts/ConfigContext';
 
 export default function Layout() {
-  const { logout, user } = useAuth();
-  const { config } = useConfig();
-  const location = useLocation();
-  const { geoData } = useGeolocationTracker();
+ const { logout, user } = useAuth();
+ const { config } = useConfig();
+ const location = useLocation();
+ const { geoData } = useGeolocationTracker();
 
-  const erpAtivo = config.erpAtivo || 'ixc';
+ const erpAtivo = config.erpAtivo || 'ixc';
 
-  // Estado de recolhimento no Desktop com persistência local
-  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('nap_sidebar_collapsed') === 'true';
-    } catch {
-      return false;
-    }
-  });
+ // Estado de recolhimento no Desktop com persistência local
+ const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+ try {
+ return localStorage.getItem('nap_sidebar_collapsed') === 'true';
+ } catch {
+ return false;
+ }
+ });
 
-  // Estado da barra móvel (Drawer em telas menores)
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
+ // Estado da barra móvel (Drawer em telas menores)
+ const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  // Persiste a preferência do usuário
-  useEffect(() => {
-    try {
-      localStorage.setItem('nap_sidebar_collapsed', String(isCollapsed));
-    } catch (e) {
-      console.warn(e);
-    }
-  }, [isCollapsed]);
+ // Persiste a preferência do usuário
+ useEffect(() => {
+ try {
+ localStorage.setItem('nap_sidebar_collapsed', String(isCollapsed));
+ } catch (e) {
+ console.warn(e);
+ }
+ }, [isCollapsed]);
 
-  // Fecha o drawer mobile ao trocar de rota
-  useEffect(() => {
-    setIsMobileOpen(false);
-  }, [location.pathname]);
+ // Fecha o drawer mobile ao trocar de rota
+ useEffect(() => {
+ setIsMobileOpen(false);
+ }, [location.pathname]);
 
-  // Atalho de teclado Ctrl+B / Cmd+B para alternar menu
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
-        e.preventDefault();
-        setIsCollapsed(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+ // Atalho de teclado Ctrl+B / Cmd+B para alternar menu
+ useEffect(() => {
+ const handleKeyDown = (e: KeyboardEvent) => {
+ if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+ e.preventDefault();
+ setIsCollapsed(prev => !prev);
+ }
+ };
+ window.addEventListener('keydown', handleKeyDown);
+ return () => window.removeEventListener('keydown', handleKeyDown);
+ }, []);
 
-  // Mapeamento dinâmico de títulos para o Topbar
-  const getPageInfo = (path: string) => {
-    if (path === '/admin' || path === '/admin/') return { title: 'Inbox Unificado', category: 'Atendimento Omnichannel', icon: <MessageSquare size={18} className="text-blue-400" /> };
-    if (path.startsWith('/admin/dashboard')) return { title: 'NOC & Analytics', category: 'Centro de Controle Operacional', icon: <PieChart size={18} className="text-blue-400" /> };
-    if (path.startsWith('/admin/cobranca')) return { title: 'Régua de Cobrança', category: 'Inadimplência, PIX & Desbloqueio 24h', icon: <CreditCard size={18} className="text-amber-600" /> };
-    if (path.startsWith('/admin/suporte')) return { title: 'Kanban de Suporte', category: 'N1 & N2 Técnico', icon: <Headphones size={18} className="text-blue-400" /> };
-    if (path.startsWith('/admin/campo')) return { title: 'Técnico de Campo (PWA)', category: 'Ordens de Serviço & GPS', icon: <Wrench size={18} className="text-emerald-400" /> };
-    if (path.startsWith('/admin/usuarios')) return { title: 'Usuários & Hierarquia', category: 'Gestão, Equipe & Campo', icon: <Users size={18} className="text-purple-400" /> };
-    if (path.startsWith('/admin/vendas')) return { title: 'Kanban de Vendas', category: 'Novos Assinantes & Upgrades', icon: <ShoppingCart size={18} className="text-emerald-600" /> };
-    if (path.startsWith('/admin/campanhas')) return { title: 'Operação Ativa', category: 'Campanhas HSM & URA Reversa', icon: <Megaphone size={18} className="text-indigo-600" /> };
-    if (path.startsWith('/admin/crm')) return { title: 'Base CRM 360', category: 'Histórico & Sincronização SGP', icon: <Users size={18} className="text-blue-400" /> };
-    if (path.startsWith('/admin/erp-integracoes')) return { title: 'Multi-ERP Hub', category: 'API Gateways & Adaptadores', icon: <Network size={18} className="text-indigo-400" /> };
-    if (path.startsWith('/admin/sgp')) return { title: `Workspace ERP (${erpAtivo.toUpperCase()})`, category: 'Diagnóstico & Ações de Rede', icon: <Server size={18} className="text-blue-400" /> };
-    if (path.startsWith('/admin/genieacs')) return { title: 'GenieACS Dashboard', category: 'Monitoramento TR-069', icon: <Router size={18} className="text-blue-400" /> };
-    if (path.startsWith('/admin/olts')) return { title: 'Gestão de OLTs & Redes Ópticas', category: 'Provisionamento & Telemetria GPON', icon: <Cpu size={18} className="text-cyan-400" /> };
-    if (path.startsWith('/admin/mapa-rede')) return { title: 'Mapa de Rede (GIS)', category: 'Geolocalização ONTs', icon: <MapPin size={18} className="text-emerald-400" /> };
-    if (path.startsWith('/admin/gis')) return { title: 'NAP GIS', category: 'Fundação GIS - Parte 01', icon: <MapPin size={18} className="text-emerald-400" /> };
-    if (path.startsWith('/admin/automacoes')) return { title: 'Agente IA & Automações', category: 'Google Gemini Serverless (Sem n8n)', icon: <Sparkles size={18} className="text-indigo-600" /> };
-    if (path.startsWith('/admin/operadores')) return { title: 'Gestão de Operadores', category: 'Escalas & Filas Asterisk', icon: <ShieldUser size={18} className="text-blue-400" /> };
-    if (path.startsWith('/admin/auditoria')) return { title: 'Logs de Auditoria & Conformidade', category: 'LGPD Art. 37, ANATEL & Segurança', icon: <ShieldCheck size={18} className="text-emerald-400" /> };
-    if (path.startsWith('/admin/ajuda')) return { title: 'Ajuda & Documentação', category: 'Homologação, Manuais & Guias Operacionais', icon: <BookOpen size={18} className="text-blue-400" /> };
-    if (path.startsWith('/admin/configuracoes')) return { title: 'Super Admin', category: 'Multi-Tenant & Telecom', icon: <Settings size={18} className="text-slate-400" /> };
-    return { title: 'NAP Omni', category: 'Telecom Suite', icon: <Activity size={18} className="text-blue-400" /> };
-  };
+ // Mapeamento dinâmico de títulos para o Topbar
+ const getPageInfo = (path: string) => {
+ if (path === '/admin' || path === '/admin/') return { title: 'Inbox Unificado', category: 'Atendimento Omnichannel', icon: <MessageSquare size={18} className="text-blue-400" /> };
+ if (path.startsWith('/admin/dashboard')) return { title: 'NOC & Analytics', category: 'Centro de Controle Operacional', icon: <PieChart size={18} className="text-blue-400" /> };
+ if (path.startsWith('/admin/cobranca')) return { title: 'Régua de Cobrança', category: 'Inadimplência, PIX & Desbloqueio 24h', icon: <CreditCard size={18} className="text-amber-600" /> };
+ if (path.startsWith('/admin/suporte')) return { title: 'Kanban de Suporte', category: 'N1 & N2 Técnico', icon: <Headphones size={18} className="text-blue-400" /> };
+ if (path.startsWith('/admin/campo')) return { title: 'Técnico de Campo (PWA)', category: 'Ordens de Serviço & GPS', icon: <Wrench size={18} className="text-emerald-400" /> };
+ if (path.startsWith('/admin/usuarios')) return { title: 'Usuários & Hierarquia', category: 'Gestão, Equipe & Campo', icon: <Users size={18} className="text-purple-400" /> };
+ if (path.startsWith('/admin/vendas')) return { title: 'Kanban de Vendas', category: 'Novos Assinantes & Upgrades', icon: <ShoppingCart size={18} className="text-emerald-600" /> };
+ if (path.startsWith('/admin/campanhas')) return { title: 'Operação Ativa', category: 'Campanhas HSM & URA Reversa', icon: <Megaphone size={18} className="text-indigo-600" /> };
+ if (path.startsWith('/admin/crm')) return { title: 'Base CRM 360', category: 'Histórico & Sincronização SGP', icon: <Users size={18} className="text-blue-400" /> };
+ if (path.startsWith('/admin/erp-integracoes')) return { title: 'Multi-ERP Hub', category: 'API Gateways & Adaptadores', icon: <Network size={18} className="text-indigo-400" /> };
+ if (path.startsWith('/admin/sgp')) return { title: `Workspace ERP (${erpAtivo.toUpperCase()})`, category: 'Diagnóstico & Ações de Rede', icon: <Server size={18} className="text-blue-400" /> };
+ if (path.startsWith('/admin/genieacs')) return { title: 'GenieACS Dashboard', category: 'Monitoramento TR-069', icon: <Router size={18} className="text-blue-400" /> };
+ if (path.startsWith('/admin/olts')) return { title: 'Gestão de OLTs & Redes Ópticas', category: 'Provisionamento & Telemetria GPON', icon: <Cpu size={18} className="text-cyan-400" /> };
+ if (path.startsWith('/admin/mapa-rede')) return { title: 'Mapa de Rede (GIS)', category: 'Geolocalização ONTs', icon: <MapPin size={18} className="text-emerald-400" /> };
+ if (path.startsWith('/admin/gis')) return { title: 'DJD GIS', category: 'Fundação GIS - Parte 01', icon: <MapPin size={18} className="text-emerald-400" /> };
+ if (path.startsWith('/admin/automacoes')) return { title: 'Agente IA & Automações', category: 'Google Gemini Serverless (Sem n8n)', icon: <Sparkles size={18} className="text-indigo-600" /> };
+ if (path.startsWith('/admin/operadores')) return { title: 'Gestão de Operadores', category: 'Escalas & Filas Asterisk', icon: <ShieldUser size={18} className="text-blue-400" /> };
+ if (path.startsWith('/admin/auditoria')) return { title: 'Logs de Auditoria & Conformidade', category: 'LGPD Art. 37, ANATEL & Segurança', icon: <ShieldCheck size={18} className="text-emerald-400" /> };
+ if (path.startsWith('/admin/ajuda')) return { title: 'Ajuda & Documentação', category: 'Homologação, Manuais & Guias Operacionais', icon: <BookOpen size={18} className="text-blue-400" /> };
+ if (path.startsWith('/admin/configuracoes')) return { title: 'Super Admin', category: 'Multi-Tenant & Telecom', icon: <Settings size={18} className="text-muted-foreground" /> };
+ return { title: 'DJD Omni', category: 'Telecom Suite', icon: <Activity size={18} className="text-blue-400" /> };
+ };
 
-  const pageInfo = getPageInfo(location.pathname);
+ const pageInfo = getPageInfo(location.pathname);
 
-  const role = user?.role || 'operador';
-  const hasAccess = (allowedRoles: string[]) => {
-    if (role === 'admin' || role === 'superadmin') return true;
-    return allowedRoles.includes(role);
-  };
+ const role = user?.role || 'operador';
+ const hasAccess = (allowedRoles: string[]) => {
+ if (role === 'admin' || role === 'superadmin') return true;
+ return allowedRoles.includes(role);
+ };
 
-  return (
-    <div className="flex h-screen bg-slate-950 text-slate-300 font-sans overflow-hidden">
-      {/* Backdrop para Mobile */}
-      {isMobileOpen && (
-        <div 
-          onClick={() => setIsMobileOpen(false)}
-          className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-40 md:hidden transition-opacity"
-          aria-hidden="true"
-        />
-      )}
+ return (
+ <div className="flex h-screen bg-background text-muted-foreground font-sans overflow-hidden">
+ {/* Backdrop para Mobile */}
+ {isMobileOpen && (
+ <div 
+ onClick={() => setIsMobileOpen(false)}
+ className="fixed inset-0 bg-background/80 backdrop-blur-xs z-40 md:hidden transition-opacity"
+ aria-hidden="true"
+ />
+ )}
 
-      {/* Sidebar Modernizada (Desktop Collapsible + Mobile Drawer) */}
-      <aside 
-        className={`
-          fixed inset-y-0 left-0 z-50 bg-slate-950 border-r border-white/5 flex flex-col transition-all duration-300 ease-in-out
-          md:static md:translate-x-0
-          ${isMobileOpen ? 'translate-x-0  w-72' : '-translate-x-full md:translate-x-0'}
-          ${isCollapsed ? 'md:w-[72px]' : 'md:w-64'}
-        `}
-      >
-        {/* Header da Sidebar com Logo e Botão de Recolhimento */}
-        <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800 shrink-0">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#0a50ff] to-[#55b0ff] flex items-center justify-center shrink-0 shadow-[0_2px_10px_rgba(10,80,255,0.4)]">
-              <span className="text-white font-black text-xl tracking-tight font-sans mt-[1px]">N</span>
-            </div>
-            
-            {/* Texto do logo esconde ao recolher */}
-            <div className={`transition-opacity duration-200 flex flex-col justify-center ${isCollapsed ? 'md:opacity-0 md:w-0 md:hidden' : 'opacity-100'}`}>
-              <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-base text-white tracking-tight font-sans leading-none">NAP</span>
-                <span className="text-[#55b0ff] font-bold text-[10px] uppercase tracking-wider bg-[#0a50ff]/15 border border-[#0a50ff]/30 px-1.5 py-0.5 rounded leading-none">Omni</span>
-              </div>
-            </div>
-          </div>
+ {/* Sidebar Modernizada (Desktop Collapsible + Mobile Drawer) */}
+ <aside 
+ className={`
+ fixed inset-y-0 left-0 z-50 bg-background border-r border-border flex flex-col transition-all duration-300 ease-in-out
+ md:static md:translate-x-0
+ ${isMobileOpen ? 'translate-x-0 w-72' : '-translate-x-full md:translate-x-0'}
+ ${isCollapsed ? 'md:w-[72px]' : 'md:w-64'}
+ `}
+ >
+ {/* Header da Sidebar com Logo e Botão de Recolhimento */}
+ <div className="h-16 flex items-center justify-between px-5 border-b border-border shrink-0">
+ <div className="flex items-center gap-3 overflow-hidden">
+ <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#0a50ff] to-[#55b0ff] flex items-center justify-center shrink-0 shadow-[0_2px_10px_rgba(10,80,255,0.4)]">
+ <span className="text-foreground font-black text-xl tracking-tight font-sans mt-[1px]">N</span>
+ </div>
+ 
+ {/* Texto do logo esconde ao recolher */}
+ <div className={`transition-opacity duration-200 flex flex-col justify-center ${isCollapsed ? 'md:opacity-0 md:w-0 md:hidden' : 'opacity-100'}`}>
+ <div className="flex items-center gap-1.5">
+ <span className="font-extrabold text-base text-foreground tracking-tight font-sans leading-none">DJD</span>
+ <span className="text-[#55b0ff] font-bold text-[10px] uppercase tracking-wider bg-[#0a50ff]/15 border border-[#0a50ff]/30 px-1.5 py-0.5 rounded leading-none">Omni</span>
+ </div>
+ </div>
+ </div>
 
-          {/* Botão de Fechar no Mobile */}
-          <button 
-            onClick={() => setIsMobileOpen(false)}
-            className="md:hidden p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-900/5 rounded-lg transition-colors"
-            title="Fechar menu"
-          >
-            <X size={20} />
-          </button>
+ {/* Botão de Fechar no Mobile */}
+ <button 
+ onClick={() => setIsMobileOpen(false)}
+ className="md:hidden p-1.5 text-muted-foreground hover:text-card-foreground hover:bg-card/5 rounded-lg transition-colors"
+ title="Fechar menu"
+ >
+ <X size={20} />
+ </button>
 
-          {/* Botão de Recolher no Desktop */}
-          <button 
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className={`hidden md:flex items-center justify-center w-7 h-7 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900/5 border border-white/5 transition-colors ${isCollapsed ? 'mx-auto' : ''}`}
-            title={isCollapsed ? "Expandir menu (Ctrl+B)" : "Recolher menu (Ctrl+B)"}
-          >
-            {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
-        </div>
-        
-        {/* Navegação Principal com Scroll */}
-        <div className="flex-1 overflow-y-auto py-5 space-y-7" style={{ scrollbarWidth: 'thin' }}>
-          
-          {/* Seção: Operação */}
-          <div>
-            {!isCollapsed && (
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 px-5 flex items-center justify-between">
-                <span>Operação</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              </p>
-            )}
-            
-            <nav className="flex flex-col gap-0.5 px-3">
-              {hasAccess(['tecnico_noc']) && <NavItem to="/admin/dashboard" icon={<PieChart size={18} />} label="NOC & Analytics" isCollapsed={isCollapsed} />}
-              {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin" icon={<MessageSquare size={18} />} label="Inbox Unificado" badge="2" isCollapsed={isCollapsed} />}
-              {hasAccess(['tecnico_campo']) && <NavItem to="/admin/campo" icon={<Wrench size={18} />} label="Técnico de Campo" badge="GPS" isCollapsed={isCollapsed} />}
-              {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/estoque" icon={<Package size={18} />} label="Estoque & Frota" isCollapsed={isCollapsed} />}
-              {hasAccess(['operador']) && <NavItem to="/admin/cobranca" icon={<CreditCard size={18} />} label="Cobrança & PIX" isCollapsed={isCollapsed} />}
-              {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/suporte" icon={<Headphones size={18} />} label="Suporte N1/N2" isCollapsed={isCollapsed} />}
-              {hasAccess(['operador']) && <NavItem to="/admin/vendas" icon={<ShoppingCart size={18} />} label="Vendas & Leads" isCollapsed={isCollapsed} />}
-              {hasAccess(['operador']) && <NavItem to="/admin/campanhas" icon={<Megaphone size={18} />} label="Ativo (Campanhas)" isCollapsed={isCollapsed} />}
-              {hasAccess(['operador', 'tecnico_noc']) && <NavItem to="/admin/crm" icon={<Users size={18} />} label="CRM Clientes" isCollapsed={isCollapsed} />}
-              {hasAccess(['operador', 'tecnico_noc']) && <NavItem to="/admin/historico" icon={<FileText size={18} />} label="Histórico WABA" isCollapsed={isCollapsed} />}
-              {hasAccess([]) && <NavItem to="/admin/erp-integracoes" icon={<Network size={18} />} label="Multi-ERP Hub" isCollapsed={isCollapsed} />}
-              {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/sgp" icon={<Server size={18} />} label="Workspace ERP" badge={erpAtivo.toUpperCase()} isCollapsed={isCollapsed} />}
-              {hasAccess(['tecnico_noc', 'operador']) && <NavItem to="/admin/telefonia" icon={<PhoneCall size={18} />} label="Telefonia & URA" badge="PABX" isCollapsed={isCollapsed} />}
-              {hasAccess(['tecnico_noc']) && <NavItem to="/admin/genieacs" icon={<Router size={18} />} label="GenieACS" isCollapsed={isCollapsed} />}
-              {hasAccess(['tecnico_noc', 'tecnico_campo', 'operador']) && <NavItem to="/admin/olts" icon={<Cpu size={18} />} label="OLTs & Fibra" badge="GPON" isCollapsed={isCollapsed} />}
-              {hasAccess(['tecnico_noc']) && <NavItem to="/admin/infra" icon={<Activity size={18} />} label="Infraestrutura (Zabbix)" badge="NOC" isCollapsed={isCollapsed} />}
-              {hasAccess(['tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/mapa-rede" icon={<MapPin size={18} />} label="Mapa de Rede (ONTs)" badge="GIS" isCollapsed={isCollapsed} />}
-              {hasAccess(['tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/gis" icon={<MapPin size={18} />} label="NAP GIS" badge="BETA" isCollapsed={isCollapsed} />}
-              <NavItem to="/admin/ajuda" icon={<BookOpen size={18} />} label="Ajuda & Documentação" isCollapsed={isCollapsed} />
-            </nav>
-          </div>
+ {/* Botão de Recolher no Desktop */}
+ <button 
+ onClick={() => setIsCollapsed(!isCollapsed)}
+ className={`hidden md:flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-card/5 border border-border transition-colors ${isCollapsed ? 'mx-auto' : ''}`}
+ title={isCollapsed ? "Expandir menu (Ctrl+B)" : "Recolher menu (Ctrl+B)"}
+ >
+ {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+ </button>
+ </div>
+ 
+ {/* Navegação Principal com Scroll */}
+ <div className="flex-1 overflow-y-auto py-5 space-y-7" style={{ scrollbarWidth: 'thin' }}>
+ 
+ {/* Seção: Operação */}
+ <div>
+ {!isCollapsed && (
+ <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3 px-5 flex items-center justify-between">
+ <span>Operação</span>
+ <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+ </p>
+ )}
+ 
+ <nav className="flex flex-col gap-0.5 px-3">
+ {hasAccess(['tecnico_noc']) && <NavItem to="/admin/dashboard" icon={<PieChart size={18} />} label="NOC & Analytics" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin" icon={<MessageSquare size={18} />} label="Inbox Unificado" badge="2" isCollapsed={isCollapsed} />}
+ {hasAccess(['tecnico_campo']) && <NavItem to="/admin/campo" icon={<Wrench size={18} />} label="Técnico de Campo" badge="GPS" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/estoque" icon={<Package size={18} />} label="Estoque & Frota" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador']) && <NavItem to="/admin/cobranca" icon={<CreditCard size={18} />} label="Cobrança & PIX" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/suporte" icon={<Headphones size={18} />} label="Suporte N1/N2" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador']) && <NavItem to="/admin/vendas" icon={<ShoppingCart size={18} />} label="Vendas & Leads" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador']) && <NavItem to="/admin/campanhas" icon={<Megaphone size={18} />} label="Ativo (Campanhas)" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador', 'tecnico_noc']) && <NavItem to="/admin/crm" icon={<Users size={18} />} label="CRM Clientes" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador', 'tecnico_noc']) && <NavItem to="/admin/historico" icon={<FileText size={18} />} label="Histórico WABA" isCollapsed={isCollapsed} />}
+ {hasAccess([]) && <NavItem to="/admin/erp-integracoes" icon={<Network size={18} />} label="Multi-ERP Hub" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/sgp" icon={<Server size={18} />} label="Workspace ERP" badge={erpAtivo.toUpperCase()} isCollapsed={isCollapsed} />}
+ {hasAccess(['tecnico_noc', 'operador']) && <NavItem to="/admin/telefonia" icon={<PhoneCall size={18} />} label="Telefonia & URA" badge="PABX" isCollapsed={isCollapsed} />}
+ {hasAccess(['tecnico_noc']) && <NavItem to="/admin/genieacs" icon={<Router size={18} />} label="GenieACS" isCollapsed={isCollapsed} />}
+ {hasAccess(['tecnico_noc', 'tecnico_campo', 'operador']) && <NavItem to="/admin/olts" icon={<Cpu size={18} />} label="OLTs & Fibra" badge="GPON" isCollapsed={isCollapsed} />}
+ {hasAccess(['tecnico_noc']) && <NavItem to="/admin/infra" icon={<Activity size={18} />} label="Infraestrutura (Zabbix)" badge="NOC" isCollapsed={isCollapsed} />}
+ {hasAccess(['tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/mapa-rede" icon={<MapPin size={18} />} label="Mapa de Rede (ONTs)" badge="GIS" isCollapsed={isCollapsed} />}
+ {hasAccess(['tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/gis" icon={<MapPin size={18} />} label="DJD GIS" badge="BETA" isCollapsed={isCollapsed} />}
+ <NavItem to="/admin/ajuda" icon={<BookOpen size={18} />} label="Ajuda & Documentação" isCollapsed={isCollapsed} />
+ </nav>
+ </div>
 
-          {/* Seção: Automação & IA */}
-          {hasAccess([]) && (
-            <div>
-              {!isCollapsed && (
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 px-5 flex items-center justify-between">
-                  <span>Automação & IA</span>
-                  <Sparkles size={11} className="text-indigo-500" />
-                </p>
-              )}
+ {/* Seção: Automação & IA */}
+ {hasAccess([]) && (
+ <div>
+ {!isCollapsed && (
+ <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3 px-5 flex items-center justify-between">
+ <span>Automação & IA</span>
+ <Sparkles size={11} className="text-indigo-500" />
+ </p>
+ )}
 
-              <nav className="flex flex-col gap-0.5 px-3">
-                <NavItem to="/admin/automacoes" icon={<Sparkles size={18} />} label="Agente Gemini" badge="Free" isCollapsed={isCollapsed} />
-              </nav>
-            </div>
-          )}
+ <nav className="flex flex-col gap-0.5 px-3">
+ <NavItem to="/admin/automacoes" icon={<Sparkles size={18} />} label="Agente Gemini" badge="Free" isCollapsed={isCollapsed} />
+ </nav>
+ </div>
+ )}
 
-          {/* Seção: Administração */}
-          {hasAccess([]) && (
-            <div>
-              {!isCollapsed && (
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 px-5">
-                  Administração
-                </p>
-              )}
+ {/* Seção: Administração */}
+ {hasAccess([]) && (
+ <div>
+ {!isCollapsed && (
+ <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3 px-5">
+ Administração
+ </p>
+ )}
 
-              <nav className="flex flex-col gap-0.5 px-3">
-                <NavItem to="/admin/configuracoes?tab=landingpage" icon={<Globe size={18} />} label="Landing Page (Vitrine)" badge="Site" isCollapsed={isCollapsed} />
-                <NavItem to="/admin/usuarios" icon={<Users size={18} />} label="Usuários & Hierarquia" badge="4" isCollapsed={isCollapsed} />
-                <NavItem to="/admin/operadores" icon={<ShieldUser size={18} />} label="Operadores" isCollapsed={isCollapsed} />
-                <NavItem to="/admin/auditoria" icon={<ShieldCheck size={18} />} label="Logs de Auditoria" isCollapsed={isCollapsed} />
-                <NavItem to="/admin/helpdesk" icon={<Ticket size={18} />} label="Help Desk & OS" isCollapsed={isCollapsed} />
-                <NavItem to="/admin/ipam" icon={<Globe size={18} />} label="Rede (IPAM & NSoT)" isCollapsed={isCollapsed} />
-                <NavItem to="/admin/configuracoes" icon={<Settings size={18} />} label="Super Admin" isCollapsed={isCollapsed} />
-              </nav>
-            </div>
-          )}
-        </div>
+ <nav className="flex flex-col gap-0.5 px-3">
+ <NavItem to="/admin/configuracoes?tab=landingpage" icon={<Globe size={18} />} label="Landing Page (Vitrine)" badge="Site" isCollapsed={isCollapsed} />
+ <NavItem to="/admin/usuarios" icon={<Users size={18} />} label="Usuários & Hierarquia" badge="4" isCollapsed={isCollapsed} />
+ <NavItem to="/admin/operadores" icon={<ShieldUser size={18} />} label="Operadores" isCollapsed={isCollapsed} />
+ <NavItem to="/admin/auditoria" icon={<ShieldCheck size={18} />} label="Logs de Auditoria" isCollapsed={isCollapsed} />
+ <NavItem to="/admin/helpdesk" icon={<Ticket size={18} />} label="Help Desk & OS" isCollapsed={isCollapsed} />
+ <NavItem to="/admin/ipam" icon={<Globe size={18} />} label="Rede (IPAM & NSoT)" isCollapsed={isCollapsed} />
+ <NavItem to="/admin/configuracoes" icon={<Settings size={18} />} label="Super Admin" isCollapsed={isCollapsed} />
+ </nav>
+ </div>
+ )}
+ </div>
 
-        {/* Atalho para o Portal do Cliente (PWA) e Vitrine no rodapé */}
-        {!isCollapsed ? (
-          <div className="px-3 pb-3 space-y-1.5">
-            <a 
-              href="/" 
-              target="_blank" 
-              rel="noreferrer"
-              className="flex items-center justify-between p-2 rounded-xl bg-slate-800/60 border border-white/5 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold transition-all group"
-            >
-              <div className="flex items-center gap-2">
-                <Globe size={14} className="text-emerald-400" />
-                <span>Ver Vitrine (Site)</span>
-              </div>
-              <ExternalLink size={13} className="text-slate-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            </a>
+ {/* Atalho para o Portal do Cliente (PWA) e Vitrine no rodapé */}
+ {!isCollapsed ? (
+ <div className="px-3 pb-3 space-y-1.5">
+ <a 
+ href="/" 
+ target="_blank" 
+ rel="noreferrer"
+ className="flex items-center justify-between p-2 rounded-xl bg-muted/60 border border-border hover:border-border text-muted-foreground hover:text-foreground text-xs font-semibold transition-all group"
+ >
+ <div className="flex items-center gap-2">
+ <Globe size={14} className="text-emerald-400" />
+ <span>Ver Vitrine (Site)</span>
+ </div>
+ <ExternalLink size={13} className="text-muted-foreground group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+ </a>
 
-            <a 
-              href="/portal" 
-              target="_blank" 
-              rel="noreferrer"
-              className="flex items-center justify-between p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 hover:border-blue-500/40 text-blue-500 text-xs font-semibold transition-all group"
-            >
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center font-bold text-[9px]">
-                  APP
-                </div>
-                <span>Portal do Assinante</span>
-              </div>
-              <ExternalLink size={13} className="text-blue-500 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-            </a>
-          </div>
-        ) : (
-          <div className="px-3 pb-3 flex flex-col items-center gap-1.5">
-            <a 
-              href="/" 
-              target="_blank" 
-              rel="noreferrer"
-              title="Ver Vitrine / Site"
-              className="w-10 h-10 rounded-xl bg-slate-800/60 border border-white/5 text-emerald-400 flex items-center justify-center hover:bg-slate-700 transition-colors"
-            >
-              <Globe size={16} />
-            </a>
-            <a 
-              href="/portal" 
-              target="_blank" 
-              rel="noreferrer"
-              title="Abrir Portal do Assinante (PWA)"
-              className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center hover:bg-blue-100 transition-colors"
-            >
-              <ExternalLink size={16} />
-            </a>
-          </div>
-        )}
-        
-        {/* Perfil do Usuário e Ramal Conectado */}
-        <div className={`p-3 border-t border-white/5 bg-slate-950/80 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between gap-3'}`}>
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="relative shrink-0">
-              <div className="w-9 h-9 rounded-xl bg-slate-900 flex items-center justify-center text-slate-300 font-bold border border-white/5 text-sm">
-                {user?.name ? user.name.slice(0, 2).toUpperCase() : 'JD'}
-              </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-slate-950" title="Disponível no Asterisk"></div>
-            </div>
+ <a 
+ href="/portal" 
+ target="_blank" 
+ rel="noreferrer"
+ className="flex items-center justify-between p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 hover:border-blue-500/40 text-blue-500 text-xs font-semibold transition-all group"
+ >
+ <div className="flex items-center gap-2">
+ <div className="w-5 h-5 rounded-md bg-blue-600 text-white flex items-center justify-center font-bold text-[9px]">
+ APP
+ </div>
+ <span>Portal do Assinante</span>
+ </div>
+ <ExternalLink size={13} className="text-blue-500 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+ </a>
+ </div>
+ ) : (
+ <div className="px-3 pb-3 flex flex-col items-center gap-1.5">
+ <a 
+ href="/" 
+ target="_blank" 
+ rel="noreferrer"
+ title="Ver Vitrine / Site"
+ className="w-10 h-10 rounded-xl bg-muted/60 border border-border text-emerald-400 flex items-center justify-center hover:bg-accent transition-colors"
+ >
+ <Globe size={16} />
+ </a>
+ <a 
+ href="/portal" 
+ target="_blank" 
+ rel="noreferrer"
+ title="Abrir Portal do Assinante (PWA)"
+ className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center hover:bg-blue-100 transition-colors"
+ >
+ <ExternalLink size={16} />
+ </a>
+ </div>
+ )}
+ 
+ {/* Perfil do Usuário e Ramal Conectado */}
+ <div className={`p-3 border-t border-border bg-background/80 flex items-center ${isCollapsed ? 'justify-center' : 'justify-between gap-3'}`}>
+ <div className="flex items-center gap-2.5 overflow-hidden">
+ <div className="relative shrink-0">
+ <div className="w-9 h-9 rounded-xl bg-card flex items-center justify-center text-muted-foreground font-bold border border-border text-sm">
+ {user?.name ? user.name.slice(0, 2).toUpperCase() : 'JD'}
+ </div>
+ <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-slate-950" title="Disponível no Asterisk"></div>
+ </div>
 
-            {!isCollapsed && (
-              <div className="overflow-hidden">
-                <p className="text-white font-semibold text-xs truncate">{user?.name || 'João Silva'}</p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[10px] text-slate-400 font-mono">Ramal 2001</span>
-                </div>
-              </div>
-            )}
-          </div>
+ {!isCollapsed && (
+ <div className="overflow-hidden">
+ <p className="text-foreground font-semibold text-xs truncate">{user?.name || 'João Silva'}</p>
+ <div className="flex items-center gap-1.5 mt-0.5">
+ <span className="text-[10px] text-muted-foreground font-mono">Ramal 2001</span>
+ </div>
+ </div>
+ )}
+ </div>
 
-          {!isCollapsed && (
-            <div className="flex items-center gap-1">
-              <ThemeToggle className="p-1.5" direction="up" align="left" />
-              <button
-                onClick={logout}
-                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                title="Encerrar Sessão"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          )}
-        </div>
-      </aside>
+ {!isCollapsed && (
+ <div className="flex items-center gap-1">
+ <ThemeToggle className="p-1.5" direction="up" align="left" />
+ <button
+ onClick={logout}
+ className="p-1.5 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+ title="Encerrar Sessão"
+ >
+ <LogOut size={16} />
+ </button>
+ </div>
+ )}
+ </div>
+ </aside>
 
-      {/* Área Principal de Conteúdo */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
-        
-        {/* Topbar Moderno e Responsivo */}
-        <header className="h-16 border-b border-white/5 bg-slate-950/95 backdrop-blur-md px-4 sm:px-6 flex items-center justify-between shrink-0 z-30">
-          
-          {/* Esquerda: Botão Mobile + Título da Página / Breadcrumb */}
-          <div className="flex items-center gap-3">
-            {/* Botão Hamburger (Mobile) */}
-            <button 
-              onClick={() => setIsMobileOpen(true)}
-              className="md:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 border border-white/5 transition-colors"
-              title="Abrir Menu"
-            >
-              <Menu size={18} />
-            </button>
+ {/* Área Principal de Conteúdo */}
+ <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+ 
+ {/* Topbar Moderno e Responsivo */}
+ <header className="h-16 border-b border-border bg-background/95 backdrop-blur-md px-4 sm:px-6 flex items-center justify-between shrink-0 z-30">
+ 
+ {/* Esquerda: Botão Mobile + Título da Página / Breadcrumb */}
+ <div className="flex items-center gap-3">
+ {/* Botão Hamburger (Mobile) */}
+ <button 
+ onClick={() => setIsMobileOpen(true)}
+ className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent border border-border transition-colors"
+ title="Abrir Menu"
+ >
+ <Menu size={18} />
+ </button>
 
-            {/* Alternar Recolher no Desktop */}
-            <button 
-              onClick={() => setIsCollapsed(!isCollapsed)}
-              className="hidden md:flex items-center justify-center p-2 rounded-lg text-slate-500 hover:text-white hover:bg-white/5 border border-transparent transition-colors"
-              title={isCollapsed ? "Expandir menu lateral" : "Recolher menu lateral"}
-            >
-              {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-            </button>
+ {/* Alternar Recolher no Desktop */}
+ <button 
+ onClick={() => setIsCollapsed(!isCollapsed)}
+ className="hidden md:flex items-center justify-center p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent border border-transparent transition-colors"
+ title={isCollapsed ? "Expandir menu lateral" : "Recolher menu lateral"}
+ >
+ {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+ </button>
 
-            {/* Título dinâmico da página atual */}
-            <div className="flex items-center gap-3 ml-2">
-              <div className="hidden sm:flex w-8 h-8 rounded-lg bg-white/5 border border-white/5 items-center justify-center">
-                {pageInfo.icon}
-              </div>
-              <div className="flex flex-col justify-center">
-                <h2 className="text-sm font-bold text-white font-outfit tracking-tight leading-none mb-1">
-                  {pageInfo.title}
-                </h2>
-                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold leading-none hidden sm:block">
-                  {pageInfo.category}
-                </p>
-              </div>
-            </div>
-          </div>
+ {/* Título dinâmico da página atual */}
+ <div className="flex items-center gap-3 ml-2">
+ <div className="hidden sm:flex w-8 h-8 rounded-lg bg-white/5 border border-border items-center justify-center">
+ {pageInfo.icon}
+ </div>
+ <div className="flex flex-col justify-center">
+ <h2 className="text-sm font-bold text-foreground font-outfit tracking-tight leading-none mb-1">
+ {pageInfo.title}
+ </h2>
+ <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold leading-none hidden sm:block">
+ {pageInfo.category}
+ </p>
+ </div>
+ </div>
+ </div>
 
-          {/* Direita: Status da Conexão, Controle de Pausas NR-17, Webphone, PWA e Ações */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Indicador de Geolocalização em Tempo Real (Técnicos & Operadores por Padrão) */}
-            <div 
-              className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/30 text-[11px] font-medium text-emerald-300"
-              title={`GPS ${geoData.statusRastreamento.toUpperCase()} • Precisão: ${geoData.precisao}m • ${geoData.endereco}`}
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <span className="font-mono text-[10px] font-bold uppercase tracking-wider">
-                {user?.role === 'tecnico_campo' || user?.role === 'tecnico_noc' ? 'GPS Campo' : 'GPS Ativo'}
-              </span>
-              {geoData.velocidade > 0 && (
-                <span className="text-[10px] font-mono bg-emerald-500/20 px-1 rounded">
-                  {geoData.velocidade}km/h
-                </span>
-              )}
-            </div>
+ {/* Direita: Status da Conexão, Controle de Pausas NR-17, Webphone, PWA e Ações */}
+ <div className="flex items-center gap-2 sm:gap-3">
+ {/* Indicador de Geolocalização em Tempo Real (Técnicos & Operadores por Padrão) */}
+ <div 
+ className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/30 text-[11px] font-medium text-emerald-300"
+ title={`GPS ${geoData.statusRastreamento.toUpperCase()} • Precisão: ${geoData.precisao}m • ${geoData.endereco}`}
+ >
+ <span className="relative flex h-2 w-2">
+ <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+ <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+ </span>
+ <span className="font-mono text-[10px] font-bold uppercase tracking-wider">
+ {user?.role === 'tecnico_campo' || user?.role === 'tecnico_noc' ? 'GPS Campo' : 'GPS Ativo'}
+ </span>
+ {geoData.velocidade > 0 && (
+ <span className="text-[10px] font-mono bg-emerald-500/20 px-1 rounded">
+ {geoData.velocidade}km/h
+ </span>
+ )}
+ </div>
 
-            {/* Controle de Pausas & Presença NR-17 */}
-            <OperatorStatusControl />
+ {/* Controle de Pausas & Presença NR-17 */}
+ <OperatorStatusControl />
 
-            {/* Notificações Push & PWA do Operador */}
-            <OperatorPwaControls />
+ {/* Notificações Push & PWA do Operador */}
+ <OperatorPwaControls />
 
-            {/* Monitor de Sincronização SGP & GenieACS em Tempo Real */}
-            <SyncStatusMonitor variant="topbar" className="hidden lg:flex" />
+ {/* Monitor de Sincronização SGP & GenieACS em Tempo Real */}
+ <SyncStatusMonitor variant="topbar" className="hidden lg:flex" />
 
-            {/* Alternador de Tema Claro / Escuro */}
-            <ThemeToggle />
+ {/* Alternador de Tema Claro / Escuro */}
+ <ThemeToggle />
 
-            {/* Webphone / Ramal SIP */}
-            <div className="relative">
-              <Webphone />
-            </div>
-          </div>
-        </header>
+ {/* Webphone / Ramal SIP */}
+ <div className="relative">
+ <Webphone />
+ </div>
+ </div>
+ </header>
 
-        {/* Notificação CTI Reversa (Asterisk 20+) */}
-        <CTIReverso />
+ {/* Notificação CTI Reversa (Asterisk 20+) */}
+ <CTIReverso />
 
-        {/* Conteúdo Dinâmico das Rotas */}
-        <main className="flex-1 overflow-hidden relative flex flex-col bg-slate-950">
-          <Outlet />
-        </main>
-      </div>
-    </div>
-  );
+ {/* Conteúdo Dinâmico das Rotas */}
+ <main className="flex-1 overflow-hidden relative flex flex-col bg-background">
+ <Outlet />
+ </main>
+ </div>
+ </div>
+ );
 }
 
 // Componente de Item de Navegação com Suporte a Tooltip Flutuante no modo Recolhido
 interface NavItemProps {
-  to: string;
-  icon: React.ReactNode;
-  label: string;
-  badge?: string;
-  isCollapsed: boolean;
+ to: string;
+ icon: React.ReactNode;
+ label: string;
+ badge?: string;
+ isCollapsed: boolean;
 }
 
 function NavItem({ to, icon, label, badge, isCollapsed }: NavItemProps) {
-  const content = (
-    <NavLink
-      to={to}
-      className={({ isActive }) =>
-        `relative flex items-center rounded-xl transition-all duration-200 group text-sm font-medium ${
-          isCollapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2'
-        } ${
-          isActive 
-            ? 'bg-[#0a50ff]/15 text-white font-bold shadow-xs' 
-            : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-        }`
-      }
-    >
-      {({ isActive }) => (
-        <>
-          {/* Indicador ativo na lateral esquerda */}
-          {isActive && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[65%] bg-[#0a50ff] rounded-r-full shadow-[0_0_8px_#0a50ff]" />
-          )}
+ const content = (
+ <NavLink
+ to={to}
+ className={({ isActive }) =>
+ `relative flex items-center rounded-xl transition-all duration-200 group text-sm font-medium ${
+ isCollapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2'
+ } ${
+ isActive 
+ ? 'bg-[#0a50ff]/15 text-white font-bold shadow-xs' 
+ : 'text-muted-foreground hover:bg-accent hover:text-card-foreground'
+ }`
+ }
+ >
+ {({ isActive }) => (
+ <>
+ {/* Indicador ativo na lateral esquerda */}
+ {isActive && (
+ <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[65%] bg-[#0a50ff] rounded-r-full shadow-[0_0_8px_#0a50ff]" />
+ )}
 
-          {/* Ícone */}
-          <div className={`${isActive ? 'text-[#55b0ff]' : 'text-slate-400 group-hover:text-slate-300'} transition-colors shrink-0`}>
-            {icon}
-          </div>
+ {/* Ícone */}
+ <div className={`${isActive ? 'text-[#55b0ff]' : 'text-muted-foreground group-hover:text-muted-foreground'} transition-colors shrink-0`}>
+ {icon}
+ </div>
 
-          {/* Label de texto (esconde no modo recolhido) */}
-          {!isCollapsed && (
-            <span className="truncate flex-1">{label}</span>
-          )}
+ {/* Label de texto (esconde no modo recolhido) */}
+ {!isCollapsed && (
+ <span className="truncate flex-1">{label}</span>
+ )}
 
-          {/* Badge quando expandido */}
-          {!isCollapsed && badge && (
-            <span className="ml-auto bg-[#0a50ff]/20 border border-[#0a50ff]/40 text-[#55b0ff] text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0">
-              {badge}
-            </span>
-          )}
+ {/* Badge quando expandido */}
+ {!isCollapsed && badge && (
+ <span className="ml-auto bg-[#0a50ff]/20 border border-[#0a50ff]/40 text-[#55b0ff] text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0">
+ {badge}
+ </span>
+ )}
 
-          {/* Tooltip Flutuante elegante quando recolhido (Modo Desktop) */}
-          {isCollapsed && (
-            <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-slate-900 border border-slate-700 text-white text-[11px] font-bold tracking-wider rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 whitespace-nowrap shadow-xl z-50 pointer-events-none flex items-center gap-2">
-              <span>{label}</span>
-              {badge && (
-                <span className="bg-[#0a50ff]/20 text-[#55b0ff] border border-[#0a50ff]/30 text-[9px] px-1.5 py-0.5 rounded font-bold">
-                  {badge}
-                </span>
-              )}
-            </div>
-          )}
-        </>
-      )}
-    </NavLink>
-  );
-  
-  if (isCollapsed) {
-    return (
-      <Tooltip content={label} position="right" className="w-full">
-        {content}
-      </Tooltip>
-    );
-  }
-  
-  return content;
+ {/* Tooltip Flutuante elegante quando recolhido (Modo Desktop) */}
+ {isCollapsed && (
+ <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-card border border-border text-foreground text-[11px] font-bold tracking-wider rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 whitespace-nowrap shadow-xl z-50 pointer-events-none flex items-center gap-2">
+ <span>{label}</span>
+ {badge && (
+ <span className="bg-[#0a50ff]/20 text-[#55b0ff] border border-[#0a50ff]/30 text-[9px] px-1.5 py-0.5 rounded font-bold">
+ {badge}
+ </span>
+ )}
+ </div>
+ )}
+ </>
+ )}
+ </NavLink>
+ );
+ 
+ if (isCollapsed) {
+ return (
+ <Tooltip content={label} position="right" className="w-full">
+ {content}
+ </Tooltip>
+ );
+ }
+ 
+ return content;
 }

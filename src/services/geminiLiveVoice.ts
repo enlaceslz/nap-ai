@@ -17,77 +17,77 @@ import { GoogleGenAI } from '@google/genai';
  */
 
 export class GeminiLiveVoiceService {
-  private static instance: GeminiLiveVoiceService;
-  private aiClient: GoogleGenAI;
+ private static instance: GeminiLiveVoiceService;
+ private aiClient: GoogleGenAI;
 
-  private constructor() {
-    this.aiClient = new GoogleGenAI({ 
-      apiKey: process.env.GEMINI_API_KEY || 'MISSING_API_KEY' 
-    });
-  }
+ private constructor() {
+ this.aiClient = new GoogleGenAI({ 
+ apiKey: process.env.GEMINI_API_KEY || 'MISSING_API_KEY' 
+ });
+ }
 
-  public static getInstance(): GeminiLiveVoiceService {
-    if (!GeminiLiveVoiceService.instance) {
-      GeminiLiveVoiceService.instance = new GeminiLiveVoiceService();
-    }
-    return GeminiLiveVoiceService.instance;
-  }
+ public static getInstance(): GeminiLiveVoiceService {
+ if (!GeminiLiveVoiceService.instance) {
+ GeminiLiveVoiceService.instance = new GeminiLiveVoiceService();
+ }
+ return GeminiLiveVoiceService.instance;
+ }
 
-  /**
-   * Conecta um canal Asterisk ARI (RTP Socket) a uma sessão da Gemini Live API
-   * @param channelId O ID do canal do Asterisk
-   * @param systemInstruction O prompt principal instruindo o papel da IA (Ex: Atendente de Provedor)
-   */
-  public async bridgeCallToGemini(channelId: string, systemInstruction: string) {
-    console.log(`[Gemini Voice] Inicializando ponte Live API para o canal Asterisk: ${channelId}`);
-    
-    try {
-      // 1. Inicializa o cliente BIDI (Bidirecional) da API do Gemini (Mock conceitual da estrutura)
-      // Nota: A integração real com a Live API via WebSockets exige manipulação binária PCM.
-      // O SDK @google/genai suporta ferramentas e voz de forma integrada.
-      
-      console.log(`[Gemini Voice] Instrução do Sistema: "${systemInstruction.substring(0, 50)}..."`);
-      
-      // Simulação da emissão de um evento de conexão estabelecida
-      setTimeout(() => {
-        console.log(`[Gemini Voice] [Canal ${channelId}] Conexão WebSocket com Gemini estabelecida (16kHz PCM).`);
-      }, 500);
+ /**
+ * Conecta um canal Asterisk ARI (RTP Socket) a uma sessão da Gemini Live API
+ * @param channelId O ID do canal do Asterisk
+ * @param systemInstruction O prompt principal instruindo o papel da IA (Ex: Atendente de Provedor)
+ */
+ public async bridgeCallToGemini(channelId: string, systemInstruction: string) {
+ console.log(`[Gemini Voice] Inicializando ponte Live API para o canal Asterisk: ${channelId}`);
+ 
+ try {
+ // 1. Inicializa o cliente BIDI (Bidirecional) da API do Gemini (Mock conceitual da estrutura)
+ // Nota: A integração real com a Live API via WebSockets exige manipulação binária PCM.
+ // O SDK @google/genai suporta ferramentas e voz de forma integrada.
+ 
+ console.log(`[Gemini Voice] Instrução do Sistema: "${systemInstruction.substring(0, 50)}..."`);
+ 
+ // Simulação da emissão de um evento de conexão estabelecida
+ setTimeout(() => {
+ console.log(`[Gemini Voice] [Canal ${channelId}] Conexão WebSocket com Gemini estabelecida (16kHz PCM).`);
+ }, 500);
 
-      // Aqui ocorreria a escuta do socket UDP vindo do Asterisk External Media
-      // Exemplo (Pseudo-código):
-      // udpSocket.on('message', (pcmBuffer) => {
-      //    geminiLiveSocket.send(pcmBuffer);
-      // });
-      // geminiLiveSocket.on('message', (pcmResponse) => {
-      //    udpSocket.send(pcmResponse);
-      // });
+ // Aqui ocorreria a escuta do socket UDP vindo do Asterisk External Media
+ // Exemplo (Pseudo-código):
+ // udpSocket.on('message', (pcmBuffer) => {
+ // geminiLiveSocket.send(pcmBuffer);
+ // });
+ // geminiLiveSocket.on('message', (pcmResponse) => {
+ // udpSocket.send(pcmResponse);
+ // });
 
-      return true;
+ return true;
 
-    } catch (error) {
-      console.error(`[Gemini Voice] Erro crítico ao conectar com Live API no canal ${channelId}:`, error);
-      return false;
-    }
-  }
+ } catch (error) {
+ console.error(`[Gemini Voice] Erro crítico ao conectar com Live API no canal ${channelId}:`, error);
+ return false;
+ }
+ }
 
-  /**
-   * Encerra a sessão da IA
-   */
-  public endSession(channelId: string) {
-    console.log(`[Gemini Voice] Encerrando sessão de IA e limpando buffers para o canal ${channelId}`);
-    // Fechar WebSockets e Sockets UDP associados ao channelId
-  }
+ /**
+ * Encerra a sessão da IA
+ */
+ public endSession(channelId: string) {
+ console.log(`[Gemini Voice] Encerrando sessão de IA e limpando buffers para o canal ${channelId}`);
+ // Fechar WebSockets e Sockets UDP associados ao channelId
+ }
 
-  /**
-   * Gera um áudio estático síncrono (Text-to-Speech)
-   * Útil para URA reversa inicial ou avisos antes de transferir para a Live API.
-   */
-  public async generateStaticAudio(text: string): Promise<Buffer | null> {
-    console.log(`[Gemini Voice] Gerando TTS estático para: "${text}"`);
-    // Aqui usariamos um provedor TTS nativo ou uma inferência restrita de voz do Gemini
-    // Retorna um Buffer de áudio (formato ulaw ou slin)
-    return null; 
-  }
+ /**
+ * Gera um áudio estático síncrono (Text-to-Speech)
+ * Útil para URA reversa inicial ou avisos antes de transferir para a Live API.
+ */
+ public async generateStaticAudio(text: string): Promise<Buffer | null> {
+ console.log(`[Gemini Voice] Gerando TTS estático para: "${text}"`);
+ // Aqui usariamos um provedor TTS nativo ou uma inferência restrita de voz do Gemini
+ // Retorna um Buffer de áudio (formato ulaw ou slin)
+ return null; 
+ }
 }
 
 export const geminiLiveVoice = GeminiLiveVoiceService.getInstance();

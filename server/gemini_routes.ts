@@ -108,7 +108,7 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
         const tools = [{ functionDeclarations: agentToolRegistry.toGeminiFunctionDeclarations() }];
         
         // Contexto raiz
-        const promptRaiz = `Você é a MaIA, a inteligência artificial ultra-humanizada, acolhedora e calorosa do provedor de internet NAP Telecom Fibra. Fale como um ser humano super simpático e empático, nunca como um robô.
+        const promptRaiz = `Você é a MaIA, a inteligência artificial ultra-humanizada, acolhedora e calorosa do provedor de internet DJD Telecom. Fale como um ser humano super simpático e empático, nunca como um robô. Os dados oficiais da empresa são: Razão Social: D.J.D. TELECOM LTDA, CNPJ: 36.954.827/0001-81, Endereço: Av. Mal. Castelo Branco, 148, Sala 207, São Francisco, São Luís - MA, CEP: 65076-090.
 Responda cordialmente em português (Brasil), com tom de especialista em telecomunicações, sendo prestativo, objetivo e empático. 
 Use as ferramentas disponíveis para consultar dados técnicos, gerar PIX, agendar visitas ou reiniciar equipamentos de acordo com o pedido do cliente. Nunca invente dados técnicos (sempre chame a ferramenta).
 Solicitação do assinante: "${prompt}"`;
@@ -174,7 +174,7 @@ Solicitação do assinante: "${prompt}"`;
           respostaGerada = `Houve uma falha ao consultar o serviço de contingência.`;
         }
       } else {
-        respostaGerada = `Olá! Sou a IA humanizada do NAP Telecom (Modo Contingência). Posso emitir sua 2ª via, PIX, testar seu sinal ou reiniciar a ONU. Como posso ajudar?`;
+        respostaGerada = `Olá! Sou a IA humanizada do DJD Telecom (Modo Contingência). Posso emitir sua 2ª via, PIX, testar seu sinal ou reiniciar a ONU. Como posso ajudar?`;
       }
     }
 
@@ -204,7 +204,7 @@ Solicitação do assinante: "${prompt}"`;
       docUrl: "https://wiki.ixcsoft.com.br/index.php/Webservice",
       descricao: "Integração nativa com Webservice do IXC para busca de assinantes, emissão de faturas e PIX, desbloqueio temporário (corte) e status de radius.",
       campos: [
-        { key: "urlBase", label: "URL Base do Webservice IXC", placeholder: "https://seu-ixc.provedor.com.br/webservice/v1", tipo: "url", obrigatorio: true, ajuda: "Ex: https://ixc.naptelecom.com.br/webservice/v1" },
+        { key: "urlBase", label: "URL Base do Webservice IXC", placeholder: "https://seu-ixc.provedor.com.br/webservice/v1", tipo: "url", obrigatorio: true, ajuda: "Ex: https://ixc.djdtelecom.com.br/webservice/v1" },
         { key: "token", label: "Token de Acesso Webservice (Base64)", placeholder: "id_usuario:token em Base64", tipo: "password", obrigatorio: true, ajuda: "Gerado em Configurações > Usuários > Usuários Webservice" },
         { key: "usuarioId", label: "ID do Usuário Webservice", placeholder: "1", tipo: "text", obrigatorio: false, ajuda: "Identificador numérico do usuário webservice criado" }
       ],
@@ -234,7 +234,7 @@ Solicitação do assinante: "${prompt}"`;
       docUrl: "https://docs.hubsoft.com.br",
       descricao: "Plataforma Cloud moderna com API REST completa para automação de atendimento, régua de cobrança, faturamento PIX e diagnóstico FTTH.",
       campos: [
-        { key: "urlBase", label: "URL da Instância Hubsoft", placeholder: "https://suaempresa.hubsoft.com.br/api/v1", tipo: "url", obrigatorio: true, ajuda: "Ex: https://naptelecom.hubsoft.com.br/api/v1" },
+        { key: "urlBase", label: "URL da Instância Hubsoft", placeholder: "https://suaempresa.hubsoft.com.br/api/v1", tipo: "url", obrigatorio: true, ajuda: "Ex: https://djdtelecom.hubsoft.com.br/api/v1" },
         { key: "clientId", label: "Client ID / App Key", placeholder: "nap_hubsoft_client_id", tipo: "text", obrigatorio: true, ajuda: "Identificador da aplicação gerado no Hubsoft" },
         { key: "clientSecret", label: "Client Secret / Bearer Token", placeholder: "hub_sec_token_99482...", tipo: "password", obrigatorio: true, ajuda: "Token de segurança para autorização OAuth 2.0" }
       ],
@@ -294,7 +294,7 @@ Solicitação do assinante: "${prompt}"`;
       docUrl: "https://mksolutions.com.br",
       descricao: "Plataforma amplamente consolidada no setor de telecomunicações brasileiro, integrando cobranças, OLTs e rotinas de atendimento.",
       campos: [
-        { key: "urlBase", label: "URL da API MK Solutions / MK-Auth", placeholder: "https://mk.naptelecom.com.br/api/v1", tipo: "url", obrigatorio: true, ajuda: "Endereço HTTPS da API do seu servidor MK" },
+        { key: "urlBase", label: "URL da API MK Solutions / MK-Auth", placeholder: "https://mk.djdtelecom.com.br/api/v1", tipo: "url", obrigatorio: true, ajuda: "Endereço HTTPS da API do seu servidor MK" },
         { key: "token", label: "Token de Autenticação / JWT", placeholder: "mk_jwt_token_secret_99812...", tipo: "password", obrigatorio: true, ajuda: "Token JWT ou Hash de Integração" },
         { key: "appId", label: "Código de Integração (Opcional)", placeholder: "NAP_MK_APP", tipo: "text", obrigatorio: false, ajuda: "App ID cadastrado nas permissões externas" }
       ],
@@ -324,7 +324,7 @@ Solicitação do assinante: "${prompt}"`;
       docUrl: "https://ispfy.com.br",
       descricao: "Solução ágil e intuitiva focada em automação de autoatendimento, régua de cobrança rápida, PIX e controle simplificado de assinantes.",
       campos: [
-        { key: "urlBase", label: "URL da Instância ISPFy", placeholder: "https://suaempresa.ispfy.com.br/api/v1", tipo: "url", obrigatorio: true, ajuda: "Ex: https://naptelecom.ispfy.com.br/api/v1" },
+        { key: "urlBase", label: "URL da Instância ISPFy", placeholder: "https://suaempresa.ispfy.com.br/api/v1", tipo: "url", obrigatorio: true, ajuda: "Ex: https://djdtelecom.ispfy.com.br/api/v1" },
         { key: "token", label: "Chave de API (Secret Token)", placeholder: "ispfy_tok_49817298371982", tipo: "password", obrigatorio: true, ajuda: "Chave secreta obtida no painel administrativo do ISPFy" }
       ],
       recursos: [
@@ -424,7 +424,7 @@ Solicitação do assinante: "${prompt}"`;
       ],
       passoAPasso: [
         "No painel do ERP, vá em Configurações > Integrações > API ERP.",
-        "Crie ou recupere o App ID e Token de acesso do seu provedor.",
+        "Crie ou recupere o App ID e Token de acesso do DJD Telecom.",
         "Habilite os módulos de atendimento, financeiro e desbloqueio.",
         "Preencha as credenciais no NAP e clique em Testar Conexão.",
         "Ative o ERP para sincronizar a base de assinantes."

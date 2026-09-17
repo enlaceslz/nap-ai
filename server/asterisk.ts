@@ -36,8 +36,8 @@ export async function connectARI() {
         did: channel.dialplan.exten,
         status: channel.state,
         duration: 0,
-        queue: 'URA MaIA',
-        agent: 'MaIA (Voice Agent)'
+        queue: 'URA Lia',
+        agent: 'Lia (Voice Agent)'
       });
 
       // 1. Atender a Chamada (SIP 200 OK)
@@ -58,7 +58,7 @@ export async function connectARI() {
         // 3. Gerar Saudação Contextual da URA Cognitiva (Simulando Gemini GenAI)
         setTimeout(async () => {
             if (isConhecido) {
-               await playAudioOnAsterisk(channel, `Olá ${nomeCliente}, eu sou a MaIa, a assistente virtual do seu provedor de internet. Analisando a sua conexão no nosso sistema, vi que seu roteador está online há 5 dias com sinal excelente. Sobre o que você gostaria de falar? Pode falar naturalmente.`);
+               await playAudioOnAsterisk(channel, `Olá ${nomeCliente}, eu sou a MaIA, a assistente virtual do DJD Telecom de internet. Analisando a sua conexão no nosso sistema, vi que seu roteador está online há 5 dias com sinal excelente. Sobre o que você gostaria de falar? Pode falar naturalmente.`);
                
                // Simula o cliente respondendo e a URA transferindo
                setTimeout(async () => {
@@ -86,7 +86,7 @@ export async function connectARI() {
     isConnected = true; // Mantém engine operacional localmente
     chamadasAtivas = [
       { id: "SIP-0012A", caller: "5511987654321", did: "08005910000", status: "Up", duration: 142, queue: "Suporte N1", agent: "Roberto Oliveira" },
-      { id: "SIP-0016E", caller: "5521999998888", did: "08005910000", status: "Up", duration: 12, queue: "URA MaIA", agent: "MaIA (Voice Agent)" }
+      { id: "SIP-0016E", caller: "5521999998888", did: "08005910000", status: "Up", duration: 12, queue: "URA Lia", agent: "Lia (Voice Agent)" }
     ];
   }
 }
