@@ -1,0 +1,988 @@
+
+=== Error at Line 111: error TS1005: ',' expected. ===
+101:       sucesso: true,
+102:       total: usuariosProvedor.length,
+103:       usuarios: usuariosProvedor,
+104:       resumo_hierarquia: {
+105:         admin: usuariosProvedor.filter(u => u.cargo === 'admin').length,
+106:         operador: usuariosProvedor.filter(u => u.cargo === 'operador').length,
+107:         tecnico: usuariosProvedor.filter(u => u.cargo === 'tecnico_campo').length,
+108:         com_geolocalizacao: usuariosProvedor.filter(u => u.geolocalizacao?.ativo).length,
+109:         pwa_ativo: usuariosProvedor.filter(u => u.pwa?.push_ativo).length
+110:       
+111:     });
+112:   });
+113: 
+
+=== Error at Line 120: error TS1005: ',' expected. ===
+110:       
+111:     });
+112:   });
+113: 
+114:   // Restaurar todas as credenciais nativas de fábrica (Asterisk, GenieACS, Zabbix, Mapa, SGP, Radius)
+115:   app.post("/api/configuracoes/restaurar-nativos", (req, res) => {
+116:     try {
+117:       systemConfig.telefonia = {
+118:         troncosSip: [
+119:           { id: "1", nome: "Tronco Localhost PJSIP (Nativo)", host: ASTERISK_HOST, porta: 5060, usuario: "nap_pjsip", senha: "nap_pjsip_secret", codecs: "alaw, ulaw, g729, opus", status: "ativo" 
+120:         ],
+121:         ariHost: ASTERISK_HOST,
+122:         ariPort: Number(ASTERISK_PORT_ARI),
+
+=== Error at Line 220: error TS1005: 'try' expected. ===
+210:         severidade: "critico",
+211:         ip: req.ip || "127.0.0.1",
+212:         userAgent: req.headers["user-agent"] || "Mozilla/5.0"
+213:       });
+214: 
+215:       res.json({
+216:         success: true,
+217:         mensagem: "Credenciais nativas preenchidas com sucesso!",
+218:         config: systemConfig
+219:       });
+220:     } catch (e: any) {
+221:       res.status(500).json({ error: e.message || "Erro ao restaurar credenciais nativas." });
+222:     
+
+=== Error at Line 223: error TS1128: Declaration or statement expected. ===
+213:       });
+214: 
+215:       res.json({
+216:         success: true,
+217:         mensagem: "Credenciais nativas preenchidas com sucesso!",
+218:         config: systemConfig
+219:       });
+220:     } catch (e: any) {
+221:       res.status(500).json({ error: e.message || "Erro ao restaurar credenciais nativas." });
+222:     
+223:   });
+224: 
+225:   // Catálogo completo de serviços nativos do sistema
+
+=== Error at Line 297: error TS1005: ',' expected. ===
+287:         {
+288:           id: "radius",
+289:           nome: "FreeRadius AAA (PoD & CoA)",
+290:           categoria: "Autenticação PPPoE & Desconexão",
+291:           status: "conectado",
+292:           host: RADIUS_HOST,
+293:           porta: RADIUS_PORT,
+294:           protocolos: "Packet of Disconnect (RFC 3576), CoA (RFC 5176)",
+295:           nativo: true
+296:         
+297:       ]
+298:     });
+299:   });
+
+=== Error at Line 334: error TS1005: 'try' expected. ===
+324:         severidade: "info",
+325:         ip: req.ip || "127.0.0.1",
+326:         userAgent: req.headers["user-agent"] || "Mozilla/5.0"
+327:       });
+328: 
+329:       res.json({
+330:         success: true,
+331:         mensagem: "Logotipo atualizado e aplicado com sucesso ao sistema e à Landing Page!",
+332:         logoUrl: logoData
+333:       });
+334:     } catch (e: any) {
+335:       res.status(500).json({ error: e.message || "Erro ao processar logotipo." });
+336:     
+
+=== Error at Line 337: error TS1128: Declaration or statement expected. ===
+327:       });
+328: 
+329:       res.json({
+330:         success: true,
+331:         mensagem: "Logotipo atualizado e aplicado com sucesso ao sistema e à Landing Page!",
+332:         logoUrl: logoData
+333:       });
+334:     } catch (e: any) {
+335:       res.status(500).json({ error: e.message || "Erro ao processar logotipo." });
+336:     
+337:   });
+338: 
+339:   // Testar conexão ERP
+
+=== Error at Line 356: error TS1005: ',' expected. ===
+346:     res.json({
+347:       success: true,
+348:       status: "online",
+349:       latenciaMs: latencia,
+350:       versaoApi: "ERP REST v8.4.2 Enterprise",
+351:       servicos: {
+352:         radius: "Operacional (Porta 1812/1813)",
+353:         financeiro: "Operacional (Banco de Faturas Conectado)",
+354:         rede_ftth: "Operacional (Telemetria OLT MikroTik/Huawei)"
+355:       
+356:     });
+357:   });
+358: 
+
+=== Error at Line 441: error TS1128: Declaration or statement expected. ===
+431:     // Simulando retorno de certificado válido Let's Encrypt
+432:     res.json({
+433:       success: true,
+434:       status: "valido",
+435:       issuer: "Let's Encrypt Authority X3",
+436:       validUntil: new Date(Date.now() + 89 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
+437:       protocol: 'TLSv1.3',
+438:       message: 'Certificado SSL válido e ativo.',
+439:       latenciaMs: latencia
+440:     });
+441:   });
+442: 
+443:   // Testar conexão GenieACS (NBI REST + CWMP)
+
+=== Error at Line 512: error TS1128: Declaration or statement expected. ===
+502:       const status = getAsteriskStatus();
+503:       res.json({
+504:         success: true,
+505:         ...status,
+506:         troncos: systemConfig.telefonia?.troncosSip || [],
+507:         webrtcEndpoint: systemConfig.telefonia?.websocketUrl || ASTERISK_WEBSOCKET_URL
+508:       });
+509:     } catch (e: any) {
+510:       res.status(500).json({ success: false, error: e.message });
+511:     
+512:   });
+513: 
+514:   // --- MÓDULO DE AUDITORIA E CONFORMIDADE REGULATÓRIA (LGPD / ANATEL) ---
+
+=== Error at Line 558: error TS1005: 'try' expected. ===
+548:       const numLimit = Math.max(1, Math.min(200, parseInt(limit as string) || 50));
+549:       const paginados = filtrados.slice(numOffset, numOffset + numLimit);
+550: 
+551:       res.json({
+552:         success: true,
+553:         total,
+554:         limit: numLimit,
+555:         offset: numOffset,
+556:         logs: paginados
+557:       });
+558:     } catch (e: any) {
+559:       res.status(500).json({ success: false, erro: e.message || "Erro ao consultar logs de auditoria." });
+560:     
+
+=== Error at Line 561: error TS1128: Declaration or statement expected. ===
+551:       res.json({
+552:         success: true,
+553:         total,
+554:         limit: numLimit,
+555:         offset: numOffset,
+556:         logs: paginados
+557:       });
+558:     } catch (e: any) {
+559:       res.status(500).json({ success: false, erro: e.message || "Erro ao consultar logs de auditoria." });
+560:     
+561:   });
+562: 
+563:   // Estatísticas do painel de auditoria
+
+=== Error at Line 594: error TS1005: ',' expected. ===
+584:           erpErp,
+585:           genieacs,
+586:           campanhas,
+587:           conformidade: {
+588:             status: "Conforme",
+589:             padrao: "LGPD Art. 37 & Marco Civil da Internet Art. 15",
+590:             integridade: "SHA-256 Imutável",
+591:             retencaoMeses: 12
+592:           
+593:         
+594:       });
+595:     } catch (e: any) {
+596:       res.status(500).json({ success: false, erro: e.message });
+
+=== Error at Line 598: error TS1128: Declaration or statement expected. ===
+588:             status: "Conforme",
+589:             padrao: "LGPD Art. 37 & Marco Civil da Internet Art. 15",
+590:             integridade: "SHA-256 Imutável",
+591:             retencaoMeses: 12
+592:           
+593:         
+594:       });
+595:     } catch (e: any) {
+596:       res.status(500).json({ success: false, erro: e.message });
+597:     
+598:   });
+599: 
+600:   // Exportação de auditoria (JSON ou CSV)
+
+=== Error at Line 638: error TS1005: 'try' expected. ===
+628: 
+629:       res.setHeader("Content-Type", "application/json; charset=utf-8");
+630:       res.setHeader("Content-Disposition", `attachment; filename="auditoria_nap_${Date.now()}.json"`);
+631:       return res.json({
+632:         exportadoEm: new Date().toISOString(),
+633:         plataforma: "NAP - Núcleo de Atendimento ao Provedor",
+634:         padraoConformidade: "LGPD / Anatel / Marco Civil",
+635:         totalRegistros: auditLogs.length,
+636:         logs: auditLogs
+637:       });
+638:     } catch (e: any) {
+639:       res.status(500).json({ success: false, erro: e.message });
+640:     
+
+=== Error at Line 641: error TS1128: Declaration or statement expected. ===
+631:       return res.json({
+632:         exportadoEm: new Date().toISOString(),
+633:         plataforma: "NAP - Núcleo de Atendimento ao Provedor",
+634:         padraoConformidade: "LGPD / Anatel / Marco Civil",
+635:         totalRegistros: auditLogs.length,
+636:         logs: auditLogs
+637:       });
+638:     } catch (e: any) {
+639:       res.status(500).json({ success: false, erro: e.message });
+640:     
+641:   });
+642: 
+643:   // Inserir registro de auditoria programaticamente
+
+=== Error at Line 672: error TS1005: 'try' expected. ===
+662:         payloadAntes,
+663:         payloadDepois,
+664:         status: status || "sucesso"
+665:       });
+666: 
+667:       res.status(201).json({
+668:         success: true,
+669:         mensagem: "Ação de auditoria registrada com integridade.",
+670:         log: novo
+671:       });
+672:     } catch (e: any) {
+673:       res.status(500).json({ error: e.message || "Erro ao registrar auditoria." });
+674:     
+
+=== Error at Line 675: error TS1128: Declaration or statement expected. ===
+665:       });
+666: 
+667:       res.status(201).json({
+668:         success: true,
+669:         mensagem: "Ação de auditoria registrada com integridade.",
+670:         log: novo
+671:       });
+672:     } catch (e: any) {
+673:       res.status(500).json({ error: e.message || "Erro ao registrar auditoria." });
+674:     
+675:   });
+676: 
+677:   // Obter log de auditoria (Legado SuperAdmin)
+
+=== Error at Line 702: error TS1131: Property or signature expected. ===
+692:     clientesAfetadosAprox: number;
+693:     status: "investigando" | "em_reparo" | "normalizado";
+694:     previsaoRetorno: string;
+695:     iniciadoEm: string;
+696:     protocoloAnatel: string;
+697:     descricao: string;
+698:     autoInterceptarAtendimento: boolean;
+699:     notificacoesEnviadas: number;
+700:   
+701: 
+702:   let incidentesRede: IncidenteRede[] = [
+703:     {
+704:       id: "INC-2026-0902",
+
+=== Error at Line 718: error TS1005: ',' expected. ===
+708:       concentradorOuOlt: "OLT-Huawei-Central-01 / PON 03 e 04",
+709:       clientesAfetadosAprox: 420,
+710:       status: "em_reparo",
+711:       previsaoRetorno: "15:30 (Hoje)",
+712:       iniciadoEm: "10:15 (Hoje)",
+713:       protocoloAnatel: "ANT-2026-884910",
+714:       descricao: "Caminhão arrastou cabeamento troncal na Av. Brigadeiro Luís Antônio. Duas equipes de fusão óptica já estão no local.",
+715:       autoInterceptarAtendimento: true,
+716:       notificacoesEnviadas: 395
+717:     
+718:   ];
+719: 
+720:   // Listar Incidentes
+
+=== Error at Line 771: error TS1128: Declaration or statement expected. ===
+761:     
+762: 
+763:     if (status) incidentesRede[index].status = status;
+764:     if (previsaoRetorno) incidentesRede[index].previsaoRetorno = previsaoRetorno;
+765:     if (descricao) incidentesRede[index].descricao = descricao;
+766:     if (typeof req.body.autoInterceptarAtendimento === 'boolean') {
+767:       incidentesRede[index].autoInterceptarAtendimento = req.body.autoInterceptarAtendimento;
+768:     
+769: 
+770:     res.json({ sucesso: true, incidente: incidentesRede[index] });
+771:   });
+772: 
+773:   // Disparo em Massa de Alerta de Incidente para Clientes da Região
+
+=== Error at Line 799: error TS1128: Declaration or statement expected. ===
+789:       enviado_em: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+790:       destinatarios: incidente.clientesAfetadosAprox,
+791:       sucesso: true
+792:     });
+793: 
+794:     res.json({
+795:       sucesso: true,
+796:       mensagem: `Alerta transmitido com sucesso via WhatsApp e Push para ${incidente.clientesAfetadosAprox} clientes afetados!`,
+797:       incidente
+798:     });
+799:   });
+800: 
+801:   // Verificar se determinado cliente ou endereço está sob impacto de Incidente Ativo
+
+=== Error at Line 821: error TS1128: Declaration or statement expected. ===
+811: 
+812:     if (incidenteAtivo) {
+813:       return res.json({
+814:         afetado: true,
+815:         incidente: incidenteAtivo,
+816:         mensagem_interceptacao: `🚨 Olá! Identificamos uma oscilação na fibra óptica que atende a região do seu endereço (${bairro}). Nossas equipes de fusão já estão no local efetuando o reparo emergencial (Protocolo ${incidenteAtivo.protocoloAnatel}). Previsão de normalização: ${incidenteAtivo.previsaoRetorno}. Não é necessário aguardar em fila.`
+817:       });
+818:     
+819: 
+820:     res.json({ afetado: false });
+821:   });
+822: 
+823:   // --- MÓDULO RÉGUA INTELIGENTE DE COBRANÇA (AUTO-BILLING & NEGOCIAÇÃO IA) ---
+
+=== Error at Line 841: error TS1131: Property or signature expected. ===
+831:     valor: number;
+832:     vencimento: string;
+833:     fase: "d_menos_3" | "d_zero" | "d_mais_3" | "d_mais_7";
+834:     statusRadius: "ativo" | "bloqueio_parcial" | "normal";
+835:     statusEnvio: "pendente" | "enviado" | "erro";
+836:     ultimoEnvio?: string;
+837:     pixCopiaECola: string;
+838:     linkSegundaVia: string;
+839:   
+840: 
+841:   let reguaCobrancaConfig = {
+842:     ativa: true,
+843:     horarioInicio: "08:30",
+
+=== Error at Line 894: error TS1005: ',' expected. ===
+884:         data: "Hoje, às 09:15"
+885:       },
+886:       {
+887:         id: "exec-03",
+888:         fase: "D+3 (Notificação de Tolerância)",
+889:         disparados: 14,
+890:         pixGerados: 14,
+891:         sucesso: 14,
+892:         data: "Hoje, às 10:00"
+893:       
+894:     ],
+895:     filaAssinantes: [
+896:       {
+
+=== Error at Line 988: error TS1005: ',' expected. ===
+978:         bairro: "Centro Histórico",
+979:         plano: "Fibra 500MB",
+980:         valor: 99.90,
+981:         vencimento: "7 dias atrás",
+982:         fase: "d_mais_7",
+983:         statusRadius: "bloqueio_parcial",
+984:         statusEnvio: "pendente",
+985:         pixCopiaECola: "00020126580014BR.GOV.BCB.PIX0136nap-isp-cobranca@provedor.com.br520400005303986540599.905802BR5916FERNANDO G LIMA6009SAO PAULO62070503***63049F12",
+986:         linkSegundaVia: "https://isp.provedor.com.br/faturas/pdf/106"
+987:       
+988:     ] as AssinanteFilaRegua[]
+989:   };
+990: 
+
+=== Error at Line 1038: error TS1128: Declaration or statement expected. ===
+1028:       valorEstimado = 799.20;
+1029:       nomeFase = "D+7 (Aviso de Suspensão MikroTik)";
+1030:     
+1031: 
+1032:     // Marcar os assinantes dessa fase como enviados
+1033:     reguaCobrancaConfig.filaAssinantes.forEach(ass => {
+1034:       if (ass.fase === fase) {
+1035:         ass.statusEnvio = "enviado";
+1036:         ass.ultimoEnvio = "Agora mesmo";
+1037:       
+1038:     });
+1039: 
+1040:     reguaCobrancaConfig.estatisticas.totalDisparadosHoje += totalDisparados;
+
+=== Error at Line 1058: error TS1128: Declaration or statement expected. ===
+1048:       data: "Agora mesmo"
+1049:     });
+1050: 
+1051:     res.json({
+1052:       sucesso: true,
+1053:       fase: nomeFase,
+1054:       totalDisparados,
+1055:       valorTotal: valorEstimado,
+1056:       mensagem: `Disparo da régua "${nomeFase}" processado com sucesso! ${totalDisparados} clientes notificados com PIX Copia e Cola via WhatsApp WABA.`
+1057:     });
+1058:   });
+1059: 
+1060:   // Disparo individual para um assinante da fila
+
+=== Error at Line 1078: error TS1128: Declaration or statement expected. ===
+1068: 
+1069:     cliente.statusEnvio = "enviado";
+1070:     cliente.ultimoEnvio = "Agora mesmo";
+1071:     reguaCobrancaConfig.estatisticas.totalDisparadosHoje += 1;
+1072: 
+1073:     res.json({
+1074:       sucesso: true,
+1075:       mensagem: `Notificação WhatsApp com PIX enviada com sucesso para ${cliente.nome} (${cliente.telefone})!`,
+1076:       cliente
+1077:     });
+1078:   });
+1079: 
+1080:   // Simular envio de teste de template de régua
+
+=== Error at Line 1118: error TS1131: Property or signature expected. ===
+1108:     leads: number;
+1109:     processados: number;
+1110:     conversao: string;
+1111:     status: "Rodando" | "Concluída" | "Agendada" | "Pausada";
+1112:     tipo: string;
+1113:     dropRate?: string;
+1114:     mensagemOuTemplate?: string;
+1115:     criadoEm: string;
+1116:   
+1117: 
+1118:   let campanhasList: CampanhaItem[] = [
+1119:     { id: 1, canal: "whatsapp", nome: "Cobrança Preventiva (Vencimento -3 dias)", leads: 1250, processados: 450, conversao: "12%", status: "Rodando", tipo: "HSM Template", criadoEm: "Hoje, 08:00" },
+1120:     { id: 2, canal: "whatsapp", nome: "Promoção Upgrade Fibra 1GB", leads: 3200, processados: 3200, conversao: "8.5%", status: "Concluída", tipo: "HSM Template", criadoEm: "Ontem, 14:00" },
+
+=== Error at Line 1161: error TS1005: ',' expected. ===
+1151:     registrarAuditoria({
+1152:       usuario: "Operador de Atendimento",
+1153:       modulo: "Campanhas",
+1154:       acao: `Disparo de Campanha: ${nova.nome}`,
+1155:       detalhes: `Nova campanha iniciada no canal ${nova.canal.toUpperCase()} (${nova.tipo}) com volume de ${nova.leads} destinatários.`,
+1156:       categoria: "disparo",
+1157:       severidade: "info",
+1158:       ip: req.ip || "127.0.0.1",
+1159:       userAgent: req.headers["user-agent"] || "Mozilla/5.0",
+1160:       payloadDepois: { id: nova.id, nome: nova.nome, canal: nova.canal, leads: nova.leads 
+1161:     });
+1162: 
+1163:     res.status(201).json({
+
+=== Error at Line 1195: error TS1005: ',' expected. ===
+1185:       usuario: "Operador de Atendimento",
+1186:       modulo: "Campanhas",
+1187:       acao: `Alteração de Status: ${camp.nome}`,
+1188:       detalhes: `Campanha '${camp.nome}' teve status alterado de '${statusAnterior}' para '${camp.status}'.`,
+1189:       categoria: "disparo",
+1190:       severidade: "info",
+1191:       ip: req.ip || "127.0.0.1",
+1192:       userAgent: req.headers["user-agent"] || "Mozilla/5.0",
+1193:       payloadAntes: { status: statusAnterior },
+1194:       payloadDepois: { status: camp.status 
+1195:     });
+1196: 
+1197:     res.json({
+
+=== Error at Line 1201: error TS1128: Declaration or statement expected. ===
+1191:       ip: req.ip || "127.0.0.1",
+1192:       userAgent: req.headers["user-agent"] || "Mozilla/5.0",
+1193:       payloadAntes: { status: statusAnterior },
+1194:       payloadDepois: { status: camp.status 
+1195:     });
+1196: 
+1197:     res.json({
+1198:       sucesso: true,
+1199:       campanha: camp
+1200:     });
+1201:   });
+1202: 
+1203:   // --- MÓDULO TELEMETRIA GENIEACS (TR-069 / CWMP NBI) ---
+
+=== Error at Line 1226: error TS1131: Property or signature expected. ===
+1216:     ssid: string;
+1217:     wifiPassword: string;
+1218:     wifiChannel: number;
+1219:     wifiBand: string;
+1220:     lanClients: number;
+1221:     tempLaser: string;
+1222:     vccVolts: string;
+1223:   
+1224: 
+1225:   
+1226: const getGenieAcsHeaders = () => {
+1227:   const user = process.env.GENIEACS_USER || '';
+1228:   const password = process.env.GENIEACS_PASSWORD || '';
+
+=== Error at Line 1243: error TS1005: ',' expected. ===
+1233:   };
+1234: };
+1235: 
+1236: const callGenieAcs = async (path, options = {}) => {
+1237:   const acsUrl = process.env.GENIEACS_URL;
+1238:   if (!acsUrl) return null;
+1239:   const url = `${acsUrl}${path}`;
+1240:   const res = await fetch(url, {
+1241:     ...options,
+1242:     headers: { ...getGenieAcsHeaders(), ...(options as any).headers 
+1243:   });
+1244:   if (!res.ok) throw new Error(`GenieACS API error: ${res.status} ${res.statusText}`);
+1245:   if (res.status === 204) return null;
+
+=== Error at Line 1267: error TS1005: 'try' expected. ===
+1257: const mapGenieAcsDeviceToAppFormat = (device) => {
+1258:   const getParam = (path) => {
+1259:     try {
+1260:       const parts = path.split('.');
+1261:       let current = device;
+1262:       for (const part of parts) {
+1263:         if (!current) return undefined;
+1264:         current = current[part];
+1265:       
+1266:       return current?._value;
+1267:     } catch {
+1268:       return undefined;
+1269:     
+
+=== Error at Line 1304: error TS1472: 'catch' or 'finally' expected. ===
+1294:     snr: 40.0,
+1295:     uptime: `${Math.floor(uptimeSeconds / 86400)} dias, ${Math.floor((uptimeSeconds % 86400) / 3600)} horas`,
+1296:     ssid: getParam('Device.WiFi.SSID.1.SSID') || getParam('InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID') || 'WIFI_REDE',
+1297:     wifiPassword: '***',
+1298:     wifiChannel: parseInt(getParam('Device.WiFi.Radio.1.Channel') || '1'),
+1299:     wifiBand: 'Dual-Band',
+1300:     lanClients: parseInt(getParam('Device.Hosts.HostNumberOfEntries') || '2'),
+1301:     tempLaser: '40.0 °C',
+1302:     vccVolts: '3.3 V'
+1303:   };
+1304: };
+1305: 
+1306: let genieacsDevices_mock: GenieACSDevice[] = [
+
+=== Error at Line 1387: error TS1005: ',' expected. ===
+1377:       snr: 32.1,
+1378:       uptime: '22 dias, 1 hora',
+1379:       ssid: 'NAP_Fiberhome_Giga',
+1380:       wifiPassword: 'fibra@supernet',
+1381:       wifiChannel: 11,
+1382:       wifiBand: 'Dual-Band (2.4GHz + 5GHz)',
+1383:       lanClients: 4,
+1384:       tempLaser: '44.1 °C',
+1385:       vccVolts: '3.30 V'
+1386:     
+1387:   ];
+1388: 
+1389:   // Validação de Conectividade em Tempo Real com o GenieACS
+
+=== Error at Line 1421: error TS1005: 'try' expected. ===
+1411:         clearTimeout(timeoutId);
+1412:         latenciaMs = Date.now() - startTime;
+1413:         if (!testRes.ok) {
+1414:           status = testRes.status >= 500 ? 'degradado' : 'online';
+1415:           erroDetalhe = `HTTP ${testRes.status}`;
+1416:         } else {
+1417:           // Fast counts using projections could be done here, but for health we just ensure it responds.
+1418:           totalCpes = 1000; // Mock stat for health if not doing full query
+1419:           onlineCpes = 950;
+1420:         
+1421:       } catch (err) {
+1422:         erroDetalhe = err.message || "Timeout na conexão NBI GenieACS";
+1423:         status = 'degradado';
+
+=== Error at Line 1426: error TS1128: Declaration or statement expected. ===
+1416:         } else {
+1417:           // Fast counts using projections could be done here, but for health we just ensure it responds.
+1418:           totalCpes = 1000; // Mock stat for health if not doing full query
+1419:           onlineCpes = 950;
+1420:         
+1421:       } catch (err) {
+1422:         erroDetalhe = err.message || "Timeout na conexão NBI GenieACS";
+1423:         status = 'degradado';
+1424:         latenciaMs = 28;
+1425:       
+1426:     } else {
+1427:       totalCpes = genieacsDevices_mock.length;
+1428:       onlineCpes = genieacsDevices_mock.filter(d => d.status === 'online').length;
+
+=== Error at Line 1456: error TS1128: Declaration or statement expected. ===
+1446:         alarmes_opticos: alarmesOpticos
+1447:       },
+1448:       metricas_adicionais: {
+1449:         tempo_resposta_nbi: `${latenciaMs} ms`,
+1450:         ultimo_inform: lastInform,
+1451:         versao_acs: "GenieACS v1.2.9+",
+1452:         erro_detalhe: erroDetalhe
+1453:       },
+1454:       timestamp: new Date().toISOString()
+1455:     });
+1456:   });
+1457: 
+1458:   // Listar todos os dispositivos TR-069 gerenciados
+
+=== Error at Line 1480: error TS1005: 'try' expected. ===
+1470:         });
+1471:       } else {
+1472:         res.json({
+1473:           sucesso: true,
+1474:           total: genieacsDevices_mock.length,
+1475:           online: genieacsDevices_mock.filter(d => d.status === 'online').length,
+1476:           offline: genieacsDevices_mock.filter(d => d.status === 'offline').length,
+1477:           devices: genieacsDevices_mock
+1478:         });
+1479:       
+1480:     } catch (err) {
+1481:       res.status(500).json({ sucesso: false, erro: err.message });
+1482:     
+
+=== Error at Line 1483: error TS1128: Declaration or statement expected. ===
+1473:           sucesso: true,
+1474:           total: genieacsDevices_mock.length,
+1475:           online: genieacsDevices_mock.filter(d => d.status === 'online').length,
+1476:           offline: genieacsDevices_mock.filter(d => d.status === 'offline').length,
+1477:           devices: genieacsDevices_mock
+1478:         });
+1479:       
+1480:     } catch (err) {
+1481:       res.status(500).json({ sucesso: false, erro: err.message });
+1482:     
+1483:   });
+1484: 
+1485:   // Reboot remoto via TR-069 CWMP
+
+=== Error at Line 1529: error TS1005: 'try' expected. ===
+1519:           acao: "Reboot Remoto de CPE (Mock)",
+1520:           detalhes: `Comando CWMP Reboot disparado para ${device.serialNumber}`,
+1521:           categoria: "comando",
+1522:           severidade: "atencao",
+1523:           ip: req.ip || "127.0.0.1",
+1524:           userAgent: req.headers["user-agent"] || "Mozilla/5.0"
+1525:         });
+1526:         
+1527:         res.json({ sucesso: true, mensagem: `Reboot enviado para ${device.serialNumber}`, device });
+1528:       
+1529:     } catch (err) {
+1530:       res.status(500).json({ sucesso: false, erro: err.message });
+1531:     
+
+=== Error at Line 1532: error TS1128: Declaration or statement expected. ===
+1522:           severidade: "atencao",
+1523:           ip: req.ip || "127.0.0.1",
+1524:           userAgent: req.headers["user-agent"] || "Mozilla/5.0"
+1525:         });
+1526:         
+1527:         res.json({ sucesso: true, mensagem: `Reboot enviado para ${device.serialNumber}`, device });
+1528:       
+1529:     } catch (err) {
+1530:       res.status(500).json({ sucesso: false, erro: err.message });
+1531:     
+1532:   });
+1533: 
+1534:   // Atualizar configurações Wi-Fi remotamente (SSID e Senha)
+
+=== Error at Line 1587: error TS1005: 'try' expected. ===
+1577:           acao: "Alteração Wi-Fi Remoto (Mock)",
+1578:           detalhes: `Parâmetros Wi-Fi alterados para ${device.serialNumber}`,
+1579:           categoria: "configuracao",
+1580:           severidade: "atencao",
+1581:           ip: req.ip || "127.0.0.1",
+1582:           userAgent: req.headers["user-agent"] || "Mozilla/5.0"
+1583:         });
+1584:         
+1585:         res.json({ sucesso: true, mensagem: "Configurações Wi-Fi aplicadas (Mock).", device });
+1586:       
+1587:     } catch (err) {
+1588:       res.status(500).json({ sucesso: false, erro: err.message });
+1589:     
+
+=== Error at Line 1590: error TS1128: Declaration or statement expected. ===
+1580:           severidade: "atencao",
+1581:           ip: req.ip || "127.0.0.1",
+1582:           userAgent: req.headers["user-agent"] || "Mozilla/5.0"
+1583:         });
+1584:         
+1585:         res.json({ sucesso: true, mensagem: "Configurações Wi-Fi aplicadas (Mock).", device });
+1586:       
+1587:     } catch (err) {
+1588:       res.status(500).json({ sucesso: false, erro: err.message });
+1589:     
+1590:   });
+1591: 
+1592:   // Diagnóstico Detalhado de Telemetria Óptica e RF
+
+=== Error at Line 1611: error TS1005: ',' expected. ===
+1601:         if (!rawDevice) return res.status(404).json({ sucesso: false, erro: "CPE não encontrado no GenieACS Nativo." });
+1602:         
+1603:         const device = mapGenieAcsDeviceToAppFormat(rawDevice);
+1604:         
+1605:         res.json({
+1606:           sucesso: true,
+1607:           device,
+1608:           telemetria: {
+1609:             historicoSinalRx: [
+1610:               { hora: "Agora", rx: device.rssi 
+1611:             ],
+1612:             perdaPacotesLan: "0%",
+1613:             perdaPacotesWan: "0%",
+
+=== Error at Line 1620: error TS1005: ',' expected. ===
+1610:               { hora: "Agora", rx: device.rssi 
+1611:             ],
+1612:             perdaPacotesLan: "0%",
+1613:             perdaPacotesWan: "0%",
+1614:             pingDnsPrimario: "N/A",
+1615:             pingGateway: "N/A",
+1616:             temperaturaLaser: device.tempLaser,
+1617:             voltagem: device.vccVolts,
+1618:             clientesConectados: device.lanClients
+1619:           
+1620:         });
+1621:       } else {
+1622:         const device = genieacsDevices_mock.find(d => d._id === id || d.serialNumber === id);
+
+=== Error at Line 1635: error TS1005: ',' expected. ===
+1625:         res.json({
+1626:           sucesso: true,
+1627:           device,
+1628:           telemetria: {
+1629:             historicoSinalRx: [
+1630:               { hora: "00:00", rx: device.rssi - 0.2 },
+1631:               { hora: "04:00", rx: device.rssi - 0.1 },
+1632:               { hora: "08:00", rx: device.rssi },
+1633:               { hora: "12:00", rx: device.rssi + 0.3 },
+1634:               { hora: "Agora", rx: device.rssi 
+1635:             ],
+1636:             perdaPacotesLan: "0%",
+1637:             perdaPacotesWan: "0%",
+
+=== Error at Line 1644: error TS1005: ',' expected. ===
+1634:               { hora: "Agora", rx: device.rssi 
+1635:             ],
+1636:             perdaPacotesLan: "0%",
+1637:             perdaPacotesWan: "0%",
+1638:             pingDnsPrimario: "3.8 ms",
+1639:             pingGateway: "1.2 ms",
+1640:             temperaturaLaser: device.tempLaser,
+1641:             voltagem: device.vccVolts,
+1642:             clientesConectados: device.lanClients
+1643:           
+1644:         });
+1645:       
+1646:     } catch (err) {
+
+=== Error at Line 1646: error TS1005: 'try' expected. ===
+1636:             perdaPacotesLan: "0%",
+1637:             perdaPacotesWan: "0%",
+1638:             pingDnsPrimario: "3.8 ms",
+1639:             pingGateway: "1.2 ms",
+1640:             temperaturaLaser: device.tempLaser,
+1641:             voltagem: device.vccVolts,
+1642:             clientesConectados: device.lanClients
+1643:           
+1644:         });
+1645:       
+1646:     } catch (err) {
+1647:       res.status(500).json({ sucesso: false, erro: err.message });
+1648:     
+
+=== Error at Line 1649: error TS1128: Declaration or statement expected. ===
+1639:             pingGateway: "1.2 ms",
+1640:             temperaturaLaser: device.tempLaser,
+1641:             voltagem: device.vccVolts,
+1642:             clientesConectados: device.lanClients
+1643:           
+1644:         });
+1645:       
+1646:     } catch (err) {
+1647:       res.status(500).json({ sucesso: false, erro: err.message });
+1648:     
+1649:   });
+1650: 
+1651:   // Teste de Ping / Latência TR-143 CWMP
+
+=== Error at Line 1689: error TS1005: ',' expected. ===
+1679:           host,
+1680:           pacotesEnviados: 5,
+1681:           pacotesRecebidos: 5,
+1682:           perda: "0%",
+1683:           latenciaMinima: `${minLat} ms`,
+1684:           latenciaMedia: `${avgLat} ms`,
+1685:           latenciaMaxima: `${maxLat} ms`,
+1686:           jitter: "1.1 ms",
+1687:           status: "Excelente (FTTH)"
+1688:         
+1689:       });
+1690:     } catch (err: any) {
+1691:       res.status(500).json({ sucesso: false, erro: err.message || "Erro ao executar teste de ping TR-143" });
+
+=== Error at Line 1690: error TS1005: 'try' expected. ===
+1680:           pacotesEnviados: 5,
+1681:           pacotesRecebidos: 5,
+1682:           perda: "0%",
+1683:           latenciaMinima: `${minLat} ms`,
+1684:           latenciaMedia: `${avgLat} ms`,
+1685:           latenciaMaxima: `${maxLat} ms`,
+1686:           jitter: "1.1 ms",
+1687:           status: "Excelente (FTTH)"
+1688:         
+1689:       });
+1690:     } catch (err: any) {
+1691:       res.status(500).json({ sucesso: false, erro: err.message || "Erro ao executar teste de ping TR-143" });
+1692:     
+
+=== Error at Line 1693: error TS1128: Declaration or statement expected. ===
+1683:           latenciaMinima: `${minLat} ms`,
+1684:           latenciaMedia: `${avgLat} ms`,
+1685:           latenciaMaxima: `${maxLat} ms`,
+1686:           jitter: "1.1 ms",
+1687:           status: "Excelente (FTTH)"
+1688:         
+1689:       });
+1690:     } catch (err: any) {
+1691:       res.status(500).json({ sucesso: false, erro: err.message || "Erro ao executar teste de ping TR-143" });
+1692:     
+1693:   });
+1694: 
+1695:   // Reprovisionamento Remoto de VLAN / PPPoE CWMP
+
+=== Error at Line 1714: error TS1005: 'try' expected. ===
+1704:             name: 'refreshObject',
+1705:             objectName: 'InternetGatewayDevice.WANDevice'
+1706:           })
+1707:         });
+1708:       
+1709: 
+1710:       res.json({
+1711:         sucesso: true,
+1712:         mensagem: "Comando de re-provisionamento e sincronização TR-069 transmitido com sucesso à ONT."
+1713:       });
+1714:     } catch (err: any) {
+1715:       res.status(500).json({ sucesso: false, erro: err.message || "Erro ao reprovisionar CPE" });
+1716:     
+
+=== Error at Line 1717: error TS1128: Declaration or statement expected. ===
+1707:         });
+1708:       
+1709: 
+1710:       res.json({
+1711:         sucesso: true,
+1712:         mensagem: "Comando de re-provisionamento e sincronização TR-069 transmitido com sucesso à ONT."
+1713:       });
+1714:     } catch (err: any) {
+1715:       res.status(500).json({ sucesso: false, erro: err.message || "Erro ao reprovisionar CPE" });
+1716:     
+1717:   });
+1718: 
+1719:   // --- MONITOR DE SINCRONIZAÇÃO EM TEMPO REAL (ERP & GENIEACS) ---
+
+=== Error at Line 1741: error TS1005: ',' expected. ===
+1731:       const startTime = Date.now();
+1732:       try {
+1733:         const timeoutCtrl = new AbortController();
+1734:         const timeoutId = setTimeout(() => timeoutCtrl.abort(), 2500);
+1735:         const testRes = await fetch(`${process.env.ERP_URL}/api/v1/ping`, {
+1736:           signal: timeoutCtrl.signal,
+1737:           headers: {
+1738:             "app": process.env.ERP_APP || "",
+1739:             "token": process.env.ERP_TOKEN || ""
+1740:           
+1741:         });
+1742:         clearTimeout(timeoutId);
+1743:         erpLatency = Date.now() - startTime;
+
+=== Error at Line 1747: error TS1005: 'try' expected. ===
+1737:           headers: {
+1738:             "app": process.env.ERP_APP || "",
+1739:             "token": process.env.ERP_TOKEN || ""
+1740:           
+1741:         });
+1742:         clearTimeout(timeoutId);
+1743:         erpLatency = Date.now() - startTime;
+1744:         if (!testRes.ok && testRes.status >= 500) {
+1745:           erpStatus = 'degradado';
+1746:         
+1747:       } catch (err) {
+1748:         erpStatus = 'online';
+1749:         erpLatency = 32;
+
+=== Error at Line 1805: error TS1005: ',' expected. ===
+1795:         cpes_offline: acsDevicesCount - acsOnlineCount,
+1796:         alarmes_opticos: acsAlarmCount,
+1797:         ultima_resposta: "NBI Ready / Devices Polled"
+1798:       },
+1799:       telefonia: {
+1800:         nome: "Asterisk 20+",
+1801:         status: "online",
+1802:         latencia_ms: 11,
+1803:         ramais_ativos: 8
+1804:       
+1805:     });
+1806:   });
+1807: 
+
+=== Error at Line 1806: error TS1128: Declaration or statement expected. ===
+1796:         alarmes_opticos: acsAlarmCount,
+1797:         ultima_resposta: "NBI Ready / Devices Polled"
+1798:       },
+1799:       telefonia: {
+1800:         nome: "Asterisk 20+",
+1801:         status: "online",
+1802:         latencia_ms: 11,
+1803:         ramais_ativos: 8
+1804:       
+1805:     });
+1806:   });
+1807: 
+1808:   app.post("/api/sync/executar", async (req, res) => {
+
+=== Error at Line 1825: error TS1005: ',' expected. ===
+1815:       sucesso: true,
+1816:       mensagem: "Sincronização bidirecional executada com êxito.",
+1817:       timestamp: lastManualSyncTime,
+1818:       tempo_gasto_ms: duration,
+1819:       detalhes: {
+1820:         erp_novos_clientes: 0,
+1821:         erp_faturas_atualizadas: 2,
+1822:         genieacs_telemetrias_atualizadas: genieacsDevices_mock.length,
+1823:         status: "sincronizado"
+1824:       
+1825:     });
+1826:   });
+1827: 
+
+=== Error at Line 1849: error TS1128: Declaration or statement expected. ===
+1839:   });
+1840: 
+1841:   // Global Error Handler
+1842:   app.use((err: any, req: any, res: any, next: any) => {
+1843:     console.error(err);
+1844:     if (req.path.startsWith("/api/")) {
+1845:       res.status(500).json({ error: "Erro interno", details: err.message });
+1846:     } else {
+1847:       next(err);
+1848:     
+1849:   });
+1850: 
+1851:   // Setup Wizard Endpoints
+
+=== Error at Line 1859: error TS1128: Declaration or statement expected. ===
+1849:   });
+1850: 
+1851:   // Setup Wizard Endpoints
+1852:   app.post("/api/setup/install-genieacs", (req, res) => {
+1853:     exec("bash install_genieacs.sh", (error: any, stdout: any, stderr: any) => {
+1854:       if (error) {
+1855:         console.error(`GenieACS Install Error: ${error.message}`);
+1856:         return res.status(500).json({ error: error.message });
+1857:       
+1858:       res.json({ success: true, logs: stdout });
+1859:     });
+1860:   });
+1861: 
+
+=== Error at Line 1900: error TS1005: '}' expected. ===
+1890:       console.log(`Production server running on http://localhost:${PORT}`);
+1891:     });
+1892:   
+1893: 
+1894: 
+1895: 
+1896: 
+1897: 
+1898: 
+1899: export default app;
+1900: 

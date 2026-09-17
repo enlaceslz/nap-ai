@@ -1,0 +1,2 @@
+export const WA_PATTERN_LIGHT = `url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 10h10v10H10V10z' fill='rgba(0,0,0,0.03)' fill-rule='evenodd'/%3E%3C/svg%3E")`;
+export const WA_PATTERN_DARK = `url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 10h10v10H10V10z' fill='rgba(255,255,255,0.02)' fill-rule='evenodd'/%3E%3C/svg%3E")`;

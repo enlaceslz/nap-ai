@@ -1,0 +1,55 @@
+
+> react-example@0.0.0 lint
+> tsc --noEmit
+
+server.ts(732,5): error TS1005: ',' expected.
+server.ts(750,3): error TS1128: Declaration or statement expected.
+server.ts(750,4): error TS1128: Declaration or statement expected.
+server.ts(1160,6): error TS1005: ',' expected.
+server.ts(1194,6): error TS1005: ',' expected.
+server.ts(1223,1): error TS1128: Declaration or statement expected.
+server.ts(1224,3): error TS1128: Declaration or statement expected.
+server.ts(1242,4): error TS1005: ',' expected.
+server.ts(1254,1): error TS1128: Declaration or statement expected.
+server.ts(1279,3): error TS1128: Declaration or statement expected.
+server.ts(1282,3): error TS1128: Declaration or statement expected.
+server.ts(1303,1): error TS1128: Declaration or statement expected.
+server.ts(1488,5): error TS1005: ',' expected.
+server.ts(1507,9): error TS1472: 'catch' or 'finally' expected.
+server.ts(1508,7): error TS1128: Declaration or statement expected.
+server.ts(1508,9): error TS1128: Declaration or statement expected.
+server.ts(1514,9): error TS1128: Declaration or statement expected.
+server.ts(1525,9): error TS1128: Declaration or statement expected.
+server.ts(1527,7): error TS1128: Declaration or statement expected.
+server.ts(1528,5): error TS1128: Declaration or statement expected.
+server.ts(1528,7): error TS1005: 'try' expected.
+server.ts(1531,3): error TS1128: Declaration or statement expected.
+server.ts(1531,4): error TS1128: Declaration or statement expected.
+server.ts(1538,5): error TS1005: ',' expected.
+server.ts(1552,9): error TS1472: 'catch' or 'finally' expected.
+server.ts(1562,9): error TS1128: Declaration or statement expected.
+server.ts(1564,7): error TS1128: Declaration or statement expected.
+server.ts(1564,9): error TS1128: Declaration or statement expected.
+server.ts(1572,9): error TS1128: Declaration or statement expected.
+server.ts(1583,9): error TS1128: Declaration or statement expected.
+server.ts(1585,7): error TS1128: Declaration or statement expected.
+server.ts(1586,5): error TS1128: Declaration or statement expected.
+server.ts(1586,7): error TS1005: 'try' expected.
+server.ts(1589,3): error TS1128: Declaration or statement expected.
+server.ts(1589,4): error TS1128: Declaration or statement expected.
+server.ts(1595,5): error TS1005: ',' expected.
+server.ts(1604,9): error TS1472: 'catch' or 'finally' expected.
+server.ts(1610,13): error TS1005: ',' expected.
+server.ts(1620,7): error TS1128: Declaration or statement expected.
+server.ts(1620,9): error TS1128: Declaration or statement expected.
+server.ts(1634,13): error TS1005: ',' expected.
+server.ts(1644,7): error TS1128: Declaration or statement expected.
+server.ts(1645,5): error TS1128: Declaration or statement expected.
+server.ts(1645,7): error TS1005: 'try' expected.
+server.ts(1648,3): error TS1128: Declaration or statement expected.
+server.ts(1648,4): error TS1128: Declaration or statement expected.
+server.ts(1725,5): error TS1005: ',' expected.
+server.ts(1805,3): error TS1128: Declaration or statement expected.
+server.ts(1805,4): error TS1128: Declaration or statement expected.
+server.ts(1826,1): error TS1128: Declaration or statement expected.
+server.ts(1827,3): error TS1128: Declaration or statement expected.

@@ -1,0 +1,6 @@
+{
+  "name": "NAP WACRM",
+  "description": "Núcleo de Atendimento ao Provedor - Plataforma Omnichannel para ISPs com IA Híbrida.",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

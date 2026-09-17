@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      (function() {
+        var OrigWebSocket = window.WebSocket;
+        if (OrigWebSocket) {
+          window.WebSocket = function(url, protocols) {
+            var isViteHmr = protocols === 'vite-hmr' || (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1);
+            if (isViteHmr) {
+              return {
+                readyState: 1,
+                OPEN: 1,
+                CONNECTING: 0,
+                CLOSING: 2,
+                CLOSED: 3,
+                protocol: 'vite-hmr',
+                url: String(url),
+                send: function() {},
+                close: function() {},
+                addEventListener: function() {},
+                removeEventListener: function() {},
+                dispatchEvent: function() { return true; }
+              };
+            }
+            if (arguments.length === 1) {
+              return new OrigWebSocket(url);
+            }
+            return new OrigWebSocket(url, protocols);
+          };
+          window.WebSocket.prototype = OrigWebSocket.prototype;
+          window.WebSocket.CONNECTING = 0;
+          window.WebSocket.OPEN = 1;
+          window.WebSocket.CLOSING = 2;
+          window.WebSocket.CLOSED = 3;
+        }
+
+        var isViteNotice = function(arg) {
+          if (!arg) return false;
+          if (typeof arg === 'string') {
+            return arg.indexOf('[vite]') !== -1 || arg.indexOf('failed to connect to websocket') !== -1;
+          }
+          if (typeof arg === 'object') {
+            var text = (arg.message || '') + ' ' + (arg.stack || '') + ' ' + String(arg);
+            return text.indexOf('[vite]') !== -1 || text.indexOf('failed to connect to websocket') !== -1;
+          }
+          return false;
+        };
+        var _err = console.error;
+        var _warn = console.warn;
+        console.error = function() {
+          var args = Array.prototype.slice.call(arguments);
+          if (args.some(isViteNotice)) return;
+          _err.apply(console, args);
+        };
+        console.warn = function() {
+          var args = Array.prototype.slice.call(arguments);
+          if (args.some(isViteNotice)) return;
+          _warn.apply(console, args);
+        };
+        window.addEventListener('error', function(e) {
+          if (isViteNotice(e.message) || isViteNotice(e.error)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+        window.addEventListener('unhandledrejection', function(e) {
+          if (isViteNotice(e.reason)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NAP WACRM - Núcleo de Atendimento ao Provedor</title>
+    <meta property="og:title" content="NAP WACRM - Núcleo de Atendimento ao Provedor" />
+    <meta name="description" content="Núcleo de Atendimento ao Provedor - Plataforma Omnichannel para ISPs com IA Híbrida." />
+    <meta property="og:description" content="Núcleo de Atendimento ao Provedor - Plataforma Omnichannel para ISPs com IA Híbrida." />
+    <meta name="theme-color" content="#0a50ff" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Portal NAP" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+      (function() {
+        try {
+          var savedTheme = localStorage.getItem('nap_theme');
+          var isDark = true;
+          if (savedTheme === 'light') {
+            isDark = false;
+          } else if (savedTheme === 'system') {
+            isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          } else {
+            isDark = true;
+          }
+
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.classList.remove('light');
+            document.documentElement.style.colorScheme = 'dark';
+          } else {
+            document.documentElement.classList.add('light');
+            document.documentElement.classList.remove('dark');
+            document.documentElement.style.colorScheme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      body {
+        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      html.dark body {
+        background-color: #0b0f19;
+        color: #f1f5f9;
+      }
+      html.light body {
+        background-color: #f4f6fa;
+        color: #1e293b;
+      }
+      h1, h2, h3, h4, h5, h6, button, input, select, textarea {
+        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      }
+    </style>
+  </head>
+  <body class="selection:bg-[#0a50ff]/30">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

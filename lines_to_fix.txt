@@ -1,0 +1,292 @@
+
+--- Line 120 ---
+118: "        troncosSip: ["
+119: "          { id: \"1\", nome: \"Tronco Localhost PJSIP (Nativo)\", host: ASTERISK_HOST, porta: 5060, usuario: \"nap_pjsip\", senha: \"nap_pjsip_secret\", codecs: \"alaw, ulaw, g729, opus\", status: \"ativo\" } ],"
+120: "        ariHost: ASTERISK_HOST,"
+121: "        ariPort: Number(ASTERISK_PORT_ARI),"
+
+--- Line 731 ---
+729: "  app.post(\"/api/incidentes\", (req, res) => {"
+730: "    const { titulo, tipo, regioesAfetadas, concentradorOuOlt, clientesAfetadosAprox, previsaoRetorno, descricao } = req.body;"
+731: "    }"
+732: "    const novoIncidente: IncidenteRede = {"
+
+--- Line 750 ---
+748: "    incidentesRede.unshift(novoIncidente);"
+749: "    res.status(201).json({ sucesso: true, incidente: novoIncidente });"
+750: "  });"
+751: ""
+
+--- Line 1160 ---
+1158: "      userAgent: req.headers[\"user-agent\"] || \"Mozilla/5.0\","
+1159: "      payloadDepois: { id: nova.id, nome: nova.nome, canal: nova.canal, leads: nova.leads "
+1160: "    });"
+1161: ""
+
+--- Line 1194 ---
+1192: "      payloadAntes: { status: statusAnterior },"
+1193: "      payloadDepois: { status: camp.status "
+1194: "    });"
+1195: ""
+
+--- Line 1224 ---
+1222: "  }"
+1223: ""
+1224: "  }"
+1225: "const getGenieAcsHeaders = () => {"
+
+--- Line 1242 ---
+1240: "    ...options,"
+1241: "    headers: { ...getGenieAcsHeaders(), ...(options as any).headers "
+1242: "  });"
+1243: "  if (!res.ok) throw new Error(`GenieACS API error: ${res.status} ${res.statusText}`);"
+
+--- Line 1254 ---
+1252: "    return null;"
+1253: "  }"
+1254: "};"
+1255: ""
+
+--- Line 1279 ---
+1277: "  }"
+1278: "  const rssi = parseFloat(getParam('Device.Optical.Interface.1.LowerReceivePower') || getParam('InternetGatewayDevice.WANDevice.1.WANDSLInterfaceConfig.Status') || '-19.5');"
+1279: "  }"
+1280: "  const lastInform = device._lastInform || new Date().toISOString();"
+
+--- Line 1282 ---
+1280: "  const lastInform = device._lastInform || new Date().toISOString();"
+1281: "  const isOnline = (new Date().getTime() - new Date(lastInform).getTime()) < 3600000;"
+1282: "  }"
+1283: "  return {"
+
+--- Line 1303 ---
+1301: "    vccVolts: '3.3 V'"
+1302: "  };"
+1303: "};"
+1304: ""
+
+--- Line 1488 ---
+1486: "    const { id } = req.params;"
+1487: "    }"
+1488: "    try {"
+1489: "      if (process.env.GENIEACS_URL) {"
+
+--- Line 1507 ---
+1505: "        });"
+1506: "        }"
+1507: "        res.json({ sucesso: true, mensagem: `Reboot enviado nativamente para o device ${id}` });"
+1508: "      } else {"
+
+--- Line 1508 ---
+1506: "        }"
+1507: "        res.json({ sucesso: true, mensagem: `Reboot enviado nativamente para o device ${id}` });"
+1508: "      } else {"
+1509: "        const device = genieacsDevices_mock.find(d => d._id === id || d.serialNumber === id);"
+
+--- Line 1514 ---
+1512: "        device.lastInform = new Date().toISOString();"
+1513: "        device.uptime = \"Recém reiniciado (0m)\";"
+1514: "        }"
+1515: "        registrarAuditoria({"
+
+--- Line 1525 ---
+1523: "          userAgent: req.headers[\"user-agent\"] || \"Mozilla/5.0\""
+1524: "        });"
+1525: "        }"
+1526: "        res.json({ sucesso: true, mensagem: `Reboot enviado para ${device.serialNumber}`, device });"
+
+--- Line 1527 ---
+1525: "        }"
+1526: "        res.json({ sucesso: true, mensagem: `Reboot enviado para ${device.serialNumber}`, device });"
+1527: "      }"
+1528: "    } catch (err) {"
+
+--- Line 1528 ---
+1526: "        res.json({ sucesso: true, mensagem: `Reboot enviado para ${device.serialNumber}`, device });"
+1527: "      }"
+1528: "    } catch (err) {"
+1529: "      res.status(500).json({ sucesso: false, erro: err.message });"
+
+--- Line 1531 ---
+1529: "      res.status(500).json({ sucesso: false, erro: err.message });"
+1530: "    }"
+1531: "  });"
+1532: ""
+
+--- Line 1538 ---
+1536: "    const { ssid, wifiPassword, wifiChannel } = req.body;"
+1537: "    }"
+1538: "    try {"
+1539: "      if (process.env.GENIEACS_URL) {"
+
+--- Line 1552 ---
+1550: "        });"
+1551: "        }"
+1552: "        registrarAuditoria({"
+1553: "          usuario: \"Operador NOC / Suporte\","
+
+--- Line 1562 ---
+1560: "          userAgent: req.headers[\"user-agent\"] || \"Mozilla/5.0\""
+1561: "        });"
+1562: "        }"
+1563: "        res.json({ sucesso: true, mensagem: \"Configurações Wi-Fi enfileiradas nativamente.\" });"
+
+--- Line 1564 ---
+1562: "        }"
+1563: "        res.json({ sucesso: true, mensagem: \"Configurações Wi-Fi enfileiradas nativamente.\" });"
+1564: "      } else {"
+1565: "        const device = genieacsDevices_mock.find(d => d._id === id || d.serialNumber === id);"
+
+--- Line 1572 ---
+1570: "        if (wifiChannel) device.wifiChannel = Number(wifiChannel);"
+1571: "        device.lastInform = new Date().toISOString();"
+1572: "        }"
+1573: "        registrarAuditoria({"
+
+--- Line 1583 ---
+1581: "          userAgent: req.headers[\"user-agent\"] || \"Mozilla/5.0\""
+1582: "        });"
+1583: "        }"
+1584: "        res.json({ sucesso: true, mensagem: \"Configurações Wi-Fi aplicadas (Mock).\", device });"
+
+--- Line 1585 ---
+1583: "        }"
+1584: "        res.json({ sucesso: true, mensagem: \"Configurações Wi-Fi aplicadas (Mock).\", device });"
+1585: "      }"
+1586: "    } catch (err) {"
+
+--- Line 1586 ---
+1584: "        res.json({ sucesso: true, mensagem: \"Configurações Wi-Fi aplicadas (Mock).\", device });"
+1585: "      }"
+1586: "    } catch (err) {"
+1587: "      res.status(500).json({ sucesso: false, erro: err.message });"
+
+--- Line 1589 ---
+1587: "      res.status(500).json({ sucesso: false, erro: err.message });"
+1588: "    }"
+1589: "  });"
+1590: ""
+
+--- Line 1595 ---
+1593: "    const { id } = req.params;"
+1594: "    }"
+1595: "    try {"
+1596: "      if (process.env.GENIEACS_URL) {"
+
+--- Line 1604 ---
+1602: "        const device = mapGenieAcsDeviceToAppFormat(rawDevice);"
+1603: "        }"
+1604: "        res.json({"
+1605: "          sucesso: true,"
+
+--- Line 1610 ---
+1608: "            historicoSinalRx: ["
+1609: "              { hora: \"Agora\", rx: device.rssi "
+1610: "            ],"
+1611: "            perdaPacotesLan: \"0%\","
+
+--- Line 1620 ---
+1618: "          }"
+1619: "        });"
+1620: "      } else {"
+1621: "        const device = genieacsDevices_mock.find(d => d._id === id || d.serialNumber === id);"
+
+--- Line 1634 ---
+1632: "              { hora: \"12:00\", rx: device.rssi + 0.3 },"
+1633: "              { hora: \"Agora\", rx: device.rssi "
+1634: "            ],"
+1635: "            perdaPacotesLan: \"0%\","
+
+--- Line 1644 ---
+1642: "          }"
+1643: "        });"
+1644: "      }"
+1645: "    } catch (err) {"
+
+--- Line 1646 ---
+1644: "      }"
+1645: "    } catch (err) {"
+1646: "      res.status(500).json({ sucesso: false, erro: err.message });"
+1647: "    }"
+
+--- Line 1648 ---
+1646: "      res.status(500).json({ sucesso: false, erro: err.message });"
+1647: "    }"
+1648: "  });"
+1649: ""
+
+--- Line 1689 ---
+1687: "        }"
+1688: "      });"
+1689: "    } catch (err: any) {"
+1690: "      res.status(500).json({ sucesso: false, erro: err.message || \"Erro ao executar teste de ping TR-143\" });"
+
+--- Line 1690 ---
+1688: "      });"
+1689: "    } catch (err: any) {"
+1690: "      res.status(500).json({ sucesso: false, erro: err.message || \"Erro ao executar teste de ping TR-143\" });"
+1691: "    }"
+
+--- Line 1693 ---
+1691: "    }"
+1692: "  });"
+1693: ""
+1694: "  // Reprovisionamento Remoto de VLAN / PPPoE CWMP"
+
+--- Line 1714 ---
+1712: "      });"
+1713: "    } catch (err: any) {"
+1714: "      res.status(500).json({ sucesso: false, erro: err.message || \"Erro ao reprovisionar CPE\" });"
+1715: "    }"
+
+--- Line 1717 ---
+1715: "    }"
+1716: "  });"
+1717: ""
+1718: "  // --- MONITOR DE SINCRONIZAÇÃO EM TEMPO REAL (ERP & GENIEACS) ---"
+
+--- Line 1741 ---
+1739: "          }"
+1740: "        });"
+1741: "        clearTimeout(timeoutId);"
+1742: "        erpLatency = Date.now() - startTime;"
+
+--- Line 1747 ---
+1745: "        }"
+1746: "      } catch (err) {"
+1747: "        erpStatus = 'online';"
+1748: "        erpLatency = 32;"
+
+--- Line 1805 ---
+1803: "      }"
+1804: "    });"
+1805: "  });"
+1806: ""
+
+--- Line 1806 ---
+1804: "    });"
+1805: "  });"
+1806: ""
+1807: "  app.post(\"/api/sync/executar\", async (req, res) => {"
+
+--- Line 1825 ---
+1823: "      }"
+1824: "    });"
+1825: "  });"
+1826: ""
+
+--- Line 1849 ---
+1847: "    }"
+1848: "  });"
+1849: ""
+1850: "  // Setup Wizard Endpoints"
+
+--- Line 1859 ---
+1857: "      res.json({ success: true, logs: stdout });"
+1858: "    });"
+1859: "  });"
+1860: ""
+
+--- Line 1900 ---
+1898: "export default app;"
+1899: ""

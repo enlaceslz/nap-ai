@@ -1,0 +1,567 @@
+import { db } from "../src/db/index.js";
+import { conversas, mensagens } from "../src/db/schema.js";
+import { eq, desc } from "drizzle-orm";
+import { GoogleGenAI } from "@google/genai";
+import { processGeminiAgentRun } from "./gemini.js";
+
+export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages: any[]) {
+// --- WhatsApp Cloud API (WABA) Webhook & Endpoints ---
+  
+  // 1. Verificação do Webhook pela Meta
+  app.get("/api/webhooks/waba/incoming", (req, res) => {
+    const verify_token = process.env.WABA_VERIFY_TOKEN || "nap_token_secreto_123";
+    let mode = req.query["hub.mode"];
+    let token = req.query["hub.verify_token"];
+    let challenge = req.query["hub.challenge"];
+    
+    if (mode && token) {
+      if (mode === "subscribe" && token === verify_token) {
+        console.log("WABA Webhook verificado!");
+        return res.status(200).send(challenge);
+      } else {
+        return res.sendStatus(403);
+      }
+    }
+    return res.status(400).json({ error: "Parâmetros inválidos" });
+  });
+
+  // 2. Recebimento de mensagens (Eventos WABA) e Copiloto Gemini (Triagem IA)
+  app.post("/api/webhooks/waba/incoming", async (req, res) => {
+    try {
+      const body = req.body;
+      if (!body.entry || !body.entry[0].changes || !body.entry[0].changes[0].value.messages) {
+        return res.sendStatus(200); // Outros eventos
+      }
+      
+      const messageData = body.entry[0].changes[0].value.messages[0];
+      const contactData = body.entry[0].changes[0].value.contacts?.[0];
+      const telefone = messageData.from;
+      const texto = messageData.text?.body || "(Áudio/Mídia Recebida)";
+      const nome_cliente = contactData?.profile?.name || "Cliente ERP";
+      
+      console.log(`[WABA] Msg de ${telefone} (${nome_cliente}): ${texto}`);
+      
+      // Upsert Conversa
+      let chatId = null;
+      try {
+        let chat = await db.select().from(conversas).where(eq(conversas.telefone, telefone)).limit(1);
+        if (chat.length === 0) {
+           const newChat = await db.insert(conversas).values({
+             telefone,
+             nomeCliente: nome_cliente,
+             fila: 'triagem_ia',
+             statusConexao: '{"uptime":"2 dias", "sinal_onu":"-19.5 dBm", "status":"conectado"}'
+           }).returning();
+           chatId = newChat[0].id;
+        } else {
+           chatId = chat[0].id;
+           // Atualiza data
+           await db.update(conversas).set({ updatedAt: new Date() }).where(eq(conversas.id, chatId));
+        }
+        
+        // Salva a mensagem do cliente
+        await db.insert(mensagens).values({
+          conversaId: chatId,
+          remetente: 'cliente',
+          conteudo: texto,
+          tipo: messageData.type === 'audio' ? 'audio' : 'texto'
+        });
+        
+        // --- TRIAGEM IA (Gemini Auto-Resposta) ---
+        // Se a conversa estiver na fila "triagem_ia", a IA responde.
+        let isTriagem = false;
+        if(chat.length === 0 || chat[0].fila === 'triagem_ia') isTriagem = true;
+        
+        if (isTriagem) {
+           try {
+             // Utiliza o Motor Completo (Gemini Agent com Ferramentas SGP e Zabbix)
+             const agentResult = await processGeminiAgentRun({
+                prompt: texto,
+                telefone: telefone,
+                contexto: `O cliente se chama ${nome_cliente}. Analise a intenção e resolva com as ferramentas.`
+             });
+             
+             const resposta_ia = agentResult.resposta || "Vou verificar isso agora mesmo para você.";
+             
+             // Salva a resposta da IA no BD
+             await db.insert(mensagens).values({
+               conversaId: chatId,
+               remetente: 'ia',
+               conteudo: resposta_ia,
+               tipo: 'texto'
+             });
+             
+
+             // Adiciona a "memória do sistema" se uma ferramenta foi invocada
+             if (agentResult.tool_executada) {
+                await db.insert(mensagens).values({
+                  conversaId: chatId,
+                  remetente: 'sistema',
+                  conteudo: `[WABA LOG] Ferramenta executada: ${agentResult.tool_executada}`,
+                  tipo: 'interno'
+                });
+
+                if (agentResult.handoff) {
+                   await db.update(conversas).set({ fila: agentResult.tool_dados?.fila_destino || 'vendas', updatedAt: new Date() }).where(eq(conversas.id, chatId));
+                   await db.insert(mensagens).values({
+                     conversaId: chatId,
+                     remetente: 'sistema',
+                     conteudo: `[HANDOFF IA] Transferido para a fila de vendas. Novo Lead Prospect: ${agentResult.tool_dados?.plano_interesse}`,
+                     tipo: 'interno'
+                   });
+
+                   try {
+                     const { CrmService } = require('./crm/crmService');
+                     const crmService = CrmService.getInstance();
+                     await crmService.addDeal({
+                       titulo: agentResult.tool_dados?.titulo || 'Novo Lead Handoff IA',
+                       contato: agentResult.tool_dados?.contato || nome_cliente,
+                       telefone: agentResult.tool_dados?.telefone || telefone,
+                       estagio: 'Nova Oportunidade',
+                       pipeline: 'Vendas',
+                       prioridade: 1,
+                       valor: agentResult.tool_dados?.plano_interesse?.includes('1 Giga') ? 149.9 : 99.9,
+                       contexto_ia: `Handoff automático gerado via Áudio/Texto. Plano desejado: ${agentResult.tool_dados?.plano_interesse}. Endereço: ${agentResult.tool_dados?.endereco}`
+                     });
+                   } catch (crmErr) {
+                     console.error('Erro ao integrar Lead no CRM:', crmErr);
+                   }
+                }
+             }
+
+           } catch (errAi) {
+             console.error("Erro no Gemini", errAi);
+           }
+        }
+      } catch (dbErr) {
+        console.error("DB WABA Error", dbErr);
+        // Fallback em memória
+        let chat = mockWabaChats.find(c => c.telefone === telefone);
+        if(!chat) {
+           chat = { id: Date.now(), telefone, nomeCliente: nome_cliente, fila: 'triagem_ia' };
+           mockWabaChats.push(chat);
+        }
+        mockWabaMessages.push({ conversaId: chat.id, remetente: 'cliente', conteudo: texto, createdAt: new Date() });
+      }
+
+      res.status(200).send("EVENT_RECEIVED");
+    } catch (e) {
+      console.error("[WABA Webhook Error]", e);
+      res.sendStatus(500);
+    }
+  });
+
+  
+  // --- Webchat PWA (Cliente -> IA) ---
+  app.post("/api/webchat/send", async (req, res) => {
+    const { telefone, nome, texto } = req.body;
+    
+    try {
+      const isSolicitacaoHumano = /humano|atendente|pessoa|operador|falar com alguem/i.test(texto);
+      let chatId = null;
+      let chat = await db.select().from(conversas).where(eq(conversas.telefone, telefone)).limit(1);
+      
+      if (chat.length === 0) {
+        const newChat = await db.insert(conversas).values({
+          telefone,
+          nomeCliente: nome || "Cliente Webchat",
+          fila: isSolicitacaoHumano ? 'handoff' : 'triagem_ia',
+          statusConexao: '{"uptime":"2 dias", "sinal_onu":"-19.5 dBm", "status":"conectado"}'
+        }).returning();
+        chatId = newChat[0].id;
+      } else {
+        chatId = chat[0].id;
+        await db.update(conversas).set({ 
+          updatedAt: new Date(),
+          fila: isSolicitacaoHumano ? 'handoff' : chat[0].fila
+        }).where(eq(conversas.id, chatId));
+      }
+      
+      // Salva mensagem do cliente
+      await db.insert(mensagens).values({
+        conversaId: chatId,
+        remetente: 'cliente',
+        conteudo: texto,
+        tipo: 'texto'
+      });
+      
+      // Resposta IA ou Transbordo Humano
+      let resposta_ia = "";
+      if (isSolicitacaoHumano) {
+        resposta_ia = `👤 Entendido, ${nome || 'Assinante'}! Estou pausando a automação e transferindo sua solicitação diretamente para nossos operadores humanos no Inbox Unificado. Um atendente estará com você em instantes.`;
+      } else {
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const prompt = `Você é a MaIA, assistente de suporte ultra-humanizada e gentil do provedor NAP. O cliente ${nome} (${telefone}) enviou no Webchat: "${texto}". O sinal da ONU dele está normal (-19.5 dBm). Responda de forma curta, prestativa e em português. Lembre-o que se desejar falar com um humano, basta solicitar a qualquer momento.`;
+        
+        const geminiResponse = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt
+        });
+        resposta_ia = geminiResponse.text;
+      }
+      
+      // Salva resposta IA / Sistema
+      await db.insert(mensagens).values({
+        conversaId: chatId,
+        remetente: isSolicitacaoHumano ? 'sistema' : 'ia',
+        conteudo: resposta_ia,
+        tipo: 'texto'
+      });
+      
+      res.json({ sucesso: true, resposta: resposta_ia, handoff: isSolicitacaoHumano });
+      
+    } catch (dbErr) {
+      console.warn("[Mock] Erro Webchat (DB/IA offline), usando memória", dbErr?.message);
+      
+      const isSolicitacaoHumano = /humano|atendente|pessoa|operador|falar com alguem/i.test(texto);
+      
+      // Fallback em memória
+      let chat = mockWabaChats.find(c => c.telefone === telefone);
+      if(!chat) {
+         chat = { id: Date.now(), telefone, nomeCliente: nome, fila: isSolicitacaoHumano ? 'handoff' : 'triagem_ia' };
+         mockWabaChats.push(chat);
+      } else if (isSolicitacaoHumano) {
+         chat.fila = 'handoff';
+      }
+      mockWabaMessages.push({ conversaId: chat.id, remetente: 'cliente', conteudo: texto, createdAt: new Date() });
+      
+      let resposta_mock = "";
+      if (isSolicitacaoHumano) {
+        resposta_mock = `👤 Entendido! Estou transferindo seu atendimento diretamente para nossos operadores humanos no Inbox Unificado. Aguarde um instante...`;
+      } else {
+        resposta_mock = `Olá! Sou a MaIA do seu provedor de internet. Recebi sua mensagem: "${texto}". Se precisar falar com um atendente humano a qualquer momento, é só me avisar!`;
+      }
+      
+      mockWabaMessages.push({ conversaId: chat.id, remetente: isSolicitacaoHumano ? 'sistema' : 'ia', conteudo: resposta_mock, createdAt: new Date() });
+      
+      res.json({ sucesso: true, resposta: resposta_mock, handoff: isSolicitacaoHumano });
+    }
+  });
+
+  // 3. API do Front para Listar Conversas e Mensagens
+  
+  app.get("/api/waba/chats-full", async (req, res) => {
+    try {
+      let chats = [];
+      try {
+        chats = await db.select().from(conversas).orderBy(desc(conversas.updatedAt));
+      } catch (e) {
+        chats = mockWabaChats;
+      }
+      
+      const fullChats = [];
+      for (const c of chats) {
+        let chatMsgs = [];
+        try {
+          chatMsgs = await db.select().from(mensagens).where(eq(mensagens.conversaId, c.id)).orderBy(mensagens.createdAt);
+        } catch (e) {
+          chatMsgs = mockWabaMessages.filter(m => m.conversaId === c.id);
+        }
+        
+        fullChats.push({
+          ...c,
+          nome_cliente: c.nomeCliente || c.nome_cliente || 'Desconhecido',
+          mensagens: chatMsgs.map(m => ({
+            id: m.id,
+            conversa_id: m.conversaId || m.conversa_id,
+            autor_tipo: m.remetente || m.autorTipo || 'sistema',
+            conteudo: m.conteudo,
+            enviada_em: m.createdAt ? new Date(m.createdAt).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) : (m.enviadaEm || '00:00'),
+            status: m.status || 'entregue'
+          }))
+        });
+      }
+      res.json(fullChats);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/conversas", async (req, res) => {
+    try {
+      const chats = await db.select().from(conversas).orderBy(desc(conversas.updatedAt));
+      res.json(chats);
+    } catch (e) {
+      // Silenced error for mock fallback
+      res.json(mockWabaChats);
+    }
+  });
+
+  app.get("/api/conversas/:id/mensagens", async (req, res) => {
+    try {
+      const msgs = await db.select().from(mensagens).where(eq(mensagens.conversaId, parseInt(req.params.id))).orderBy(mensagens.createdAt);
+      res.json(msgs);
+    } catch (e) {
+      // Silenced error for mock fallback
+      res.json(mockWabaMessages.filter(m => m.conversaId == req.params.id));
+    }
+  });
+
+  // --- WhatsApp Cloud API (WABA) - Gestão de Templates HSM & Validação Meta ---
+
+  const ISP_WABA_APPROVED_TEMPLATES = [
+    {
+      id: 'fatura_pix_isp',
+      name: 'fatura_pix_isp',
+      category: 'UTILITY',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      quality_score: 'GREEN',
+      components: [
+        { type: 'HEADER', format: 'TEXT', text: 'Sua Fatura de Internet Chegou!' },
+        {
+          type: 'BODY',
+          text: 'Olá, {{1}}! Segue a sua fatura deste mês da conexão de fibra óptica.\n\nVocê pode pagar instantaneamente usando o código PIX Copia e Cola abaixo:\n\n{{2}}\n\n*Valor:* {{3}}\n*Vencimento:* {{4}}\n\nAgradecemos por manter sua mensalidade em dia e garantir a velocidade máxima da sua conexão!'
+        },
+        { type: 'FOOTER', text: 'Provedor de Internet • Atendimento oficial via WABA' },
+        {
+          type: 'BUTTONS',
+          buttons: [
+            { type: 'QUICK_REPLY', text: 'Já efetuei o pagamento' },
+            { type: 'URL', text: 'Ver Fatura Completa (PDF)', url: 'https://cliente.meuprovedor.com.br/fatura/{{1}}' }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'aviso_manutencao_fibra',
+      name: 'aviso_manutencao_fibra',
+      category: 'UTILITY',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      quality_score: 'GREEN',
+      components: [
+        { type: 'HEADER', format: 'TEXT', text: 'Aviso Importante: Manutenção de Rede' },
+        {
+          type: 'BODY',
+          text: 'Prezado(a) assinante {{1}}, informamos que nossa equipe de engenharia está executando serviços de infraestrutura óptica na região de {{2}}.\n\n*Motivo:* {{3}}\n*Previsão de normalização:* {{4}}\n\nDurante este intervalo, a conexão poderá apresentar instabilidade momentânea. Nossos técnicos já estão no local finalizando os reparos.'
+        },
+        { type: 'FOOTER', text: 'NOC / Engenharia de Redes' },
+        {
+          type: 'BUTTONS',
+          buttons: [
+            { type: 'QUICK_REPLY', text: 'Acompanhar no Portal' },
+            { type: 'QUICK_REPLY', text: 'Falar com Suporte Técnico' }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'confirmacao_visita_tecnica',
+      name: 'confirmacao_visita_tecnica',
+      category: 'UTILITY',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      quality_score: 'GREEN',
+      components: [
+        { type: 'HEADER', format: 'TEXT', text: 'Agendamento de Visita Técnica' },
+        {
+          type: 'BODY',
+          text: 'Olá, {{1}}! Sua visita técnica foi agendada com sucesso.\n\n*Serviço:* {{2}}\n*Horário Previsto:* {{3}}\n*Técnico Responsável:* {{4}}\n\nPara sua segurança, todos os nossos técnicos comparecem uniformizados e com crachá de identificação oficial. Por favor, certifique-se de que haverá um maior de 18 anos no local.'
+        },
+        { type: 'FOOTER', text: 'Central de Operações de Campo' },
+        {
+          type: 'BUTTONS',
+          buttons: [
+            { type: 'QUICK_REPLY', text: 'Confirmar Presença' },
+            { type: 'QUICK_REPLY', text: 'Preciso Reagendar' }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'codigo_acesso_portal',
+      name: 'codigo_acesso_portal',
+      category: 'AUTHENTICATION',
+      language: 'pt_BR',
+      status: 'APPROVED',
+      quality_score: 'GREEN',
+      components: [
+        {
+          type: 'BODY',
+          text: 'Seu código de segurança para acessar o Portal do Assinante é {{1}}. Não compartilhe este código com ninguém. Ele expira em 5 minutos.'
+        },
+        { type: 'FOOTER', text: 'Segurança de Acesso' },
+        {
+          type: 'BUTTONS',
+          buttons: [
+            { type: 'COPY_CODE', text: 'Copiar Código de Segurança' }
+          ]
+        }
+      ]
+    }
+  ];
+
+  // Listar templates WABA oficiais
+  app.get("/api/waba/templates", (req, res) => {
+    res.json({
+      success: true,
+      count: ISP_WABA_APPROVED_TEMPLATES.length,
+      templates: ISP_WABA_APPROVED_TEMPLATES
+    });
+  });
+
+  // Validador de conformidade com os requisitos da Meta
+  app.post("/api/waba/templates/validate", (req, res) => {
+    const { name, category, body_text = "", buttons = [] } = req.body;
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Regra 1: Nome
+    if (!name || !/^[a-z0-9_]+$/.test(name)) {
+      errors.push("O nome deve conter apenas caracteres alfanuméricos minúsculos e sublinhados (_).");
+    }
+
+    // Regra 2: Variável no início
+    if (body_text.trim().startsWith("{{")) {
+      errors.push("O corpo não pode iniciar com variável (regra de ouro da Meta). Adicione uma palavra ou saudação antes.");
+    }
+
+    // Regra 3: Variável no final
+    if (body_text.trim().endsWith("}}")) {
+      errors.push("O corpo não pode terminar com variável (regra de ouro da Meta). Adicione pontuação ou texto final.");
+    }
+
+    // Regra 4: Variáveis consecutivas
+    if (/\{\{\d+\}\}\s*\{\{\d+\}\}/.test(body_text)) {
+      errors.push("Variáveis consecutivas (ex: {{1}} {{2}}) são rejeitadas. Insira texto descritivo intermediário.");
+    }
+
+    // Regra 5: Encurtadores de link
+    const shorteners = ["bit.ly", "tinyurl.com", "t.co", "cutt.ly", "is.gd"];
+    if (shorteners.some(s => body_text.toLowerCase().includes(s))) {
+      errors.push("Encurtadores de URL são proibidos pela Meta por risco de phishing. Use o domínio institucional.");
+    }
+
+    // Regra 6: Opt-out em marketing
+    if (category === "MARKETING") {
+      const hasOptOut = buttons.some((b: any) =>
+        (b.text || "").toLowerCase().includes("cancelar") ||
+        (b.text || "").toLowerCase().includes("parar") ||
+        (b.text || "").toLowerCase().includes("sair")
+      );
+      if (!hasOptOut) {
+        warnings.push("Modelos de MARKETING devem obrigatoriamente fornecer uma opção explícita de descadastro (Opt-out).");
+      }
+    }
+
+    const isValid = errors.length === 0;
+    res.json({
+      valid: isValid,
+      score: isValid ? (warnings.length > 0 ? 85 : 100) : 40,
+      errors,
+      warnings,
+      checkedAt: new Date().toISOString()
+    });
+  });
+
+  // Submeter template para homologação na Meta
+  app.post("/api/waba/templates/submit", (req, res) => {
+    const { name, category, language = "pt_BR" } = req.body;
+    
+    // Simula resposta de sucesso da Meta Graph API (POST /{waba-id}/message_templates)
+    const simulatedMetaId = `waba_tpl_${Date.now()}`;
+    res.json({
+      success: true,
+      id: simulatedMetaId,
+      name,
+      status: "APPROVED",
+      category,
+      language,
+      message: "Template validado e sincronizado com a Meta Business Cloud API com sucesso!"
+    });
+  });
+
+  // Disparar envio de teste de template
+  app.post("/api/waba/templates/send-test", async (req, res) => {
+    const { template_name, telefone } = req.body;
+    await new Promise(r => setTimeout(r, 400));
+    
+    res.json({
+      success: true,
+      message_id: `wamid.HBgLMjU1${Date.now()}==`,
+      template: template_name,
+      to: telefone,
+      status: "sent",
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // --- Webhook WhatsApp Cloud API (Meta Oficial) ---
+  // 1. Verificação de Handshake da Meta (GET)
+  app.get("/api/webhooks/whatsapp", (req, res) => {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+
+    const EXPECTED_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "nap_waba_verify_token_secure";
+
+    if (mode === "subscribe" && token === EXPECTED_TOKEN) {
+      console.log("[WABA Webhook] Handshake da Meta verificado com sucesso!");
+      return res.status(200).send(challenge);
+    }
+    return res.status(403).json({ error: "Token de verificação inválido" });
+  });
+
+  // 2. Recebimento de Mensagens e Atendimento 24h MaIA (POST)
+  app.post("/api/webhooks/whatsapp", async (req, res) => {
+    try {
+      const { entry } = req.body;
+      if (!entry || !Array.isArray(entry)) {
+        return res.status(200).json({ status: "ignored_not_waba" });
+      }
+
+      for (const e of entry) {
+        const changes = e.changes || [];
+        for (const change of changes) {
+          const value = change.value || {};
+          const messages = value.messages || [];
+          const contacts = value.contacts || [];
+
+          for (const msg of messages) {
+            const senderPhone = msg.from;
+            const msgText = msg.text?.body || "";
+            const contactName = contacts[0]?.profile?.name || "Cliente WhatsApp";
+
+            console.log(`[WABA 24h] Mensagem recebida de ${senderPhone} (${contactName}): "${msgText}"`);
+
+            // Se for pedido de atendente humano, aciona transbordo imediato
+            const isSolicitacaoHumano = /humano|atendente|pessoa|operador|falar com alguem/i.test(msgText);
+
+            let respostaIA = "";
+            if (isSolicitacaoHumano) {
+              respostaIA = `Entendido, ${contactName}! Estou pausando o atendimento automático e transferindo você imediatamente para um de nossos operadores humanos. Um momento, por favor...`;
+            } else {
+              respostaIA = `Olá, ${contactName}! Sou a MaIA, assistente virtual do seu provedor de internet. Recebi sua mensagem: "${msgText}". Como posso te ajudar hoje? Se precisar de suporte na sua fibra, segunda via ou falar com nossa equipe, estou à disposição 24h!`;
+            }
+
+            mockWabaMessages.push({
+              id: Date.now(),
+              conversaId: 1,
+              autorTipo: 'cliente',
+              conteudo: msgText,
+              enviadaEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+              status: 'entregue'
+            });
+
+            mockWabaMessages.push({
+              id: Date.now() + 1,
+              conversaId: 1,
+              autorTipo: isSolicitacaoHumano ? 'sistema' : 'ia',
+              conteudo: respostaIA,
+              enviadaEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+              status: 'entregue'
+            });
+          }
+        }
+      }
+
+      return res.status(200).json({ status: "success", processed: true });
+    } catch (err: any) {
+      console.error("[WABA Webhook Error]", err);
+      return res.status(200).json({ status: "error", message: err.message });
+    }
+  });
+
+  
+}

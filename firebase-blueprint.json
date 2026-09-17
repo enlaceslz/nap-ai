@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Perfil e credenciais de acesso do operador ou administrador do NAP",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "UID do usuário no Firebase Auth" },
+        "email": { "type": "string", "format": "email", "description": "E-mail de acesso corporativo" },
+        "nome": { "type": "string", "description": "Nome completo do colaborador" },
+        "role": { "type": "string", "enum": ["superadmin", "admin", "operador", "suporte", "financeiro"], "description": "Função/permissão de acesso" },
+        "provedorId": { "type": "string", "description": "Identificador do provedor ao qual pertence" },
+        "status": { "type": "string", "enum": ["ativo", "inativo"], "description": "Estado da conta" },
+        "criadoEm": { "type": "string", "description": "Timestamp ISO de criação" }
+      },
+      "required": ["id", "email", "nome", "role", "provedorId", "status"]
+    },
+    "Provedor": {
+      "title": "Provedor",
+      "description": "Dados cadastrais e parametrizações operacionais do provedor de internet (Tenant)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID único do provedor" },
+        "nome": { "type": "string", "description": "Razão Social ou Nome Fantasia" },
+        "cnpj": { "type": "string", "description": "CNPJ cadastrado" },
+        "telefone": { "type": "string", "description": "Telefone de contato principal" },
+        "configuracoes": { "type": "object", "description": "Objeto completo com integrações (SGP, Asterisk, WABA, Gemini, Horários e Macros)" },
+        "atualizadoEm": { "type": "string", "description": "Timestamp ISO da última alteração" },
+        "atualizadoPor": { "type": "string", "description": "E-mail do administrador que realizou a alteração" }
+      },
+      "required": ["id", "nome", "configuracoes"]
+    },
+    "Conversa": {
+      "title": "Conversa",
+      "description": "Registro de atendimento omnichannel (WhatsApp, Webchat, Telefonia)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Identificador único da conversa" },
+        "provedorId": { "type": "string", "description": "ID do provedor proprietário do atendimento" },
+        "protocolo": { "type": "string", "description": "Número do protocolo gerado" },
+        "nomeCliente": { "type": "string", "description": "Nome do cliente atendido" },
+        "telefone": { "type": "string", "description": "Número de telefone ou WABA" },
+        "canal": { "type": "string", "enum": ["whatsapp", "webchat", "telefone", "portal"], "description": "Canal de origem" },
+        "status": { "type": "string", "enum": ["aberta", "aguardando", "fechada"], "description": "Status do chamado" },
+        "operadorId": { "type": "string", "description": "UID do operador atribuído" },
+        "atualizadoEm": { "type": "string", "description": "Timestamp ISO" }
+      },
+      "required": ["id", "provedorId", "protocolo", "nomeCliente", "canal", "status"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Registro imutável de auditoria administrativa de alterações no sistema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID único do log" },
+        "provedorId": { "type": "string", "description": "ID do provedor" },
+        "usuario": { "type": "string", "description": "Nome ou e-mail do operador" },
+        "modulo": { "type": "string", "description": "Módulo alterado (SGP, IA, WABA, etc.)" },
+        "detalhes": { "type": "string", "description": "Descrição da ação" },
+        "ip": { "type": "string", "description": "IP de origem" },
+        "criadoEm": { "type": "string", "description": "Timestamp ISO da ação" }
+      },
+      "required": ["id", "provedorId", "usuario", "modulo", "detalhes", "criadoEm"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Coleção de perfis de operadores e administradores autenticados"
+    },
+    "/provedores/{provedorId}": {
+      "schema": "Provedor",
+      "description": "Documento de configuração e parametrizações do provedor"
+    },
+    "/provedores/{provedorId}/conversas/{conversaId}": {
+      "schema": "Conversa",
+      "description": "Histórico e chamados operacionais do provedor"
+    },
+    "/provedores/{provedorId}/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Trilha de auditoria administrativa imutável"
+    }
+  }
+}

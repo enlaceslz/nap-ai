@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Funções Auxiliares de Autenticação e Autorização
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        getUserData().role == 'superadmin' || 
+        request.auth.token.email == 'andreljp@gmail.com' ||
+        request.auth.token.email == 'admin@provedor.com.br'
+      );
+    }
+
+    function belongsToProvedor(provedorId) {
+      return isAuthenticated() && (isSuperAdmin() || getUserData().provedorId == provedorId);
+    }
+
+    // Coleção de Usuários e Operadores
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isSuperAdmin());
+      allow create: if isAuthenticated() && (isOwner(userId) || isSuperAdmin());
+      allow update: if isAuthenticated() && (isOwner(userId) || isSuperAdmin());
+      allow delete: if isSuperAdmin();
+    }
+
+    // Coleção de Provedores e Configurações Gerais
+    match /provedores/{provedorId} {
+      allow read: if isAuthenticated() && belongsToProvedor(provedorId);
+      allow create: if isSuperAdmin();
+      allow update: if isAuthenticated() && belongsToProvedor(provedorId);
+      allow delete: if isSuperAdmin();
+
+      // Conversas e Chamados Omnichannel
+      match /conversas/{conversaId} {
+        allow read, create, update: if isAuthenticated() && belongsToProvedor(provedorId);
+        allow delete: if isSuperAdmin();
+      }
+
+      // Trilha de Auditoria Administrativa (Imutável)
+      match /auditLogs/{logId} {
+        allow read: if isAuthenticated() && belongsToProvedor(provedorId);
+        allow create: if isAuthenticated() && belongsToProvedor(provedorId);
+        allow update, delete: if false; // Imutável
+      }
+    }
+
+    // Documento de teste de conectividade exigido pelo SDK
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+  }
+}

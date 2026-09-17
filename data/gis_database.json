@@ -1,0 +1,956 @@
+{
+  "layers": [
+    {
+      "id": "layer-clientes",
+      "name": "Clientes",
+      "description": "Assinantes",
+      "visible_by_default": true,
+      "color_hex": "#10b981"
+    },
+    {
+      "id": "layer-olt",
+      "name": "OLTs",
+      "description": "Chassis de OLT",
+      "visible_by_default": true,
+      "color_hex": "#d946ef"
+    },
+    {
+      "id": "layer-dio",
+      "name": "DIOs",
+      "description": "Distribuidor Interno Óptico",
+      "visible_by_default": true,
+      "color_hex": "#f59e0b"
+    },
+    {
+      "id": "layer-ceo",
+      "name": "CEOs",
+      "description": "Caixas de Emenda Óptica",
+      "visible_by_default": true,
+      "color_hex": "#f97316"
+    },
+    {
+      "id": "layer-cto",
+      "name": "CTOs",
+      "description": "Caixas de Atendimento",
+      "visible_by_default": true,
+      "color_hex": "#3b82f6"
+    },
+    {
+      "id": "layer-ont",
+      "name": "ONTs",
+      "description": "Equipamentos de Cliente",
+      "visible_by_default": true,
+      "color_hex": "#10b981"
+    },
+    {
+      "id": "layer-cabo",
+      "name": "Cabos Tronco/Distribuição",
+      "description": "Rotas de Fibra Óptica",
+      "visible_by_default": true,
+      "color_hex": "#64748b"
+    },
+    {
+      "id": "layer-drop",
+      "name": "Drops",
+      "description": "Cabos Drop de Atendimento",
+      "visible_by_default": true,
+      "color_hex": "#94a3b8"
+    }
+  ],
+  "features": [
+    {
+      "id": "gis-olt-olt-vsol-pop03",
+      "type": "Feature",
+      "layer_id": "layer-olt",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.633308,
+          -23.55052
+        ]
+      },
+      "properties": {
+        "name": "OLT-VSOL-POP-LESTE",
+        "source_module": "OLT_Manager",
+        "external_id": "olt-vsol-pop03",
+        "status": "online",
+        "description": "VSOL V1600G2-B - IP: 10.200.3.10",
+        "accuracy": "APPROXIMATE",
+        "vendor": "VSOL"
+      },
+      "created_at": "2026-09-15T12:23:46.951Z",
+      "updated_at": "2026-09-15T12:23:46.951Z"
+    },
+    {
+      "id": "gis-dio-olt-vsol-pop03",
+      "type": "Feature",
+      "layer_id": "layer-dio",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.633207999999996,
+          -23.55042
+        ]
+      },
+      "properties": {
+        "name": "DIO - POP LESTE",
+        "source_module": "GIS_Core",
+        "description": "DIO de Distribuição 72F",
+        "accuracy": "APPROXIMATE",
+        "capacity": 72,
+        "occupied": 12
+      },
+      "created_at": "2026-09-15T12:23:46.951Z",
+      "updated_at": "2026-09-15T12:23:46.951Z"
+    },
+    {
+      "id": "gis-ceo-olt-vsol-pop03",
+      "type": "Feature",
+      "layer_id": "layer-ceo",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.641308,
+          -23.555519999999998
+        ]
+      },
+      "properties": {
+        "name": "CEO Tronco - Rota LESTE",
+        "source_module": "GIS_Core",
+        "description": "Caixa de Emenda Óptica (Sangria)",
+        "accuracy": "APPROXIMATE",
+        "capacity": 48,
+        "status": "online"
+      },
+      "created_at": "2026-09-15T12:23:46.951Z",
+      "updated_at": "2026-09-15T12:23:46.951Z"
+    },
+    {
+      "id": "gis-cabo-tronco-olt-vsol-pop03",
+      "type": "Feature",
+      "layer_id": "layer-cabo",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.633207999999996,
+            -23.55042
+          ],
+          [
+            -46.641308,
+            -23.555519999999998
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Cabo Tronco 48FO - Rota LESTE",
+        "source_module": "GIS_Core",
+        "cable_type": "AERIAL",
+        "fibers_count": 48,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.951Z",
+      "updated_at": "2026-09-15T12:23:46.951Z"
+    },
+    {
+      "id": "gis-cto-olt-vsol-pop03",
+      "type": "Feature",
+      "layer_id": "layer-cto",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.647308,
+          -23.55952
+        ]
+      },
+      "properties": {
+        "name": "CTO - Bairro LESTE",
+        "source_module": "GIS_Core",
+        "description": "CTO 1:16",
+        "accuracy": "APPROXIMATE",
+        "capacity": 16,
+        "occupied": 2
+      },
+      "created_at": "2026-09-15T12:23:46.951Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-cabo-dist-olt-vsol-pop03",
+      "type": "Feature",
+      "layer_id": "layer-cabo",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.641308,
+            -23.555519999999998
+          ],
+          [
+            -46.647308,
+            -23.55952
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Cabo AS 12FO - Dist LESTE",
+        "source_module": "GIS_Core",
+        "cable_type": "AERIAL",
+        "fibers_count": 12,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-olt-olt-zte-pop01",
+      "type": "Feature",
+      "layer_id": "layer-olt",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.613307999999996,
+          -23.540519999999997
+        ]
+      },
+      "properties": {
+        "name": "OLT-ZTE-POP-CENTRO",
+        "source_module": "OLT_Manager",
+        "external_id": "olt-zte-pop01",
+        "status": "online",
+        "description": "ZTE C300 - IP: 10.200.1.10",
+        "accuracy": "APPROXIMATE",
+        "vendor": "ZTE",
+        "zabbix_trigger": "Loss of signal (LOS)"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-dio-olt-zte-pop01",
+      "type": "Feature",
+      "layer_id": "layer-dio",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.61320799999999,
+          -23.540419999999997
+        ]
+      },
+      "properties": {
+        "name": "DIO - POP CENTRO",
+        "source_module": "GIS_Core",
+        "description": "DIO de Distribuição 72F",
+        "accuracy": "APPROXIMATE",
+        "capacity": 72,
+        "occupied": 12
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-ceo-olt-zte-pop01",
+      "type": "Feature",
+      "layer_id": "layer-ceo",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.621308,
+          -23.545519999999996
+        ]
+      },
+      "properties": {
+        "name": "CEO Tronco - Rota CENTRO",
+        "source_module": "GIS_Core",
+        "description": "Caixa de Emenda Óptica (Sangria)",
+        "accuracy": "APPROXIMATE",
+        "capacity": 48,
+        "status": "online"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-cabo-tronco-olt-zte-pop01",
+      "type": "Feature",
+      "layer_id": "layer-cabo",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.61320799999999,
+            -23.540419999999997
+          ],
+          [
+            -46.621308,
+            -23.545519999999996
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Cabo Tronco 48FO - Rota CENTRO",
+        "source_module": "GIS_Core",
+        "cable_type": "AERIAL",
+        "fibers_count": 48,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-cto-olt-zte-pop01",
+      "type": "Feature",
+      "layer_id": "layer-cto",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.627308,
+          -23.549519999999998
+        ]
+      },
+      "properties": {
+        "name": "CTO - Bairro CENTRO",
+        "source_module": "GIS_Core",
+        "description": "CTO 1:16",
+        "accuracy": "APPROXIMATE",
+        "capacity": 16,
+        "occupied": 2
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-cabo-dist-olt-zte-pop01",
+      "type": "Feature",
+      "layer_id": "layer-cabo",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.621308,
+            -23.545519999999996
+          ],
+          [
+            -46.627308,
+            -23.549519999999998
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Cabo AS 12FO - Dist CENTRO",
+        "source_module": "GIS_Core",
+        "cable_type": "AERIAL",
+        "fibers_count": 12,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-olt-olt-hw-pop02",
+      "type": "Feature",
+      "layer_id": "layer-olt",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.593308,
+          -23.53052
+        ]
+      },
+      "properties": {
+        "name": "OLT-HUAWEI-POP-SUL",
+        "source_module": "OLT_Manager",
+        "external_id": "olt-hw-pop02",
+        "status": "online",
+        "description": "HUAWEI MA5800-X7 - IP: 10.200.2.10",
+        "accuracy": "APPROXIMATE",
+        "vendor": "HUAWEI"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-dio-olt-hw-pop02",
+      "type": "Feature",
+      "layer_id": "layer-dio",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.593208,
+          -23.53042
+        ]
+      },
+      "properties": {
+        "name": "DIO - POP SUL",
+        "source_module": "GIS_Core",
+        "description": "DIO de Distribuição 72F",
+        "accuracy": "APPROXIMATE",
+        "capacity": 72,
+        "occupied": 12
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-ceo-olt-hw-pop02",
+      "type": "Feature",
+      "layer_id": "layer-ceo",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.601308,
+          -23.535519999999998
+        ]
+      },
+      "properties": {
+        "name": "CEO Tronco - Rota SUL",
+        "source_module": "GIS_Core",
+        "description": "Caixa de Emenda Óptica (Sangria)",
+        "accuracy": "APPROXIMATE",
+        "capacity": 48,
+        "status": "online"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-cabo-tronco-olt-hw-pop02",
+      "type": "Feature",
+      "layer_id": "layer-cabo",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.593208,
+            -23.53042
+          ],
+          [
+            -46.601308,
+            -23.535519999999998
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Cabo Tronco 48FO - Rota SUL",
+        "source_module": "GIS_Core",
+        "cable_type": "AERIAL",
+        "fibers_count": 48,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-cto-olt-hw-pop02",
+      "type": "Feature",
+      "layer_id": "layer-cto",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.607308,
+          -23.53952
+        ]
+      },
+      "properties": {
+        "name": "CTO - Bairro SUL",
+        "source_module": "GIS_Core",
+        "description": "CTO 1:16",
+        "accuracy": "APPROXIMATE",
+        "capacity": 16,
+        "occupied": 2
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-cabo-dist-olt-hw-pop02",
+      "type": "Feature",
+      "layer_id": "layer-cabo",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.601308,
+            -23.535519999999998
+          ],
+          [
+            -46.607308,
+            -23.53952
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Cabo AS 12FO - Dist SUL",
+        "source_module": "GIS_Core",
+        "cable_type": "AERIAL",
+        "fibers_count": 12,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-onu-onu-vsol-1",
+      "type": "Feature",
+      "layer_id": "layer-ont",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.64727523393704,
+          -23.55822466615701
+        ]
+      },
+      "properties": {
+        "name": "Cliente VSOL 1",
+        "source_module": "OLT_Manager",
+        "external_id": "onu-vsol-1",
+        "status": "online",
+        "description": "ONT VSOL12345678 - PON: 0/0/1",
+        "accuracy": "APPROXIMATE",
+        "rx_power": -21.3
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-drop-onu-vsol-1",
+      "type": "Feature",
+      "layer_id": "layer-drop",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.647308,
+            -23.55952
+          ],
+          [
+            -46.64727523393704,
+            -23.55822466615701
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Drop Óptico - Cliente VSOL 1",
+        "source_module": "GIS_Core",
+        "cable_type": "DROP",
+        "fibers_count": 1,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-onu-onu-vsol-2",
+      "type": "Feature",
+      "layer_id": "layer-ont",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.64617267508697,
+          -23.558864780782002
+        ]
+      },
+      "properties": {
+        "name": "Cliente VSOL 2",
+        "source_module": "OLT_Manager",
+        "external_id": "onu-vsol-2",
+        "status": "offline",
+        "description": "ONT VSOL87654321 - PON: 0/0/1",
+        "accuracy": "APPROXIMATE",
+        "rx_power": -28.9
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-drop-onu-vsol-2",
+      "type": "Feature",
+      "layer_id": "layer-drop",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.647308,
+            -23.55952
+          ],
+          [
+            -46.64617267508697,
+            -23.558864780782002
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Drop Óptico - Cliente VSOL 2",
+        "source_module": "GIS_Core",
+        "cable_type": "DROP",
+        "fibers_count": 1,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-onu-onu-01",
+      "type": "Feature",
+      "layer_id": "layer-ont",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.62650755423761,
+          -23.549727356172735
+        ]
+      },
+      "properties": {
+        "name": "Carlos Eduardo Mendes",
+        "source_module": "OLT_Manager",
+        "external_id": "onu-01",
+        "status": "online",
+        "description": "ONT ZTEGC412998A - PON: 1/3/1",
+        "accuracy": "APPROXIMATE",
+        "rx_power": -19.2
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-drop-onu-01",
+      "type": "Feature",
+      "layer_id": "layer-drop",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.627308,
+            -23.549519999999998
+          ],
+          [
+            -46.62650755423761,
+            -23.549727356172735
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Drop Óptico - Carlos Eduardo Mendes",
+        "source_module": "GIS_Core",
+        "cable_type": "DROP",
+        "fibers_count": 1,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-onu-onu-02",
+      "type": "Feature",
+      "layer_id": "layer-ont",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.62879624453307,
+          -23.54821625633947
+        ]
+      },
+      "properties": {
+        "name": "Mariana Souza Santos",
+        "source_module": "OLT_Manager",
+        "external_id": "onu-02",
+        "status": "online",
+        "description": "ONT ZTEGC1188390 - PON: 1/3/1",
+        "accuracy": "APPROXIMATE",
+        "rx_power": -26.8
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-drop-onu-02",
+      "type": "Feature",
+      "layer_id": "layer-drop",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.627308,
+            -23.549519999999998
+          ],
+          [
+            -46.62879624453307,
+            -23.54821625633947
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Drop Óptico - Mariana Souza Santos",
+        "source_module": "GIS_Core",
+        "cable_type": "DROP",
+        "fibers_count": 1,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-onu-onu-03",
+      "type": "Feature",
+      "layer_id": "layer-ont",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.60640808878651,
+          -23.53877490142947
+        ]
+      },
+      "properties": {
+        "name": "João Silva Oliveira",
+        "source_module": "OLT_Manager",
+        "external_id": "onu-03",
+        "status": "online",
+        "description": "ONT 4857544391F0221A - PON: 0/1/0",
+        "accuracy": "APPROXIMATE",
+        "rx_power": -18.5
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-drop-onu-03",
+      "type": "Feature",
+      "layer_id": "layer-drop",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.607308,
+            -23.53952
+          ],
+          [
+            -46.60640808878651,
+            -23.53877490142947
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Drop Óptico - João Silva Oliveira",
+        "source_module": "GIS_Core",
+        "cable_type": "DROP",
+        "fibers_count": 1,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-onu-onu-04",
+      "type": "Feature",
+      "layer_id": "layer-ont",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -46.60835157874346,
+          -23.540807500186915
+        ]
+      },
+      "properties": {
+        "name": "Padaria & Confeitaria Estrela LTDA",
+        "source_module": "OLT_Manager",
+        "external_id": "onu-04",
+        "status": "blocked_sgp",
+        "description": "ONT 48575443B08218CC - PON: 0/1/1 (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro) (Bloqueio Financeiro)",
+        "accuracy": "APPROXIMATE",
+        "rx_power": -40
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    },
+    {
+      "id": "gis-drop-onu-04",
+      "type": "Feature",
+      "layer_id": "layer-drop",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -46.607308,
+            -23.53952
+          ],
+          [
+            -46.60835157874346,
+            -23.540807500186915
+          ]
+        ]
+      },
+      "properties": {
+        "name": "Drop Óptico - Padaria & Confeitaria Estrela LTDA",
+        "source_module": "GIS_Core",
+        "cable_type": "DROP",
+        "fibers_count": 1,
+        "accuracy": "APPROXIMATE"
+      },
+      "created_at": "2026-09-15T12:23:46.952Z",
+      "updated_at": "2026-09-15T12:23:46.952Z"
+    }
+  ],
+  "topology": [
+    {
+      "id": "gis-olt-olt-vsol-pop03-gis-dio-olt-vsol-pop03",
+      "source_id": "gis-olt-olt-vsol-pop03",
+      "target_id": "gis-dio-olt-vsol-pop03",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-dio-olt-vsol-pop03-gis-cabo-tronco-olt-vsol-pop03",
+      "source_id": "gis-dio-olt-vsol-pop03",
+      "target_id": "gis-cabo-tronco-olt-vsol-pop03",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cabo-tronco-olt-vsol-pop03-gis-ceo-olt-vsol-pop03",
+      "source_id": "gis-cabo-tronco-olt-vsol-pop03",
+      "target_id": "gis-ceo-olt-vsol-pop03",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-ceo-olt-vsol-pop03-gis-cabo-dist-olt-vsol-pop03",
+      "source_id": "gis-ceo-olt-vsol-pop03",
+      "target_id": "gis-cabo-dist-olt-vsol-pop03",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cabo-dist-olt-vsol-pop03-gis-cto-olt-vsol-pop03",
+      "source_id": "gis-cabo-dist-olt-vsol-pop03",
+      "target_id": "gis-cto-olt-vsol-pop03",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-olt-olt-zte-pop01-gis-dio-olt-zte-pop01",
+      "source_id": "gis-olt-olt-zte-pop01",
+      "target_id": "gis-dio-olt-zte-pop01",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-dio-olt-zte-pop01-gis-cabo-tronco-olt-zte-pop01",
+      "source_id": "gis-dio-olt-zte-pop01",
+      "target_id": "gis-cabo-tronco-olt-zte-pop01",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cabo-tronco-olt-zte-pop01-gis-ceo-olt-zte-pop01",
+      "source_id": "gis-cabo-tronco-olt-zte-pop01",
+      "target_id": "gis-ceo-olt-zte-pop01",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-ceo-olt-zte-pop01-gis-cabo-dist-olt-zte-pop01",
+      "source_id": "gis-ceo-olt-zte-pop01",
+      "target_id": "gis-cabo-dist-olt-zte-pop01",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cabo-dist-olt-zte-pop01-gis-cto-olt-zte-pop01",
+      "source_id": "gis-cabo-dist-olt-zte-pop01",
+      "target_id": "gis-cto-olt-zte-pop01",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-olt-olt-hw-pop02-gis-dio-olt-hw-pop02",
+      "source_id": "gis-olt-olt-hw-pop02",
+      "target_id": "gis-dio-olt-hw-pop02",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-dio-olt-hw-pop02-gis-cabo-tronco-olt-hw-pop02",
+      "source_id": "gis-dio-olt-hw-pop02",
+      "target_id": "gis-cabo-tronco-olt-hw-pop02",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cabo-tronco-olt-hw-pop02-gis-ceo-olt-hw-pop02",
+      "source_id": "gis-cabo-tronco-olt-hw-pop02",
+      "target_id": "gis-ceo-olt-hw-pop02",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-ceo-olt-hw-pop02-gis-cabo-dist-olt-hw-pop02",
+      "source_id": "gis-ceo-olt-hw-pop02",
+      "target_id": "gis-cabo-dist-olt-hw-pop02",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cabo-dist-olt-hw-pop02-gis-cto-olt-hw-pop02",
+      "source_id": "gis-cabo-dist-olt-hw-pop02",
+      "target_id": "gis-cto-olt-hw-pop02",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cto-olt-vsol-pop03-gis-drop-onu-vsol-1",
+      "source_id": "gis-cto-olt-vsol-pop03",
+      "target_id": "gis-drop-onu-vsol-1",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-drop-onu-vsol-1-gis-onu-onu-vsol-1",
+      "source_id": "gis-drop-onu-vsol-1",
+      "target_id": "gis-onu-onu-vsol-1",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cto-olt-vsol-pop03-gis-drop-onu-vsol-2",
+      "source_id": "gis-cto-olt-vsol-pop03",
+      "target_id": "gis-drop-onu-vsol-2",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-drop-onu-vsol-2-gis-onu-onu-vsol-2",
+      "source_id": "gis-drop-onu-vsol-2",
+      "target_id": "gis-onu-onu-vsol-2",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cto-olt-zte-pop01-gis-drop-onu-01",
+      "source_id": "gis-cto-olt-zte-pop01",
+      "target_id": "gis-drop-onu-01",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-drop-onu-01-gis-onu-onu-01",
+      "source_id": "gis-drop-onu-01",
+      "target_id": "gis-onu-onu-01",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cto-olt-zte-pop01-gis-drop-onu-02",
+      "source_id": "gis-cto-olt-zte-pop01",
+      "target_id": "gis-drop-onu-02",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-drop-onu-02-gis-onu-onu-02",
+      "source_id": "gis-drop-onu-02",
+      "target_id": "gis-onu-onu-02",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cto-olt-hw-pop02-gis-drop-onu-03",
+      "source_id": "gis-cto-olt-hw-pop02",
+      "target_id": "gis-drop-onu-03",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-drop-onu-03-gis-onu-onu-03",
+      "source_id": "gis-drop-onu-03",
+      "target_id": "gis-onu-onu-03",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-cto-olt-hw-pop02-gis-drop-onu-04",
+      "source_id": "gis-cto-olt-hw-pop02",
+      "target_id": "gis-drop-onu-04",
+      "relation_type": "CONNECTED_TO"
+    },
+    {
+      "id": "gis-drop-onu-04-gis-onu-onu-04",
+      "source_id": "gis-drop-onu-04",
+      "target_id": "gis-onu-onu-04",
+      "relation_type": "CONNECTED_TO"
+    }
+  ]
+}
