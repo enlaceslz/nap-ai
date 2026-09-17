@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
  Search, 
  CreditCard, 
@@ -24,7 +25,8 @@ import {
  AlertTriangle,
  MapPin,
  Share2,
- Navigation
+ Navigation,
+ UserCheck
 } from 'lucide-react';
 import AddressMapModal from './AddressMapModal';
 import PortalContratoModal from './PortalContratoModal';
@@ -116,6 +118,7 @@ export default function SgpAdvancedSearch({
  onSelectCliente,
  className = ''
 }: SgpAdvancedSearchProps) {
+ const navigate = useNavigate();
  const [searchTerm, setSearchTerm] = useState(String(initialClienteId));
  const [loading, setLoading] = useState(false);
  const [cliente, setCliente] = useState<SgpClienteCompleto | null>(null);
@@ -318,6 +321,15 @@ export default function SgpAdvancedSearch({
  <span className="font-mono font-bold text-card-foreground bg-card px-2 py-0.5 rounded border border-border">
  #{cliente.contrato_id}
  </span>
+ <button
+ type="button"
+ onClick={() => navigate(`/admin/customer360?id=${cliente.id}`)}
+ className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-400 border border-emerald-500/30 rounded-lg font-bold text-[11px] transition-colors shadow-xs"
+ title="Abrir Ficha Customer 360 Unificada (TR-069, Enlace-Pay, Asterisk)"
+ >
+ <UserCheck size={12} />
+ <span>Customer 360</span>
+ </button>
  </div>
  )}
  </div>

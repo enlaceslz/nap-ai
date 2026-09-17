@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { 
  BookOpen, CheckCircle2, Circle, AlertCircle, Search, 
  Terminal, ShieldCheck, Database, Server, Smartphone, 
- Cpu, Zap, Layers, FileText, ChevronRight, Download
+ Cpu, Zap, Layers, FileText, ChevronRight, Download,
+ UserCheck, CreditCard
 } from 'lucide-react';
 import { useConfig } from '../contexts/ConfigContext';
 
@@ -11,6 +12,7 @@ export default function Ajuda() {
  const [activeTab, setActiveTab] = useState<'matriz' | 'manuais' | 'deploy'>('matriz');
 
  const matrixStaging = [
+ { module: 'Customer 360 & Enlace-Pay', status: 'done', desc: 'Espelho operacional resiliente, Baixa Webhook C6, Conciliação e Timeline Unificada', date: 'Homologado' },
  { module: 'WABA & Inbox', status: 'done', desc: 'Integração Oficial WhatsApp Cloud API & Copiloto Gemini IA', date: 'Homologado' },
  { module: 'Cérebro IA (MaIA) & 9router', status: 'done', desc: 'Google Gemini 2.5 Flash com failover automático 9router e alertas de cota 429', date: 'Homologado' },
  { module: 'CRM Kanban', status: 'done', desc: 'Sincronização 360 e SGP Adapter acoplado', date: 'Homologado' },
@@ -149,6 +151,17 @@ export default function Ajuda() {
  Manuais para compilação do Portal do Cliente e do App do Técnico (Mobile-first) em APK nativo via Bubblewrap/TWA.
  </p>
  <div className="flex items-center text-indigo-400 text-sm font-medium">Ler manual <ChevronRight size={16} className="ml-1" /></div>
+ </div>
+
+ <div className="bg-card border border-border p-6 rounded-xl hover:border-emerald-500/50 transition-colors cursor-pointer group">
+ <div className="h-12 w-12 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-400 mb-4 group-hover:scale-110 transition-transform">
+ <UserCheck size={24} />
+ </div>
+ <h3 className="text-lg font-semibold text-card-foreground mb-2">Customer 360 & Enlace-Pay</h3>
+ <p className="text-muted-foreground text-sm mb-4 leading-relaxed">
+ Conciliação bancária de Pix (C6 Bank), espelho operacional resiliente, auditoria de divergências e autoridade de domínio.
+ </p>
+ <div className="flex items-center text-emerald-400 text-sm font-medium">Ler manual <ChevronRight size={16} className="ml-1" /></div>
  </div>
  </div>
  )}

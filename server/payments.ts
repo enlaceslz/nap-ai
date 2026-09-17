@@ -327,12 +327,13 @@ export function setupPaymentRoutes(app: any) {
   // 18. Simulação de Eventos e Teste de Carga de Webhook (Para Testes do Operador)
   app.post("/api/customer360/simulate/payment", async (req: any, res: any) => {
     try {
-      const { txid = 'E123456789', valor = 100.00 } = req.body;
+      const txid = req.body.txid || 'E123456789';
+      const valor = req.body.valor !== undefined ? req.body.valor : (req.body.amount !== undefined ? req.body.amount : 100.00);
       const result = await store.processBankPaymentWebhook({
         txid,
         valor: parseFloat(valor),
-        idTransacaoBancaria: `SIM_C6_${Date.now()}`,
-        banco: 'C6 Bank'
+        idTransacaoBancaria: req.body.idTransacaoBancaria || `SIM_C6_${Date.now()}`,
+        banco: req.body.banco || 'C6 Bank'
       });
       res.json(result);
     } catch (err: any) {
