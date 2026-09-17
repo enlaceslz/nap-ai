@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, varchar, boolean, integer } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, timestamp, varchar, boolean, integer , numeric, date, index} from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -19,16 +19,25 @@ export const clientes = pgTable('clientes', {
   plano: varchar('plano', { length: 100 }),
   status: varchar('status', { length: 50 }).default('ativo'), // ativo, bloqueado, cancelado
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 export const faturas = pgTable('faturas', {
   id: serial('id').primaryKey(),
-  clienteId: serial('cliente_id').references(() => clientes.id),
-  valor: varchar('valor', { length: 50 }).notNull(), // Pode ser decimal(10,2) na vida real, simplificando com varchar p/ demo
-  vencimento: varchar('vencimento', { length: 50 }).notNull(),
+  clienteId: integer('cliente_id').references(() => clientes.id),
+  valor: numeric('valor', { precision: 15, scale: 2 }).notNull(),
+  vencimento: date('vencimento').notNull(),
   status: varchar('status', { length: 50 }).notNull(), // 'pendente', 'pago', 'vencido'
   linhaDigitavel: text('linha_digitavel'),
+  transactionId: varchar('transaction_id', { length: 255 }).unique(),
+  idempotencyKey: varchar('idempotency_key', { length: 255 }).unique(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    clienteIdx: index('idx_faturas_cliente_id').on(table.clienteId),
+    vencimentoIdx: index('idx_faturas_vencimento').on(table.vencimento),
+    statusIdx: index('idx_faturas_status').on(table.status),
+  };
 });
 
 export const atendimentos = pgTable('atendimentos', {
@@ -51,20 +60,26 @@ export const conversas = pgTable('conversas', {
   id: serial('id').primaryKey(),
   telefone: varchar('telefone', { length: 20 }).notNull().unique(), // O ID do WABA ou telefone real
   nomeCliente: varchar('nome_cliente', { length: 255 }),
-  clienteId: serial('cliente_id').references(() => clientes.id),
+  clienteId: integer('cliente_id').references(() => clientes.id),
   fila: varchar('fila', { length: 50 }).default('triagem_ia'), // 'triagem_ia', 'fila_geral', 'meus', 'finalizados'
   statusConexao: text('status_conexao'), // JSON com uptime, sinal onu etc p/ contexto
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 export const mensagens = pgTable('mensagens', {
   id: serial('id').primaryKey(),
-  conversaId: serial('conversa_id').references(() => conversas.id),
+  conversaId: integer('conversa_id').references(() => conversas.id),
   remetente: varchar('remetente', { length: 50 }).notNull(), // 'cliente', 'operador', 'ia', 'sistema'
   conteudo: text('conteudo').notNull(),
   tipo: varchar('tipo', { length: 50 }).default('texto'), // 'texto', 'audio', 'imagem'
   createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    conversaIdx: index('idx_mensagens_conversa_id').on(table.conversaId),
+    createdAtIdx: index('idx_mensagens_created_at').on(table.createdAt),
+  };
 });
 
 // --- HELP DESK & WORK ORDERS ---
@@ -79,8 +94,8 @@ export const helpdesk_queues = pgTable('helpdesk_queues', {
 export const helpdesk_slas = pgTable('helpdesk_slas', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
-  response_minutes: serial('response_minutes'),
-  resolution_minutes: serial('resolution_minutes'),
+  response_minutes: integer('response_minutes'),
+  resolution_minutes: integer('resolution_minutes'),
   priority: varchar('priority', { length: 50 }).notNull(),
   active: boolean('active').default(true),
 });
@@ -108,8 +123,8 @@ export const work_orders = pgTable('work_orders', {
   id: serial('id').primaryKey(),
   ticket_id: integer('ticket_id').references(() => helpdesk_tickets.id),
   incident_id: varchar('incident_id', { length: 255 }),
-  customer_id: serial('customer_id').references(() => clientes.id),
-  technician_id: serial('technician_id').references(() => users.id),
+  customer_id: integer('customer_id').references(() => clientes.id),
+  technician_id: integer('technician_id').references(() => users.id),
   team_id: varchar('team_id', { length: 100 }),
   status: varchar('status', { length: 50 }).default('ABERTA'),
   priority: varchar('priority', { length: 50 }).default('NORMAL'),
@@ -125,28 +140,28 @@ export const work_orders = pgTable('work_orders', {
 
 export const work_order_tasks = pgTable('work_order_tasks', {
   id: serial('id').primaryKey(),
-  work_order_id: serial('work_order_id').references(() => work_orders.id),
+  work_order_id: integer('work_order_id').references(() => work_orders.id),
   description: text('description').notNull(),
   status: varchar('status', { length: 50 }).default('pendente'),
-  technician_id: serial('technician_id').references(() => users.id),
+  technician_id: integer('technician_id').references(() => users.id),
   completed_at: timestamp('completed_at'),
 });
 
 export const work_order_evidence = pgTable('work_order_evidence', {
   id: serial('id').primaryKey(),
-  work_order_id: serial('work_order_id').references(() => work_orders.id),
+  work_order_id: integer('work_order_id').references(() => work_orders.id),
   type: varchar('type', { length: 50 }).notNull(), // photo, signature, document
   storage_key: text('storage_key').notNull(),
   checksum: varchar('checksum', { length: 255 }),
   metadata: text('metadata'),
-  created_by: serial('created_by').references(() => users.id),
+  created_by: integer('created_by').references(() => users.id),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
 
 export const helpdesk_assignments = pgTable('helpdesk_assignments', {
   id: serial('id').primaryKey(),
-  ticket_id: serial('ticket_id').references(() => helpdesk_tickets.id),
-  technician_id: serial('technician_id').references(() => users.id),
+  ticket_id: integer('ticket_id').references(() => helpdesk_tickets.id),
+  technician_id: integer('technician_id').references(() => users.id),
   assigned_at: timestamp('assigned_at').defaultNow(),
   accepted_at: timestamp('accepted_at'),
   completed_at: timestamp('completed_at'),
@@ -157,7 +172,7 @@ export const helpdesk_audit = pgTable('helpdesk_audit', {
   entity: varchar('entity', { length: 100 }).notNull(),
   entity_id: varchar('entity_id', { length: 100 }).notNull(),
   action: varchar('action', { length: 100 }).notNull(),
-  actor_id: varchar('actor_id', { length: 100 }).notNull(),
+  actor_id: integer('actor_id').references(() => users.id).notNull(),
   old_value: text('old_value'),
   new_value: text('new_value'),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
@@ -191,7 +206,7 @@ export const ipam_reservations = pgTable('ipam_reservations', {
   id: serial('id').primaryKey(),
   prefix_id: varchar('prefix_id', { length: 255 }),
   ip_address: varchar('ip_address', { length: 50 }).notNull(),
-  customer_id: serial('customer_id').references(() => clientes.id),
+  customer_id: integer('customer_id').references(() => clientes.id),
   service_id: varchar('service_id', { length: 100 }),
   purpose: varchar('purpose', { length: 255 }),
   status: varchar('status', { length: 50 }).default('reserved'),
@@ -201,11 +216,27 @@ export const ipam_reservations = pgTable('ipam_reservations', {
 
 export const ipam_audit = pgTable('ipam_audit', {
   id: serial('id').primaryKey(),
-  actor_id: varchar('actor_id', { length: 100 }).notNull(),
+  actor_id: integer('actor_id').references(() => users.id).notNull(),
   action: varchar('action', { length: 100 }).notNull(),
   object_type: varchar('object_type', { length: 100 }),
   object_id: varchar('object_id', { length: 255 }),
   before: text('before'),
   after: text('after'),
   created_at: timestamp('created_at').defaultNow().notNull(),
+});
+
+
+export const waba_webhooks = pgTable('waba_webhooks', {
+  id: serial('id').primaryKey(),
+  provedorId: varchar('provedor_id', { length: 100 }), // Tenant Isolation
+  eventType: varchar('event_type', { length: 50 }).notNull(), // 'messages', 'statuses'
+  wabaMessageId: varchar('waba_message_id', { length: 255 }).unique(), // Idempotency key
+  payload: text('payload'), // JSON string
+  processStatus: varchar('process_status', { length: 50 }).default('pending'), // 'pending', 'processed', 'error'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    messageIdIdx: index('idx_waba_webhooks_msg_id').on(table.wabaMessageId),
+    statusIdx: index('idx_waba_webhooks_status').on(table.processStatus),
+  };
 });

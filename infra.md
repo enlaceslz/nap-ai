@@ -29,8 +29,8 @@ erDiagram
     faturas {
         int id PK
         int cliente_id FK
-        varchar valor
-        varchar vencimento
+        numeric(15,2) valor "Transacional"
+        date vencimento
         varchar status "pendente, pago, vencido"
         text linha_digitavel
         timestamp created_at
@@ -55,7 +55,7 @@ erDiagram
         varchar direction "incoming, outgoing"
         text body
         varchar tipo "texto, imagem, audio, documento, template"
-        varchar waba_message_id
+        varchar wabaMessageId "Unique Idempotency Key"
         varchar remote_url "URL do S3/Firebase"
         timestamp created_at
     }

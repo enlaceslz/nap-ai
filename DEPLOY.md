@@ -95,3 +95,15 @@ VITE_FIREBASE_API_KEY=sua_chave_firebase
    Ative com `sudo ln -s /etc/nginx/sites-available/nap /etc/nginx/sites-enabled/` e recarregue `sudo systemctl reload nginx`.
 
 Alternativamente, execute o script de instalação automatizada: `./deploy.sh`
+
+
+## Backup e Disaster Recovery (RPO/RTO)
+
+Seguindo as diretrizes de integridade de BSS/ERP, o NAP acompanha scripts oficiais para contingência (Fase 6 de Auditoria DB).
+
+Os scripts estão localizados na pasta `/scripts`:
+
+1. **`backup_db.sh`**: Script que executa `pg_dump` compactado. Recomendado adicionar ao CRON do servidor root para rodar de madrugada (ex: `0 3 * * * /opt/nap/scripts/backup_db.sh`). Possui rotatividade automática de 7 dias para poupar disco.
+2. **`restore_db.sh`**: Script restrito para cenários de desastre. Limpa as tabelas afetadas e sobe a imagem exata da data do dump com `pg_restore -c -1`.
+
+*Nota: Um backup só existe de fato se o restore foi testado. Utilize uma VM de homologação para validar os dumps trimestralmente.*

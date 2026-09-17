@@ -1,3 +1,4 @@
+import { ErpFactory } from '../integrations/erp/ErpFactory';
 import { db } from '../../src/db';
 import { atendimentos, clientes } from '../../src/db/schema';
 import { eq, desc } from 'drizzle-orm';

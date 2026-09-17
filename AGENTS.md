@@ -53,3 +53,9 @@ When making changes:
 - **Communications Hub (Telegram & RAG):** Módulo orquestrador central em `/server/communications/`. Recebe payloads do Event Engine (Zabbix/GIS) e notifica via Telegram Gateway. Contém o `NocCopilot` (AI Gateway via Gemini).
 - **Field Service (SGP Mobile):** Desacoplado em `/server/field/`. Fornece endpoints REST para Ordens de Serviço. Integra-se nativamente com o Communications Hub.
 - **Event-Driven Correlation:** Todos os alarmes críticos gerados no Zabbix e os rompimentos estimados de fibra do GIS engatilham orquestração via webhook local disparando para o Hub.
+
+## 7. Database Typings & Idempotency Rules (CRITICAL)
+- **Foreign Keys**: NEVER use `serial` for foreign keys in `schema.ts`. ALWAYS use `integer().references(...)`.
+- **Financial Types**: ALL monetary values MUST be `numeric('...', { precision: 15, scale: 2 })`. Never use `varchar` or `float`.
+- **Soft Delete**: Core tables (`clientes`, `conversas`) utilize `deletedAt` for LGPD compliance. Never hard-delete records.
+- **Idempotency**: Webhook entries (`waba_webhooks`) and financial transactions (`faturas`) MUST use unique keys (`wabaMessageId`, `idempotencyKey`, `transactionId`) to prevent race conditions and duplicate processing.

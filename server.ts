@@ -1,3 +1,4 @@
+import { setupPortalRoutes } from './server/portal/portalRoutes';
 import { setupGeminiRoutes } from "./server/gemini_routes";
 import express from "express";
 import path from "path";
@@ -1730,6 +1731,7 @@ setupOltRoutes(app, { registrarAuditoria });
 setupZabbixRoutes(app, { registrarAuditoria });
 setupCrmRoutes(app, { registrarAuditoria });
 setupReguaRoutes(app, { registrarAuditoria });
+setupPortalRoutes(app);
 setupGenieacsRoutes(app, { registrarAuditoria });
 setupCommunicationsRoutes(app, { registrarAuditoria });
 setupFieldRoutes(app, { registrarAuditoria });
@@ -1743,6 +1745,8 @@ app.use("/api/ai", aiRoutes);
 
   // Event Engine & Correlation
   app.use("/api/v1/correlation", setupCorrelationRoutes());
+  app.get("/api/gis/features", (req, res) => { res.json({ success: true, features: [] }) });
+  app.get("/api/noc/security-alerts", (req, res) => { res.json([{ id: 1, type: "DDoS Attempt", source: "192.168.1.100", severity: "high", time: new Date().toISOString() }]); });
 
   // IPAM & NSoT
   app.use("/api/v1/ipam", setupIpamRoutes());

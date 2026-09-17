@@ -1,3 +1,4 @@
+import { ErpFactory } from './integrations/erp/ErpFactory';
 import { GoogleGenAI } from "@google/genai";
 import { agentToolRegistry } from "./agent/toolRegistry";
 
