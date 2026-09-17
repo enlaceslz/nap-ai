@@ -1,3 +1,4 @@
+import { ErpFactory } from '../integrations/erp/ErpFactory';
 import { mcpIpamTools } from "./ipamTools";
 /**
  * NAP AI Agent Engine - Dynamic Tool Registry
@@ -103,23 +104,43 @@ agentToolRegistry.register({
       cpf_cnpj: { type: "STRING", description: "CPF ou CNPJ do assinante" }
     }
   },
-  execute: async ({ cliente_cpf }) => {
-    const dados = {
-      cliente: "Maria Oliveira",
-      cpf: cliente_cpf || "123.456.789-00",
-      fatura_id: 8841,
-      valor: 99.90,
-      vencimento: "10/09/2026",
-      codigo_pix: "00020126580014br.gov.bcb.pix0136nap-provedor-fibra-9982-fatura520400005303986540599.905802BR5913NAP TELECOM6009SAO PAULO62070503***6304E8A1"
-    };
+  execute: async ({ cpf_cnpj }) => {
+    try {
+      const erp = ErpFactory.getInstance();
+      const cpf = cpf_cnpj || "123.456.789-00";
+      const cliente = await erp.buscarClientePorCpf(cpf);
+      
+      let dados: any = { status: 'cliente_nao_encontrado' };
+      let resposta = "Infelizmente não consegui localizar um cliente com este CPF no nosso sistema.";
+      
+      if (cliente) {
+        const faturas = await erp.buscarFaturasEmAberto(cliente.id);
+        if (faturas.length > 0) {
+          const pix = await erp.gerarPixCopiaECola(faturas[0].id);
+          dados = {
+            cliente: cliente.nome,
+            cpf: cliente.documento,
+            fatura_id: faturas[0].id,
+            valor: faturas[0].valor,
+            vencimento: faturas[0].vencimento,
+            status: faturas[0].status,
+            pix_copia_cola: pix
+          };
+          resposta = `Fatura encontrada no valor de R$ ${dados.valor} com vencimento em ${dados.vencimento}. Código PIX Copia e Cola gerado: ${dados.pix_copia_cola}`;
+        } else {
+          dados = { cliente: cliente.nome, faturas_abertas: 0 };
+          resposta = `Verifiquei no sistema e não encontrei nenhuma fatura em aberto para ${cliente.nome}.`;
+        }
+      }
 
-    const resposta = `Localizei sua fatura em aberto no valor de R$ 99,90 com vencimento em 10/09/2026.\n\nAqui está a chave PIX Copia e Cola para pagamento imediato:\n\`${dados.codigo_pix}\`\n\nAssim que você pagar no seu app bancário, a compensação ocorrerá em menos de 1 minuto no nosso sistema! Deseja o link do boleto bancário também?`;
-
-    return {
-      toolExecutada: "sgp_gerar_pix",
-      toolDados: dados,
-      respostaGerada: resposta
-    };
+      return {
+        toolExecutada: "sgp_gerar_pix",
+        toolDados: dados,
+        respostaGerada: resposta
+      };
+    } catch (e) {
+      return { toolExecutada: "sgp_gerar_pix", toolDados: { error: true }, respostaGerada: "Ocorreu um erro ao consultar o sistema financeiro." };
+    }
   }
 });
 

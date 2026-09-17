@@ -34,6 +34,11 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
       }
       
       const messageData = body.entry[0].changes[0].value.messages[0];
+      const wabaMessageId = messageData.id; // Unique ID from Meta
+      
+      // Idempotency Check (In a real DB, check if wabaMessageId exists)
+      // if (await db.query.waba_webhooks.findFirst({ where: eq(waba_webhooks.id, wabaMessageId) })) return res.sendStatus(200);
+      console.log(`[WABA Webhook] Processando Mensagem ID: ${wabaMessageId}`);
       const contactData = body.entry[0].changes[0].value.contacts?.[0];
       const telefone = messageData.from;
       const texto = messageData.text?.body || "(Áudio/Mídia Recebida)";
