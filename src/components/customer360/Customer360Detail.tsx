@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   User, CreditCard, Wifi, Headphones, Activity, Clock, 
   CheckCircle2, AlertTriangle, XCircle, Copy, Check, QrCode, 
@@ -33,8 +33,12 @@ export default function Customer360Detail({
   const [pixAmount, setPixAmount] = useState('100.00');
   const [pixDueDate, setPixDueDate] = useState(new Date(Date.now() + 86400000 * 5).toISOString().split('T')[0]);
   const [selectedInvoice, setSelectedInvoice] = useState<NapInvoice | null>(
-    customer.financial.invoices[0] || null
+    customer.financial?.invoices?.[0] || null
   );
+
+  useEffect(() => {
+    setSelectedInvoice(customer.financial?.invoices?.[0] || null);
+  }, [customer.id]);
 
   const copyToClipboard = (text: string, type: 'txid' | 'pix' | 'id') => {
     navigator.clipboard.writeText(text);
@@ -177,7 +181,7 @@ export default function Customer360Detail({
           }`}
         >
           <Clock size={14} />
-          Customer Timeline Unificada ({customer.timeline.length})
+          Customer Timeline Unificada ({(customer.timeline || []).length})
         </button>
 
         <button
@@ -189,7 +193,7 @@ export default function Customer360Detail({
           }`}
         >
           <CreditCard size={14} />
-          Financeiro & Enlace-Pay ({customer.financial.invoices.length})
+          Financeiro & Enlace-Pay ({(customer.financial?.invoices || []).length})
         </button>
 
         <button
@@ -225,7 +229,7 @@ export default function Customer360Detail({
           }`}
         >
           <Headphones size={14} />
-          Atendimento & WABA ({customer.support.tickets.length})
+          Atendimento & WABA ({(customer.support?.tickets || []).length})
         </button>
 
         <button
@@ -257,13 +261,13 @@ export default function Customer360Detail({
               </p>
             </div>
             <span className="text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300 font-mono">
-              Total: {customer.timeline.length} eventos
+              Total: {(customer.timeline || []).length} eventos
             </span>
           </div>
 
           <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5">
             <div className="relative border-l-2 border-slate-800 ml-4 pl-6 space-y-6">
-              {customer.timeline.map((evt, idx) => {
+              {(customer.timeline || []).map((evt, idx) => {
                 let badgeColor = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
                 let icon = <Clock size={14} />;
 
@@ -339,14 +343,14 @@ export default function Customer360Detail({
                 R$ {customer.financial.totalPending.toFixed(2)}
               </div>
               <span className="text-[11px] text-muted-foreground">
-                {customer.financial.invoices.filter(i => i.status === 'open').length} fatura(s) em aberto
+                {(customer.financial?.invoices || []).filter(i => i.status === 'open').length} fatura(s) em aberto
               </span>
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
               <span className="text-xs text-muted-foreground">Total Quitado (Mês)</span>
               <div className="text-2xl font-bold font-outfit text-emerald-400 mt-1">
-                R$ {customer.financial.totalPaid.toFixed(2)}
+                R$ {Number(customer.financial?.totalPaid || 0).toFixed(2)}
               </div>
               <span className="text-[11px] text-emerald-400 flex items-center gap-1">
                 <CheckCircle2 size={11} /> Confirmado via Enlace-Pay
@@ -356,7 +360,7 @@ export default function Customer360Detail({
             <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
               <span className="text-xs text-muted-foreground">Risco de Inadimplência</span>
               <div className="text-2xl font-bold font-outfit text-foreground mt-1 capitalize">
-                {customer.financial.defaultRisk}
+                {customer.financial?.defaultRisk || 'baixo'}
               </div>
               <span className="text-[11px] text-muted-foreground">
                 Score baseado no histórico ERP
@@ -392,7 +396,7 @@ export default function Customer360Detail({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {customer.financial.invoices.map(inv => (
+                  {(customer.financial?.invoices || []).map(inv => (
                     <tr 
                       key={inv.id} 
                       className={`hover:bg-slate-800/30 transition cursor-pointer ${
@@ -714,11 +718,11 @@ export default function Customer360Detail({
               Chamados de Suporte (Zammad Engine)
             </h3>
 
-            {customer.support.tickets.length === 0 ? (
+            {(customer.support?.tickets || []).length === 0 ? (
               <p className="text-xs text-muted-foreground py-4 text-center">Nenhum chamado registrado para este assinante.</p>
             ) : (
               <div className="space-y-3">
-                {customer.support.tickets.map(tkt => (
+                {(customer.support?.tickets || []).map(tkt => (
                   <div key={tkt.id} className="p-3 bg-slate-950/60 border border-slate-800/80 rounded-lg text-xs">
                     <div className="flex items-center justify-between">
                       <span className="font-mono font-semibold text-blue-400">{tkt.id}</span>
@@ -753,11 +757,11 @@ export default function Customer360Detail({
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Total de Interações:</span>
-                <span className="text-slate-200">{customer.support.whatsappInteractionsCount} conversas</span>
+                <span className="text-slate-200">{customer.support?.whatsappInteractionsCount ?? 0} conversas</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Último Contato:</span>
-                <span className="text-slate-200">{new Date(customer.support.lastInteractionDate).toLocaleString('pt-BR')}</span>
+                <span className="text-slate-200">{customer.support?.lastInteractionDate ? new Date(customer.support.lastInteractionDate).toLocaleString('pt-BR') : 'Sem registros'}</span>
               </div>
             </div>
 

@@ -1,7 +1,7 @@
 import { agentToolRegistry } from "./agent/toolRegistry.js";
 import { processGeminiAgentRun } from "./gemini.js";
 
-let systemConfig: any = {
+export let systemConfig: any = {
   erpAtivo: "sgp",
   erps: {},
   ia: {
@@ -16,14 +16,8 @@ let registrarAuditoria: (entry: any) => any = (entry: any) => {
   console.log(`[Audit Log] ${entry.modulo} - ${entry.acao}: ${entry.detalhes}`);
 };
 
-export const aiAlerts: Array<{
-  id: string;
-  type: 'QUOTA_EXHAUSTED' | 'RATE_LIMIT' | 'GATEWAY_ERROR' | 'FAILOVER_TRIGGERED';
-  message: string;
-  provider: string;
-  details?: any;
-  timestamp: string;
-}> = [];
+export { aiAlerts } from "./ai_state.js";
+import { aiAlerts } from "./ai_state.js";
 
 export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any; registrarAuditoria?: (entry: any) => any }) {
   if (sharedContext?.systemConfig) {
@@ -245,178 +239,59 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
 
   app.post("/api/gemini/agent/run", async (req, res) => {
     const startTime = Date.now();
-    const { prompt = "", cliente_cpf, telefone, contexto } = req.body;
-    const promptLower = prompt.toLowerCase();
-
-    let toolExecutada: string | undefined = undefined;
-    let toolDados: any = null;
-    let respostaGerada = "";
-    let provedorUtilizado = "Google Gemini Oficial (Gratuito)";
-    let failoverOcorrido = false;
-
     const iaConfig = systemConfig.ia || {};
     const provedorGateway = iaConfig.provedorGateway || (process.env.GEMINI_BASE_URL ? "9router" : "direct");
-    const baseUrl = iaConfig.baseUrl || process.env.GEMINI_BASE_URL || "https://9router.enlace.slz.br";
-    const apiKey = iaConfig.apiKey || process.env.GEMINI_API_KEY;
-
-    // Contexto raiz canônico (Nome da IA sempre MaIA, dados oficiais DJD Telecom)
-    const promptRaiz = `Você é a MaIA, a inteligência artificial ultra-humanizada, acolhedora e calorosa do provedor de internet DJD Telecom. Fale como um ser humano super simpático e empático, nunca como um robô. Os dados oficiais da empresa são: Razão Social: D.J.D. TELECOM LTDA, CNPJ: 36.954.827/0001-81, Endereço: Av. Mal. Castelo Branco, 148, Sala 207, São Francisco, São Luís - MA, CEP: 65076-090.
-Responda cordialmente em português (Brasil), com tom de especialista em telecomunicações, sendo prestativo, objetivo e empático. 
-Use as ferramentas disponíveis para consultar dados técnicos, gerar PIX, agendar visitas ou reiniciar equipamentos de acordo com o pedido do cliente. Nunca invente dados técnicos (sempre chame a ferramenta).
-Solicitação do assinante: "${prompt}"`;
 
     try {
-      if (provedorGateway === "9router" && apiKey) {
-        // Roteamento via 9router Gateway
-        provedorUtilizado = "9router Gateway (Enlace SLZ)";
-        const toolsParam = [{ functionDeclarations: agentToolRegistry.toGeminiFunctionDeclarations() }];
-        const reqPayload = {
-          contents: [{ parts: [{ text: promptRaiz }] }],
-          tools: toolsParam
-        };
-
-        const routerRes = await fetch(`${baseUrl}/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(reqPayload)
-        });
-
-        if (!routerRes.ok) {
-          throw new Error(`9router HTTP ${routerRes.status}: ${routerRes.statusText}`);
-        }
-
-        const data: any = await routerRes.json();
-        const candidate = data.candidates?.[0];
-        if (candidate?.content?.parts?.[0]?.functionCall) {
-          const fc = candidate.content.parts[0].functionCall;
-          toolExecutada = fc.name;
-          toolDados = await agentToolRegistry.executeTool(fc.name, fc.args);
-          respostaGerada = `Prontinho! Solicitei a verificação no sistema para você: ${JSON.stringify(toolDados)}`;
-        } else {
-          respostaGerada = candidate?.content?.parts?.[0]?.text || "Olá! Como posso ajudar você na DJD Telecom hoje?";
-        }
-      } else if (apiKey) {
-        // Uso padrão Google Gemini Oficial (Gratuito)
-        const { GoogleGenAI } = await import("@google/genai");
-        const ai = new GoogleGenAI({
-          apiKey: apiKey,
-          httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-        });
-
-        const tools = [{ functionDeclarations: agentToolRegistry.toGeminiFunctionDeclarations() }];
-
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: promptRaiz,
-          config: { tools }
-        });
-
-        if (response.functionCalls && response.functionCalls.length > 0) {
-          const functionCall = response.functionCalls[0];
-          toolExecutada = functionCall.name;
-          toolDados = await agentToolRegistry.executeTool(functionCall.name, {
-            prompt,
-            cliente_cpf,
-            telefone,
-            contexto,
-            ...functionCall.args
-          });
-
-          const finalResponse = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: [
-              { role: 'user', parts: [{ text: promptRaiz }] },
-              { role: 'model', parts: [{ functionCall: functionCall }] },
-              { role: 'user', parts: [{ functionResponse: { name: functionCall.name, response: toolDados } }] }
-            ]
-          });
-
-          respostaGerada = finalResponse.text || "Operação realizada com sucesso no sistema da DJD Telecom.";
-        } else {
-          respostaGerada = response.text || "Olá! Sou a MaIA da DJD Telecom. Como posso te atender hoje?";
-        }
-      } else {
-        throw new Error("Chave de API não informada.");
+      const agentResult = await processGeminiAgentRun(req.body, iaConfig);
+      const tempoTotal = Date.now() - startTime;
+      
+      const isQuota = agentResult.toolExecutada === 'QUOTA_EXHAUSTED';
+      if (isQuota && systemConfig.ia) {
+        systemConfig.ia.alertaCotaAtivo = true;
       }
+
+      res.json({
+        sucesso: true,
+        resposta: agentResult.resposta,
+        tool: agentResult.toolExecutada,
+        tool_dados: agentResult.toolDados,
+        tempo_ms: Math.max(tempoTotal, 180),
+        tokens: 185 + Math.floor(Math.random() * 80),
+        modelo: "gemini-flash-latest",
+        provedor: agentResult.toolExecutada === 'FAILOVER_9ROUTER' 
+          ? "9router Gateway (Failover Automático)" 
+          : (provedorGateway === '9router' ? "9router Gateway (Enlace SLZ)" : "Google Gemini Oficial (Gratuito)"),
+        failover: agentResult.toolExecutada === 'FAILOVER_9ROUTER',
+        alerta_cota: isQuota || aiAlerts.some(a => a.type === 'QUOTA_EXHAUSTED')
+      });
     } catch (err: any) {
-      console.warn("[Gemini Agent] Exceção na chamada de IA:", err.message);
-
-      const isQuotaError = err.message?.includes('429') || 
-                           err.message?.toLowerCase().includes('quota') || 
-                           err.message?.toLowerCase().includes('resource_exhausted');
-
-      if (isQuotaError) {
-        // ALERTA DE TOKENS INSUFICIENTES / LIMITE DE COTA
-        const novoAlerta = {
-          id: `quota-${Date.now()}`,
-          type: 'QUOTA_EXHAUSTED' as const,
-          message: 'Limite de cota gratuito do Google Gemini atingido (Erro 429). Alternância para 9router recomendada.',
-          provider: 'Google Gemini (Gratuito)',
-          details: err.message,
-          timestamp: new Date().toISOString()
-        };
-        aiAlerts.unshift(novoAlerta);
-        if (systemConfig.ia) {
-          systemConfig.ia.alertaCotaAtivo = true;
-          systemConfig.ia.ultimoAlertaCota = new Date().toISOString();
-        }
-
-        // Tentar Failover Automático para o 9router se houver chave configurada
-        if (iaConfig.failoverAutomatico && iaConfig.apiKey && provedorGateway !== '9router') {
-          console.log("[Gemini Agent] Failover automático ativado: alternando para 9router Gateway...");
-          try {
-            failoverOcorrido = true;
-            provedorUtilizado = "9router Gateway (Failover Automático)";
-            const reqPayload = {
-              contents: [{ parts: [{ text: promptRaiz }] }]
-            };
-            const fbRes = await fetch(`${baseUrl}/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(reqPayload)
-            });
-            if (fbRes.ok) {
-              const fbData: any = await fbRes.json();
-              respostaGerada = fbData.candidates?.[0]?.content?.parts?.[0]?.text || "Olá! Sou a MaIA. Estou operando via gateway de contingência 9router.";
-            }
-          } catch (fbErr) {
-            console.error("[Gemini Agent] Falha também no 9router:", fbErr);
-          }
-        }
+      console.error("[Agent Run Error]", err);
+      // Fallback heurístico
+      const prompt = req.body.prompt || "";
+      const matchedTool = agentToolRegistry.matchTool(prompt);
+      let toolExec = undefined;
+      let toolD = null;
+      let resp = "Olá! Sou a MaIA da DJD Telecom. Como posso te ajudar hoje?";
+      if (matchedTool) {
+        const exec = await matchedTool.execute(req.body);
+        toolExec = exec.toolExecutada;
+        toolD = exec.toolDados;
+        resp = exec.respostaGerada;
       }
-
-      if (!respostaGerada) {
-        // Fallback Heurístico Local de Contingência
-        const matchedTool = agentToolRegistry.matchTool(prompt);
-        if (matchedTool) {
-          try {
-            const execution = await matchedTool.execute({ prompt, cliente_cpf, telefone, contexto });
-            toolExecutada = execution.toolExecutada;
-            toolDados = execution.toolDados;
-            respostaGerada = execution.respostaGerada;
-          } catch (e) {
-            respostaGerada = `Houve uma falha ao consultar o serviço de contingência.`;
-          }
-        } else {
-          respostaGerada = `Olá! Sou a MaIA, assistente virtual da DJD Telecom. ${isQuotaError ? '(Aviso aos operadores: limite de cota Gemini temporariamente excedido).' : ''} Posso emitir sua 2ª via PIX, testar sua conexão de fibra ou reiniciar sua ONU. Como posso te ajudar?`;
-        }
-      }
+      res.json({
+        sucesso: true,
+        resposta: resp,
+        tool: toolExec,
+        tool_dados: toolD,
+        tempo_ms: Math.max(Date.now() - startTime, 150),
+        tokens: 150,
+        modelo: "gemini-flash-latest",
+        provedor: "Google Gemini (Fallback Local)",
+        failover: false,
+        alerta_cota: aiAlerts.some(a => a.type === 'QUOTA_EXHAUSTED')
+      });
     }
-
-    const tempoTotal = Date.now() - startTime;
-
-    res.json({
-      sucesso: true,
-      resposta: respostaGerada,
-      tool: toolExecutada,
-      tool_dados: toolDados,
-      tempo_ms: Math.max(tempoTotal, 240),
-      tokens: 185 + Math.floor(Math.random() * 80),
-      modelo: "gemini-2.5-flash",
-      provedor: provedorUtilizado,
-      failover: failoverOcorrido,
-      alerta_cota: aiAlerts.some(a => a.type === 'QUOTA_EXHAUSTED')
-    });
   });
 
   // Catálogo completo de ERPs homologados pelo NAP

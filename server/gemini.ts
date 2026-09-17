@@ -1,39 +1,25 @@
 import { ErpFactory } from './integrations/erp/ErpFactory';
 import { GoogleGenAI } from "@google/genai";
 import { agentToolRegistry } from "./agent/toolRegistry";
+import { aiAlerts } from "./ai_state.js";
 import fetch from "node-fetch";
 
-export async function processGeminiAgentRun(reqBody: any) {
+export async function processGeminiAgentRun(reqBody: any, configOverride?: any) {
   const { prompt = "", cliente_cpf, telefone, contexto } = reqBody;
   
   let toolExecutada: string | undefined = undefined;
   let toolDados: any = null;
   let respostaGerada = "";
 
-  // Fetch system config to get dynamic API keys from the UI
-  let dynamicApiKey = "";
-  let dynamicBaseUrl = "";
-  let dynamicProvedorGateway = "";
-
-  try {
-    const fetch = (await import('node-fetch')).default;
-    const configRes = await fetch('http://127.0.0.1:3000/api/configuracoes');
-    if (configRes.ok) {
-      const config = await configRes.json();
-      if (config.ia) {
-        dynamicApiKey = config.ia.apiKey;
-        dynamicBaseUrl = config.ia.baseUrl;
-        dynamicProvedorGateway = config.ia.provedorGateway;
-      }
-    }
-  } catch (e) {
-    console.error("Failed to fetch system config in gemini", e.message);
-  }
+  // Dynamic API keys and settings from in-memory config or override
+  let dynamicApiKey = configOverride?.apiKey || "";
+  let dynamicBaseUrl = configOverride?.baseUrl || "";
+  let dynamicProvedorGateway = configOverride?.provedorGateway || "";
 
   // Fallback to process.env if UI is not configured
   const apiKey = dynamicApiKey || process.env.GEMINI_API_KEY;
   const baseUrl = dynamicBaseUrl || process.env.GEMINI_BASE_URL || "https://9router.enlace.slz.br";
-  const use9Router = dynamicProvedorGateway === "9router" || process.env.GEMINI_USE_9ROUTER === 'true' || process.env.GEMINI_BASE_URL;
+  const use9Router = dynamicProvedorGateway === "9router" || (process.env.GEMINI_USE_9ROUTER === 'true' && dynamicProvedorGateway !== 'direct');
   
   if (apiKey) {
     // Para usar o SDK Oficial do Gemini passando por um proxy/gateway (como o 9router)
@@ -109,13 +95,15 @@ Solicitação do usuário (Texto/Transcrição de Áudio): "${prompt}"`;
         });
         const tools = [{ functionDeclarations: agentToolRegistry.toGeminiFunctionDeclarations() }];
         
-        response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
+        const callPromise = ai.models.generateContent({
+          model: "gemini-flash-latest",
           contents: promptRaiz,
           config: {
             tools: tools
           }
         });
+        const timeoutCall = new Promise<any>((_, reject) => setTimeout(() => reject(new Error("Timeout Gemini 1st turn")), 5000));
+        response = await Promise.race([callPromise, timeoutCall]);
 
         if (response.functionCalls && response.functionCalls.length > 0) {
           const functionCall = response.functionCalls[0];
@@ -125,14 +113,23 @@ Solicitação do usuário (Texto/Transcrição de Áudio): "${prompt}"`;
           console.log(`[Gemini SDK] Tool Call detectado: ${toolExecutada}`, args);
           
           if (agentToolRegistry.hasTool(toolExecutada)) {
-            toolDados = await agentToolRegistry.executeTool(toolExecutada, args as any);
-            const promptFollowup = `A ferramenta ${toolExecutada} retornou o seguinte JSON: ${JSON.stringify(toolDados)}. Responda ao usuário de forma natural baseando-se NESTES DADOS. Nunca mencione o JSON.`;
+            const execResult = await agentToolRegistry.executeTool(toolExecutada, { ...args, cliente_cpf, telefone, contexto } as any);
+            toolDados = execResult.toolDados || execResult;
             
-            const responseFollowup = await ai.models.generateContent({
-              model: "gemini-2.5-flash",
-              contents: promptRaiz + "\n\n" + promptFollowup
-            });
-            respostaGerada = responseFollowup.text || "Desculpe, não consegui formular uma resposta com os dados obtidos.";
+            try {
+              const promptFollowup = `A ferramenta ${toolExecutada} retornou os seguintes dados: ${JSON.stringify(toolDados)}. Responda ao assinante de forma acolhedora, humana e objetiva baseando-se nestes dados (por exemplo, informando o código PIX Copia e Cola, valor e vencimento). Nunca invente dados e nunca mencione a palavra JSON.`;
+              
+              const followupPromise = ai.models.generateContent({
+                model: "gemini-flash-latest",
+                contents: promptRaiz + "\n\n" + promptFollowup
+              });
+              const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout followup")), 4000));
+              const responseFollowup: any = await Promise.race([followupPromise, timeoutPromise]);
+              respostaGerada = responseFollowup?.text || execResult.respostaGerada || "Prontinho! Solicitação processada com sucesso.";
+            } catch (followupErr) {
+              console.log("[Gemini SDK] Usando resposta direta da ferramenta:", followupErr);
+              respostaGerada = execResult.respostaGerada || "Prontinho! Solicitação processada com sucesso no sistema.";
+            }
           }
         } else {
           respostaGerada = response.text || "Desculpe, não consegui entender o contexto.";
@@ -141,11 +138,74 @@ Solicitação do usuário (Texto/Transcrição de Áudio): "${prompt}"`;
     } catch (e: any) {
       console.error("[Gemini] Erro de API (Cota ou Autenticação):", e.message);
       
-      if (e.message?.includes('429') || e.message?.toLowerCase().includes('quota') || e.message?.toLowerCase().includes('resource_exhausted')) {
-         // O erro é claramente limite de cota.
-         respostaGerada = "Desculpe, meu cérebro principal está sobrecarregado (Cota do Gemini Excedida). Por favor, aguarde enquanto um humano assume o atendimento.";
-         // Forçamos o handoff (transbordo) enviando uma flag especial no retorno,
-         // para que o waba.ts saiba que a IA caiu por cota.
+      const isHighDemandOrQuota = e.message?.includes('429') || 
+                                  e.message?.includes('503') ||
+                                  e.message?.toLowerCase().includes('quota') || 
+                                  e.message?.toLowerCase().includes('resource_exhausted') ||
+                                  e.message?.toLowerCase().includes('high demand') ||
+                                  e.message?.toLowerCase().includes('timeout');
+
+      if (isHighDemandOrQuota) {
+        // Registrar alerta no sistema operacional
+        if (!aiAlerts.some((a: any) => a.type === 'QUOTA_EXHAUSTED')) {
+          aiAlerts.push({
+            id: `auto_${Date.now()}`,
+            type: 'QUOTA_EXHAUSTED',
+            message: 'Limite de cota ou alta demanda da IA detectada (Erro 429/503). Contingência local ativa.',
+            provider: use9Router ? '9router Gateway' : 'Google Gemini (Flash)',
+            details: e.message,
+            timestamp: new Date().toISOString()
+          });
+        }
+
+         // Tentar failover automático para o 9router Enterprise se não estiver usando
+         if (!use9Router && baseUrl) {
+           console.log("[Gemini Failover] Tentando failover automático para 9router:", baseUrl);
+           try {
+             const toolsParam = [{ functionDeclarations: agentToolRegistry.toGeminiFunctionDeclarations() }];
+             const reqPayload = {
+               contents: [{ parts: [{ text: promptRaiz }] }],
+               tools: toolsParam
+             };
+             const resFailover = await fetch(`${baseUrl}/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify(reqPayload)
+             });
+             if (resFailover.ok) {
+               const dataFailover: any = await resFailover.json();
+               const candidateFailover = dataFailover.candidates?.[0];
+               if (candidateFailover?.content?.parts?.[0]?.text) {
+                 return {
+                   resposta: candidateFailover.content.parts[0].text,
+                   toolExecutada: "FAILOVER_9ROUTER",
+                   toolDados: { provedor: "9router Gateway (Failover Automático)" }
+                 };
+               }
+             }
+           } catch (failoverErr) {
+             console.error("[Gemini Failover Error]", failoverErr);
+           }
+         }
+
+         // Se o cliente solicitou uma operação de autoatendimento (PIX, fatura, teste de sinal, etc.),
+         // executamos via ferramenta nativa para que o assinante não fique desassistido.
+         const matchedTool = agentToolRegistry.matchTool(prompt);
+         if (matchedTool) {
+           try {
+             const execResult = await matchedTool.execute({ prompt, cliente_cpf, telefone, contexto });
+             return {
+               resposta: execResult.respostaGerada,
+               toolExecutada: execResult.toolExecutada,
+               toolDados: execResult.toolDados
+             };
+           } catch (mErr) {
+             console.error("[Contingency Tool Error]", mErr);
+           }
+         }
+
+         // Caso seja uma conversa aberta sem tool correspondente, forçamos o handoff
+         respostaGerada = "Desculpe, meu cérebro de conversação livre está em alta demanda no momento. Estou transferindo você para a nossa equipe de atendimento humano.";
          return {
             resposta: respostaGerada,
             toolExecutada: "QUOTA_EXHAUSTED",
@@ -153,7 +213,21 @@ Solicitação do usuário (Texto/Transcrição de Áudio): "${prompt}"`;
          };
       }
       
-      respostaGerada = "[Fallback Offline] Olá! No momento minha inteligência em nuvem está com instabilidade. Sou a MaIA da DJD Telecom, como posso anotar seu recado?";
+      if (!respostaGerada) {
+        const matchedTool = agentToolRegistry.matchTool(prompt);
+        if (matchedTool) {
+          try {
+            const execResult = await matchedTool.execute({ prompt, cliente_cpf, telefone, contexto });
+            toolExecutada = execResult.toolExecutada;
+            toolDados = execResult.toolDados;
+            respostaGerada = execResult.respostaGerada;
+          } catch (mErr) {
+            respostaGerada = "Olá! Sou a MaIA da DJD Telecom. Estou consultando os sistemas da operadora para você.";
+          }
+        } else {
+          respostaGerada = "Olá! Sou a MaIA, assistente virtual da DJD Telecom. Posso emitir sua 2ª via de fatura PIX, verificar o sinal da sua fibra ou agendar um suporte técnico. Como posso te ajudar hoje?";
+        }
+      }
     }
   } else {
     respostaGerada = "[Fallback] Chave API não configurada no servidor (.env). Fale com o Administrador.";

@@ -24,19 +24,19 @@ export default function Customer360List({
       // Filtro de status
       if (statusFilter === 'active' && c.status !== 'active') return false;
       if (statusFilter === 'blocked' && c.status !== 'blocked') return false;
-      if (statusFilter === 'defaulters' && c.financial.totalPending <= 0) return false;
+      if (statusFilter === 'defaulters' && (c.financial?.totalPending ?? 0) <= 0) return false;
 
       // Busca textual
       if (!searchTerm.trim()) return true;
       const q = searchTerm.toLowerCase();
       return (
-        c.name.toLowerCase().includes(q) ||
-        c.document.includes(q) ||
-        c.phone.includes(q) ||
-        c.contract.contractId.toLowerCase().includes(q) ||
-        c.technical.ipPppoe.includes(q) ||
-        c.napCustomerId.toLowerCase().includes(q) ||
-        c.externalReferences.some(r => r.externalCustomerId.toLowerCase().includes(q))
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.document || '').includes(q) ||
+        (c.phone || '').includes(q) ||
+        (c.contract?.contractId || '').toLowerCase().includes(q) ||
+        (c.technical?.ipPppoe || '').includes(q) ||
+        (c.napCustomerId || '').toLowerCase().includes(q) ||
+        (c.externalReferences || []).some(r => (r.externalCustomerId || '').toLowerCase().includes(q))
       );
     });
   }, [customers, searchTerm, statusFilter]);
@@ -108,7 +108,7 @@ export default function Customer360List({
                 : 'bg-slate-800/80 text-muted-foreground hover:bg-slate-800'
             }`}
           >
-            Inadimplentes ({customers.filter(c => c.financial.totalPending > 0).length})
+            Inadimplentes ({customers.filter(c => (c.financial?.totalPending ?? 0) > 0).length})
           </button>
         </div>
       </div>
@@ -140,7 +140,7 @@ export default function Customer360List({
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {filteredCustomers.map(customer => {
-                  const hasPending = customer.financial.totalPending > 0;
+                  const hasPending = (customer.financial?.totalPending ?? 0) > 0;
                   return (
                     <tr 
                       key={customer.id} 
@@ -165,7 +165,7 @@ export default function Customer360List({
                       {/* ERP Externo */}
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          {customer.externalReferences.map(ref => (
+                          {(customer.externalReferences || []).map(ref => (
                             <span
                               key={ref.externalSystem}
                               className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border ${

@@ -57,6 +57,10 @@ export default function Customer360Reconciliation({
     }
   };
 
+  const transactions = data?.transactions || [];
+  const erpSyncQueue = data?.erpSyncQueue || [];
+  const divergences = data?.divergences || [];
+
   return (
     <div className="space-y-6">
       {/* Header Reconciliação */}
@@ -98,7 +102,7 @@ export default function Customer360Reconciliation({
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
           <span className="text-xs text-muted-foreground">Transações Pix Confirmadas</span>
           <div className="text-2xl font-bold font-outfit text-emerald-400 mt-1">
-            {data.transactions.length}
+            {transactions.length}
           </div>
           <span className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
             <CheckCircle2 size={11} /> Webhooks processados com sucesso
@@ -108,7 +112,7 @@ export default function Customer360Reconciliation({
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
           <span className="text-xs text-muted-foreground">Fila de Baixa no ERP (Resiliência)</span>
           <div className="text-2xl font-bold font-outfit text-blue-400 mt-1">
-            {data.erpSyncQueue.filter(q => q.status === 'pending').length}
+            {erpSyncQueue.filter(q => q.status === 'pending').length}
           </div>
           <span className="text-[11px] text-muted-foreground mt-1 block">
             Prontas para re-envio automático
@@ -118,7 +122,7 @@ export default function Customer360Reconciliation({
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
           <span className="text-xs text-muted-foreground">Divergências Financeiras</span>
           <div className="text-2xl font-bold font-outfit text-red-400 mt-1">
-            {data.divergences.filter(d => d.status === 'divergent').length}
+            {divergences.filter(d => d.status === 'divergent').length}
           </div>
           <span className="text-[11px] text-muted-foreground mt-1 block">
             Requer análise de auditoria
@@ -140,7 +144,7 @@ export default function Customer360Reconciliation({
           </span>
         </div>
 
-        {data.erpSyncQueue.length === 0 ? (
+        {erpSyncQueue.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground text-xs">
             Nenhuma baixa pendente na fila. Todas as transações foram entregues e confirmadas no ERP.
           </div>
@@ -159,7 +163,7 @@ export default function Customer360Reconciliation({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono">
-                {data.erpSyncQueue.map(item => (
+                {erpSyncQueue.map(item => (
                   <tr key={item.id} className="hover:bg-slate-800/20 transition">
                     <td className="py-3 px-4 text-slate-200">{item.id}</td>
                     <td className="py-3 px-4 uppercase text-blue-400 font-semibold">{item.externalSystem}</td>
@@ -194,7 +198,7 @@ export default function Customer360Reconciliation({
           </span>
         </div>
 
-        {data.divergences.length === 0 ? (
+        {divergences.length === 0 ? (
           <div className="p-8 text-center text-muted-foreground text-xs">
             Nenhuma divergência registrada. O ecossistema está 100% íntegro.
           </div>
@@ -213,7 +217,7 @@ export default function Customer360Reconciliation({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {data.divergences.map(div => (
+                {divergences.map(div => (
                   <tr key={div.id} className="hover:bg-slate-800/20 transition">
                     <td className="py-3 px-4 font-mono text-slate-300">{div.id}</td>
                     <td className="py-3 px-4 font-mono text-slate-400">{div.txid}</td>
@@ -277,7 +281,7 @@ export default function Customer360Reconciliation({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-mono">
-              {data.transactions.map(txn => (
+              {transactions.map(txn => (
                 <tr key={txn.id} className="hover:bg-slate-800/20 transition">
                   <td className="py-3 px-4 text-slate-200">{txn.id}</td>
                   <td className="py-3 px-4 text-slate-400">{txn.txid}</td>

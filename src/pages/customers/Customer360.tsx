@@ -62,18 +62,28 @@ export default function Customer360() {
     loadInitialData();
   }, []);
 
-  // Selecionar cliente por ID (da rota ou clique)
+  // Selecionar cliente por ID (da rota, busca ou fallback)
   useEffect(() => {
-    const cid = id ? parseInt(id) : selectedCustomerId;
+    const tabParam = searchParams.get('tab');
+    if (tabParam && ['dashboard', 'list', 'detail', 'reconciliation', 'authority'].includes(tabParam)) {
+      setActiveTab(tabParam as any);
+    }
+    const idParam = id || searchParams.get('id');
+    const cid = idParam ? parseInt(idParam) : selectedCustomerId;
     if (cid && customers.length > 0) {
       const found = customers.find(c => c.id === cid);
       if (found) {
         setSelectedCustomer(found);
         setSelectedCustomerId(cid);
-        setActiveTab('detail');
+        if (!tabParam) {
+          setActiveTab('detail');
+        }
       }
+    } else if (activeTab === 'detail' && !selectedCustomer && customers.length > 0) {
+      setSelectedCustomer(customers[0]);
+      setSelectedCustomerId(customers[0].id);
     }
-  }, [id, selectedCustomerId, customers]);
+  }, [id, searchParams, selectedCustomerId, customers, activeTab, selectedCustomer]);
 
   const handleSelectCustomer = (cid: number) => {
     setSelectedCustomerId(cid);
@@ -314,6 +324,26 @@ export default function Customer360() {
           onRebootOnu={handleRebootOnu}
           onGeneratePix={handleGeneratePix}
         />
+      )}
+
+      {activeTab === 'detail' && !selectedCustomer && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-12 text-center space-y-4">
+          <div className="w-12 h-12 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto border border-blue-500/20">
+            <Users size={22} />
+          </div>
+          <div className="max-w-md mx-auto">
+            <h4 className="text-base font-semibold text-slate-200">Nenhum assinante selecionado</h4>
+            <p className="text-xs text-muted-foreground mt-1">
+              Selecione um cliente na lista ou faça uma busca por CPF, nome ou código do contrato para visualizar a ficha 360 completa.
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveTab('list')}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition shadow-sm"
+          >
+            Abrir Base de Assinantes
+          </button>
+        </div>
       )}
 
       {activeTab === 'reconciliation' && (

@@ -255,6 +255,16 @@ export class Customer360Store {
 
     maria.financial.invoices.push(invMaria);
     this.invoices.set(invMaria.id, invMaria);
+
+    // Eventos da Maria
+    const eventsMaria: NapCustomerEvent[] = [
+      { id: 'EVT-M01', customerId: 2, eventType: 'PIX_CREATED', source: 'Enlace-Pay', referenceId: 'chg_002', metadata: { txid: 'E987654321IXC', amount: 119.90 }, occurredAt: new Date(Date.now() - 3600000 * 4).toISOString() },
+      { id: 'EVT-M02', customerId: 2, eventType: 'INVOICE_CREATED', source: 'IXC Soft', referenceId: 'IXC-INV-5541', metadata: { amount: 119.90 }, occurredAt: new Date(Date.now() - 3600000 * 5).toISOString() },
+      { id: 'EVT-M03', customerId: 2, eventType: 'WHATSAPP_DELIVERED', source: 'WABA Meta', referenceId: 'MSG-WABA-882', metadata: { phone: '5511988887777' }, occurredAt: new Date(Date.now() - 3600000 * 6).toISOString() },
+      { id: 'EVT-M04', customerId: 2, eventType: 'ONU_ONLINE', source: 'GenieACS', referenceId: 'ZTEGC19382B1', metadata: { opticalRx: '-21.2 dBm' }, occurredAt: '2026-09-10T11:20:00Z' }
+    ];
+    maria.timeline = eventsMaria;
+    this.events.push(...eventsMaria);
     this.customers.set(maria.id, maria);
 
     // 3. Cliente Carlos Eduardo Mendes (HubSoft)
@@ -335,7 +345,50 @@ export class Customer360Store {
 
     carlos.financial.invoices.push(invCarlos);
     this.invoices.set(invCarlos.id, invCarlos);
+
+    // Eventos do Carlos
+    const eventsCarlos: NapCustomerEvent[] = [
+      { id: 'EVT-C01', customerId: 3, eventType: 'ERP_PAYMENT_POSTED', source: 'HubSoft', referenceId: 'HUB-INV-8890', metadata: { receipt: 'HUB_REC_7721' }, occurredAt: '2026-09-10T11:45:20Z' },
+      { id: 'EVT-C02', customerId: 3, eventType: 'PAYMENT_CONFIRMED', source: 'NAP Payments', referenceId: 'inv_003', metadata: { txid: 'E456123789HUB', amount: 89.90, bank: 'C6' }, occurredAt: '2026-09-10T11:45:00Z' },
+      { id: 'EVT-C03', customerId: 3, eventType: 'PAYMENT_RECEIVED', source: 'C6 / Enlace-Pay', referenceId: 'chg_003', metadata: { txid: 'E456123789HUB', amount: 89.90 }, occurredAt: '2026-09-10T11:44:50Z' },
+      { id: 'EVT-C04', customerId: 3, eventType: 'PIX_CREATED', source: 'Enlace-Pay', referenceId: 'chg_003', metadata: { txid: 'E456123789HUB', amount: 89.90 }, occurredAt: '2026-09-08T09:00:00Z' },
+      { id: 'EVT-C05', customerId: 3, eventType: 'INVOICE_CREATED', source: 'HubSoft', referenceId: 'HUB-INV-8890', metadata: { amount: 89.90 }, occurredAt: '2026-09-08T08:30:00Z' },
+      { id: 'EVT-C06', customerId: 3, eventType: 'ONU_ONLINE', source: 'GenieACS', referenceId: 'VSOL001827AB', metadata: { opticalRx: '-18.8 dBm' }, occurredAt: '2026-09-05T14:10:00Z' }
+    ];
+    carlos.timeline = eventsCarlos;
+    this.events.push(...eventsCarlos);
     this.customers.set(carlos.id, carlos);
+
+    // Transações oficiais liquidadas
+    const txnJoao: NapPaymentTransaction = {
+      id: 'TXN-001',
+      txid: invJoao.txid!,
+      invoiceId: invJoao.id,
+      amount: invJoao.amount,
+      method: 'PIX',
+      bank: 'C6 Bank',
+      transactionId: 'C6_TX_849201',
+      source: 'Enlace-Pay (C6)',
+      status: 'reconciled',
+      receivedAt: invJoao.paidAt || '2026-09-17T14:32:00Z',
+      reconciledAt: '2026-09-17T14:32:15Z'
+    };
+    this.paymentTransactions.set(txnJoao.txid, txnJoao);
+
+    const txnCarlos: NapPaymentTransaction = {
+      id: 'TXN-002',
+      txid: invCarlos.txid!,
+      invoiceId: invCarlos.id,
+      amount: invCarlos.amount,
+      method: 'PIX',
+      bank: 'C6 Bank',
+      transactionId: 'C6_TX_772109',
+      source: 'Enlace-Pay (C6)',
+      status: 'reconciled',
+      receivedAt: invCarlos.paidAt || '2026-09-10T11:45:00Z',
+      reconciledAt: '2026-09-10T11:45:15Z'
+    };
+    this.paymentTransactions.set(txnCarlos.txid, txnCarlos);
   }
 
   // --- BUSCA E RETORNO CUSTOMER 360 ---
@@ -606,11 +659,33 @@ export class Customer360Store {
           txn.status = 'divergent';
           divergentCount++;
           details.push({ txid, invoiceId: inv.id, status: 'DIVERGENT', reason: 'Divergência de status ou valor' });
+          if (!this.reconciliationQueue.some(r => r.txid === txid)) {
+            this.reconciliationQueue.push({
+              id: `DIV_${Date.now()}_${txid.slice(-4)}`,
+              txid,
+              invoiceId: inv.id,
+              expectedAmount: Number(inv.amount),
+              receivedAmount: Number(txn.amount),
+              status: 'divergent',
+              reason: 'Divergência de status ou valor entre fatura e liquidação bancária',
+              detectedAt: new Date().toISOString()
+            });
+          }
         }
       } else {
         txn.status = 'divergent';
         divergentCount++;
         details.push({ txid, status: 'DIVERGENT', reason: 'Fatura inexistente para a transação' });
+        if (!this.reconciliationQueue.some(r => r.txid === txid)) {
+          this.reconciliationQueue.push({
+            id: `DIV_${Date.now()}_${txid.slice(-4)}`,
+            txid,
+            receivedAmount: Number(txn.amount),
+            status: 'divergent',
+            reason: 'Fatura inexistente no cadastro para esta transação bancária',
+            detectedAt: new Date().toISOString()
+          });
+        }
       }
     }
 

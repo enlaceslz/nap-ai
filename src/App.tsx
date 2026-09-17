@@ -1,5 +1,10 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
+
+function CustomerRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/admin/customer360/${id || ""}`} replace />;
+}
 import { AuthProvider } from "./contexts/AuthContext";
 import { ConfigProvider } from "./contexts/ConfigContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -120,6 +125,22 @@ export default function App() {
  }
  >
  <Route index element={<CRM />} />
+ </Route>
+
+ <Route
+ path="customer360"
+ element={
+ <ProtectedRoute
+ allowedRoles={[
+ "operador",
+ "tecnico_noc",
+ "tecnico_campo",
+ ]}
+ />
+ }
+ >
+ <Route index element={<Customer360 />} />
+ <Route path=":id" element={<Customer360 />} />
  </Route>
 
  <Route
@@ -256,7 +277,7 @@ export default function App() {
  <Route path="conta" element={<PortalConta />} />
  </Route>
 
- <Route path="/customer/:id" element={<Navigate to="/admin/customer360" replace />} />
+ <Route path="/customer/:id" element={<CustomerRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />
  </Routes>
  </BrowserRouter>

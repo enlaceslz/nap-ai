@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
  Search, 
  UserPlus, 
@@ -26,13 +26,15 @@ import {
  ShieldCheck,
  TrendingUp,
  DollarSign,
- AlertTriangle
+ AlertTriangle,
+ UserCheck
 } from 'lucide-react';
 import type { Contato } from '../types';
 import SgpAdvancedSearch from '../components/SgpAdvancedSearch';
 import AddressMapModal from '../components/AddressMapModal';
 
 export default function CRM() {
+ const navigate = useNavigate();
  const [searchParams] = useSearchParams();
  const initialSearch = searchParams.get('search') || '';
 
@@ -447,6 +449,14 @@ export default function CRM() {
  <span>SGP</span>
  </button>
  <button 
+ onClick={() => navigate(`/admin/customer360?id=${contato.id}`)}
+ className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold transition-all shadow-xs"
+ title="Abrir Customer 360 Completo (Enlace-Pay, TR-069, NOC)"
+ >
+ <UserCheck size={12} />
+ <span>360</span>
+ </button>
+ <button 
  onClick={() => setSelectedContato(contato)}
  className="px-2 py-1 bg-card hover:bg-muted text-muted-foreground border border-border rounded-lg text-[11px] font-semibold transition-colors"
  title="Ver ficha 360"
@@ -587,6 +597,17 @@ export default function CRM() {
  >
  <span>WhatsApp</span>
  </a>
+ <button 
+ onClick={() => {
+ navigate(`/admin/customer360?id=${selectedContato.id}`);
+ setSelectedContato(null);
+ }}
+ className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2"
+ title="Ver ficha técnica profunda no Customer 360"
+ >
+ <UserCheck size={14} />
+ <span>Customer 360</span>
+ </button>
  <button 
  onClick={() => {
  handleOpenSgpConsulta(selectedContato.id);

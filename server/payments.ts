@@ -269,6 +269,22 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
+  // 15b. Disparar Reconciliação Geral (Banco x NAP x ERP)
+  app.post("/api/customer360/reconciliation/run", (req: any, res: any) => {
+    try {
+      const result = store.reconcileAll();
+      res.json({
+        success: true,
+        reconciledCount: result.reconciledCount,
+        divergentCount: result.divergentCount,
+        pendingQueueCount: result.pendingQueueCount,
+        details: result.details
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 16. Resolver Divergência Manualmente (Auditoria LGPD)
   app.post("/api/customer360/reconciliation/:id/resolve", (req: any, res: any) => {
     try {

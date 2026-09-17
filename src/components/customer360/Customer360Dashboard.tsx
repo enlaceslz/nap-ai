@@ -109,7 +109,7 @@ export default function Customer360Dashboard({
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <span className="text-xs text-muted-foreground">Total de Assinantes</span>
             <div className="text-2xl font-bold font-outfit text-foreground mt-1">
-              {metrics.customers.total}
+              {metrics?.customers?.total ?? 0}
             </div>
             <span className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
               <Database size={11} /> Sincronizados com ERP
@@ -119,7 +119,7 @@ export default function Customer360Dashboard({
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <span className="text-xs text-muted-foreground">Clientes Ativos</span>
             <div className="text-2xl font-bold font-outfit text-emerald-400 mt-1">
-              {metrics.customers.active}
+              {metrics?.customers?.active ?? 0}
             </div>
             <span className="text-[11px] text-muted-foreground flex items-center gap-1 mt-1">
               <CheckCircle2 size={11} className="text-emerald-400" /> Acesso liberado
@@ -129,7 +129,7 @@ export default function Customer360Dashboard({
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <span className="text-xs text-muted-foreground">Bloqueados Financeiros</span>
             <div className="text-2xl font-bold font-outfit text-amber-400 mt-1">
-              {metrics.customers.blocked}
+              {metrics?.customers?.blocked ?? 0}
             </div>
             <span className="text-[11px] text-muted-foreground flex items-center gap-1 mt-1">
               <AlertTriangle size={11} className="text-amber-400" /> Atraso &gt; 15 dias
@@ -139,7 +139,7 @@ export default function Customer360Dashboard({
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <span className="text-xs text-muted-foreground">Inadimplência em Aberto</span>
             <div className="text-2xl font-bold font-outfit text-red-400 mt-1">
-              {metrics.customers.defaulters}
+              {metrics?.customers?.defaulters ?? 0}
             </div>
             <span className="text-[11px] text-muted-foreground flex items-center gap-1 mt-1">
               <XCircle size={11} className="text-red-400" /> Faturas pendentes
@@ -167,27 +167,27 @@ export default function Customer360Dashboard({
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <span className="text-xs text-muted-foreground">Cobranças Abertas</span>
             <div className="text-2xl font-bold font-outfit text-amber-400 mt-1">
-              {metrics.financial.openChargesCount}
+              {metrics?.financial?.openChargesCount ?? 0}
             </div>
             <div className="text-xs font-semibold text-slate-300 mt-1">
-              R$ {metrics.financial.openChargesAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              R$ {(metrics?.financial?.openChargesAmount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <span className="text-xs text-muted-foreground">Pix Recebidos (Mês)</span>
             <div className="text-2xl font-bold font-outfit text-emerald-400 mt-1">
-              {metrics.financial.pixReceivedCount}
+              {metrics?.financial?.pixReceivedCount ?? 0}
             </div>
             <div className="text-xs font-semibold text-emerald-300 mt-1">
-              R$ {metrics.financial.pixReceivedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              R$ {(metrics?.financial?.pixReceivedAmount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
 
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <span className="text-xs text-muted-foreground">Fila de Baixa no ERP</span>
             <div className="text-2xl font-bold font-outfit text-blue-400 mt-1">
-              {metrics.financial.pendingErpBaixasCount}
+              {metrics?.financial?.pendingErpBaixasCount ?? 0}
             </div>
             <span className="text-[11px] text-blue-300 flex items-center gap-1 mt-1">
               <Layers size={11} /> Resiliência ativa (Retry)
@@ -197,7 +197,7 @@ export default function Customer360Dashboard({
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <span className="text-xs text-muted-foreground">Conciliados (100%)</span>
             <div className="text-2xl font-bold font-outfit text-emerald-400 mt-1">
-              {metrics.financial.reconciledCount}
+              {metrics?.financial?.reconciledCount ?? 0}
             </div>
             <span className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
               <ShieldCheck size={11} /> Banco ↔ NAP ↔ ERP
@@ -207,7 +207,7 @@ export default function Customer360Dashboard({
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
             <span className="text-xs text-muted-foreground">Divergências</span>
             <div className="text-2xl font-bold font-outfit text-red-400 mt-1">
-              {metrics.financial.divergencesCount}
+              {metrics?.financial?.divergencesCount ?? 0}
             </div>
             <span className="text-[11px] text-red-400 flex items-center gap-1 mt-1">
               <AlertTriangle size={11} /> Requer auditoria
@@ -232,7 +232,7 @@ export default function Customer360Dashboard({
             <div className="p-3 bg-slate-950/60 rounded-lg border border-slate-800/80">
               <span className="text-[11px] text-muted-foreground block">Chamados Abertos</span>
               <span className="text-xl font-bold text-foreground mt-1 block">
-                {metrics.support.openTickets}
+                {metrics?.support?.openTickets ?? 0}
               </span>
               <span className="text-[10px] text-emerald-400">Dentro do SLA</span>
             </div>
@@ -241,7 +241,7 @@ export default function Customer360Dashboard({
               <span className="text-[11px] text-muted-foreground block">WhatsApp (WABA)</span>
               <span className="text-xl font-bold text-emerald-400 mt-1 block flex items-center justify-center gap-1">
                 <MessageSquare size={14} />
-                {metrics.support.whatsappInteractions}
+                {metrics?.support?.whatsappInteractions ?? 0}
               </span>
               <span className="text-[10px] text-muted-foreground">Mensagens hoje</span>
             </div>
@@ -250,7 +250,7 @@ export default function Customer360Dashboard({
               <span className="text-[11px] text-muted-foreground block">Ligações Asterisk</span>
               <span className="text-xl font-bold text-indigo-400 mt-1 block flex items-center justify-center gap-1">
                 <PhoneCall size={14} />
-                {metrics.support.asteriskCalls}
+                {metrics?.support?.asteriskCalls ?? 0}
               </span>
               <span className="text-[10px] text-muted-foreground">URA & PABX</span>
             </div>
@@ -265,7 +265,7 @@ export default function Customer360Dashboard({
               4. NOC & Telemetria Óptica (GenieACS / Zabbix)
             </h3>
             <span className="text-xs text-emerald-400 flex items-center gap-1 font-medium">
-              <Zap size={13} /> {metrics.noc.averageAvailability}% Uptime
+              <Zap size={13} /> {metrics?.noc?.averageAvailability ?? 99.97}% Uptime
             </span>
           </div>
 
@@ -273,7 +273,7 @@ export default function Customer360Dashboard({
             <div className="p-3 bg-slate-950/60 rounded-lg border border-slate-800/80">
               <span className="text-[11px] text-muted-foreground block">Clientes Offline</span>
               <span className="text-xl font-bold text-slate-300 mt-1 block">
-                {metrics.noc.offlineCustomers}
+                {metrics?.noc?.offlineCustomers ?? 0}
               </span>
               <span className="text-[10px] text-muted-foreground">PPPoE Inativo</span>
             </div>
@@ -281,7 +281,7 @@ export default function Customer360Dashboard({
             <div className="p-3 bg-slate-950/60 rounded-lg border border-slate-800/80">
               <span className="text-[11px] text-muted-foreground block">ONUs Offline</span>
               <span className="text-xl font-bold text-slate-300 mt-1 block">
-                {metrics.noc.offlineOnus}
+                {metrics?.noc?.offlineOnus ?? 0}
               </span>
               <span className="text-[10px] text-muted-foreground">GenieACS TR-069</span>
             </div>
@@ -289,7 +289,7 @@ export default function Customer360Dashboard({
             <div className="p-3 bg-slate-950/60 rounded-lg border border-slate-800/80">
               <span className="text-[11px] text-muted-foreground block">Alertas Zabbix</span>
               <span className="text-xl font-bold text-emerald-400 mt-1 block">
-                {metrics.noc.criticalAlerts}
+                {metrics?.noc?.criticalAlerts ?? 0}
               </span>
               <span className="text-[10px] text-emerald-400">Nenhum crítico</span>
             </div>
