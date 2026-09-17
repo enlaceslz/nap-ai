@@ -6,6 +6,7 @@ export interface ClienteErpInfo {
   status: 'ativo' | 'bloqueado' | 'cancelado' | 'lead';
   plano: string;
   endereco: string;
+  contratoId?: string;
 }
 
 export interface FaturaErpInfo {
@@ -16,6 +17,23 @@ export interface FaturaErpInfo {
   linhaDigitavel: string;
   linkPix?: string;
   linkBoleto?: string;
+  txid?: string;
+}
+
+export interface BaixaFaturaPayload {
+  external_invoice_id: string;
+  amount: number;
+  payment_date: string;
+  method: string;
+  txid: string;
+  transaction_id: string;
+}
+
+export interface BaixaFaturaResult {
+  success: boolean;
+  message: string;
+  receiptId?: string;
+  alreadyPosted?: boolean;
 }
 
 export interface ErpAdapter {
@@ -28,6 +46,7 @@ export interface ErpAdapter {
   // Financeiro
   buscarFaturasEmAberto(clienteId: string): Promise<FaturaErpInfo[]>;
   gerarPixCopiaECola(faturaId: string): Promise<string | null>;
+  baixarFatura(payload: BaixaFaturaPayload): Promise<BaixaFaturaResult>;
   
   // Operacional
   desbloquearConfianca(clienteId: string): Promise<boolean>;

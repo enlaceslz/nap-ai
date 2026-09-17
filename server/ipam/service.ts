@@ -31,7 +31,7 @@ export class IPAMService {
   async auditLog(actorId: string, action: string, objectType: string, objectId: string, before: string | null = null, after: string | null = null) {
     try {
       await db.insert(ipam_audit).values({
-        actor_id: actorId,
+        actor_id: parseInt(actorId, 10) || 1,
         action,
         object_type: objectType,
         object_id: objectId,

@@ -8,7 +8,7 @@ import {
  ChevronLeft, ChevronRight, Menu, X, ExternalLink,
  PhoneCall, Activity, Sparkles, PanelLeftClose, PanelLeftOpen,
  CreditCard, Headphones, ShoppingCart, Router, Wrench, MapPin, Navigation, Compass,
- ShieldCheck, Package, Globe, Cpu, Network, Ticket, FileText
+ ShieldCheck, Package, Globe, Cpu, Network, Ticket, FileText, UserCheck
 } from 'lucide-react';
 import CTIReverso from './CTIReverso';
 import Webphone from './Webphone';
@@ -75,7 +75,8 @@ export default function Layout() {
  if (path.startsWith('/admin/usuarios')) return { title: 'Usuários & Hierarquia', category: 'Gestão, Equipe & Campo', icon: <Users size={18} className="text-purple-400" /> };
  if (path.startsWith('/admin/vendas')) return { title: 'Kanban de Vendas', category: 'Novos Assinantes & Upgrades', icon: <ShoppingCart size={18} className="text-emerald-600" /> };
  if (path.startsWith('/admin/campanhas')) return { title: 'Operação Ativa', category: 'Campanhas HSM & URA Reversa', icon: <Megaphone size={18} className="text-indigo-600" /> };
- if (path.startsWith('/admin/crm')) return { title: 'Base CRM 360', category: 'Histórico & Sincronização SGP', icon: <Users size={18} className="text-blue-400" /> };
+ if (path.startsWith('/admin/customer360')) return { title: 'Customer 360 & Pagamentos', category: 'Sincronização & Enlace-Pay', icon: <UserCheck size={18} className="text-emerald-400" /> };
+  if (path.startsWith('/admin/crm')) return { title: 'Base CRM 360', category: 'Histórico & Sincronização SGP', icon: <Users size={18} className="text-blue-400" /> };
  if (path.startsWith('/admin/erp-integracoes')) return { title: 'Multi-ERP Hub', category: 'API Gateways & Adaptadores', icon: <Network size={18} className="text-indigo-400" /> };
  if (path.startsWith('/admin/sgp')) return { title: `Workspace ERP (${erpAtivo.toUpperCase()})`, category: 'Diagnóstico & Ações de Rede', icon: <Server size={18} className="text-blue-400" /> };
  if (path.startsWith('/admin/genieacs')) return { title: 'GenieACS Dashboard', category: 'Monitoramento TR-069', icon: <Router size={18} className="text-blue-400" /> };
@@ -174,7 +175,8 @@ export default function Layout() {
  {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/suporte" icon={<Headphones size={18} />} label="Suporte N1/N2" isCollapsed={isCollapsed} />}
  {hasAccess(['operador']) && <NavItem to="/admin/vendas" icon={<ShoppingCart size={18} />} label="Vendas & Leads" isCollapsed={isCollapsed} />}
  {hasAccess(['operador']) && <NavItem to="/admin/campanhas" icon={<Megaphone size={18} />} label="Ativo (Campanhas)" isCollapsed={isCollapsed} />}
- {hasAccess(['operador', 'tecnico_noc']) && <NavItem to="/admin/crm" icon={<Users size={18} />} label="CRM Clientes" isCollapsed={isCollapsed} />}
+ {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/customer360" icon={<UserCheck size={18} />} label="Customer 360" badge="PRD" isCollapsed={isCollapsed} />}
+        {hasAccess(['operador', 'tecnico_noc']) && <NavItem to="/admin/crm" icon={<Users size={18} />} label="CRM Clientes" isCollapsed={isCollapsed} />}
  {hasAccess(['operador', 'tecnico_noc']) && <NavItem to="/admin/historico" icon={<FileText size={18} />} label="Histórico WABA" isCollapsed={isCollapsed} />}
  {hasAccess([]) && <NavItem to="/admin/erp-integracoes" icon={<Network size={18} />} label="Multi-ERP Hub" isCollapsed={isCollapsed} />}
  {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/sgp" icon={<Server size={18} />} label="Workspace ERP" badge={erpAtivo.toUpperCase()} isCollapsed={isCollapsed} />}

@@ -177,6 +177,10 @@ export interface SystemConfig {
  provedorGateway: string;
     apiKey?: string;
     baseUrl?: string;
+    failoverAutomatico?: boolean;
+    alertarOperadoresEmEsgotamento?: boolean;
+    alertaCotaAtivo?: boolean;
+    nome?: string;
  temperatura: number;
  topP: number;
  maxTokens: number;
@@ -428,6 +432,10 @@ export const DEFAULT_CONFIG: SystemConfig = {
  provedorGateway: "9router",
     apiKey: "",
     baseUrl: "https://9router.enlace.slz.br",
+    failoverAutomatico: true,
+    alertarOperadoresEmEsgotamento: true,
+    alertaCotaAtivo: false,
+    nome: "MaIA",
  temperatura: 0.6,
  topP: 0.95,
  maxTokens: 1024,

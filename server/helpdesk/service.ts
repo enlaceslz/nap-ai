@@ -177,7 +177,7 @@ export class HelpDeskService {
         entity,
         entity_id: entityId,
         action,
-        actor_id: actorId,
+        actor_id: parseInt(actorId, 10) || 1,
         old_value: oldValue,
         new_value: newValue,
       });

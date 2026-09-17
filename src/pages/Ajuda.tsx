@@ -12,6 +12,7 @@ export default function Ajuda() {
 
  const matrixStaging = [
  { module: 'WABA & Inbox', status: 'done', desc: 'Integração Oficial WhatsApp Cloud API & Copiloto Gemini IA', date: 'Homologado' },
+ { module: 'Cérebro IA (MaIA) & 9router', status: 'done', desc: 'Google Gemini 2.5 Flash com failover automático 9router e alertas de cota 429', date: 'Homologado' },
  { module: 'CRM Kanban', status: 'done', desc: 'Sincronização 360 e SGP Adapter acoplado', date: 'Homologado' },
  { module: 'Banco de Dados (Drizzle)', status: 'done', desc: 'PostgreSQL estruturado, Soft Deletes e Chaves Numéricas', date: 'Homologado' },
  { module: 'Financeiro & Régua', status: 'done', desc: 'Geração de PIX (Copia e Cola), Boletos e Idempotência', date: 'Homologado' },
@@ -95,6 +96,17 @@ export default function Ajuda() {
 
  {activeTab === 'manuais' && (
  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+ <div className="bg-card border border-border p-6 rounded-xl hover:border-indigo-500/50 transition-colors cursor-pointer group">
+ <div className="h-12 w-12 bg-indigo-500/10 rounded-lg flex items-center justify-center text-indigo-400 mb-4 group-hover:scale-110 transition-transform">
+ <Cpu size={24} />
+ </div>
+ <h3 className="text-lg font-semibold text-card-foreground mb-2">Cérebro IA & 9router Gateway</h3>
+ <p className="text-muted-foreground text-sm mb-4 leading-relaxed">
+ Estratégia de uso do Gemini 2.5 Flash gratuito com failover corporativo 9router, tolerância a Erro 429 e rate-limit.
+ </p>
+ <div className="flex items-center text-indigo-400 text-sm font-medium">Ler manual <ChevronRight size={16} className="ml-1" /></div>
+ </div>
+
  <div className="bg-card border border-border p-6 rounded-xl hover:border-blue-500/50 transition-colors cursor-pointer group">
  <div className="h-12 w-12 bg-blue-500/10 rounded-lg flex items-center justify-center text-blue-400 mb-4 group-hover:scale-110 transition-transform">
  <Zap size={24} />

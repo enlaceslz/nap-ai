@@ -80,7 +80,7 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
         if (isTriagem) {
            try {
              // Utiliza o Motor Completo (Gemini Agent com Ferramentas SGP e Zabbix)
-             const agentResult = await processGeminiAgentRun({
+             const agentResult: any = await processGeminiAgentRun({
                 prompt: texto,
                 telefone: telefone,
                 contexto: `O cliente se chama ${nome_cliente}. Analise a intenção e resolva com as ferramentas.`

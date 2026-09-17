@@ -66,6 +66,7 @@ export default function SuperAdmin() {
  const [showZabbixToken, setShowZabbixToken] = useState(false);
  const [showRadiusSecret, setShowRadiusSecret] = useState(false);
  const [showWabaToken, setShowWabaToken] = useState(false);
+ const [showIaKey, setShowIaKey] = useState(false);
  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
  // Estados de testes de integração
@@ -95,6 +96,20 @@ export default function SuperAdmin() {
  setAuditLogs(auditData.logs);
  }
  }
+
+ // Carrega configuração de IA e Gateway 9router atualizada
+ try {
+ const iaRes = await fetch('/api/gemini/config');
+ if (iaRes.ok) {
+ const iaData = await iaRes.json();
+ if (iaData.ia) {
+ setConfig(prev => ({
+ ...prev,
+ ia: { ...prev.ia, ...iaData.ia }
+ }));
+ }
+ }
+ } catch {}
  } catch (err) {
  console.error("Falha ao carregar configurações:", err);
  } finally {
@@ -159,6 +174,14 @@ export default function SuperAdmin() {
  const data = await res.json();
  if (data.success) {
  showToast('success', 'Configurações do sistema gravadas com sucesso!');
+ // Sincroniza parâmetros específicos da MaIA / 9router
+ try {
+ await fetch('/api/gemini/config', {
+ method: 'POST',
+ headers: { 'Content-Type': 'application/json' },
+ body: JSON.stringify(config.ia)
+ });
+ } catch {}
  // Atualiza auditoria
  const auditRes = await fetch('/api/configuracoes/auditoria');
  if (auditRes.ok) {
@@ -225,17 +248,33 @@ export default function SuperAdmin() {
  bodyPayload = {
  tileUrl: config.mapa?.tileUrlDark
  };
+ } else if (service === 'gemini') {
+ bodyPayload = {
+ provedorGateway: config.ia?.provedorGateway,
+ baseUrl: config.ia?.baseUrl,
+ apiKey: config.ia?.apiKey
+ };
  }
 
- const res = await fetch(`/api/configuracoes/test-${service}`, { 
+ const testUrl = service === 'gemini' ? '/api/gemini/test-gateway' : `/api/configuracoes/test-${service}`;
+ const res = await fetch(testUrl, { 
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify(bodyPayload)
  });
  const data = await res.json();
- setTestResults(prev => ({ ...prev, [service]: data }));
- if (data.success) {
- showToast('success', `Teste de conexão com ${service.toUpperCase()} concluído com sucesso! Latência: ${data.latenciaMs || 25}ms`);
+ const isSuccess = data.sucesso !== undefined ? data.sucesso : data.success;
+ const latencia = data.latencia_ms !== undefined ? data.latencia_ms : (data.latenciaMs || 25);
+ const normalizedData = {
+ ...data,
+ success: isSuccess,
+ latenciaMs: latencia,
+ modelo: data.modelo || config.ia?.modeloPrimario || 'gemini-2.5-flash',
+ provedor: data.gateway || (config.ia?.provedorGateway === '9router' ? '9router Enterprise' : 'Google Gemini')
+ };
+ setTestResults(prev => ({ ...prev, [service]: normalizedData }));
+ if (isSuccess) {
+ showToast('success', `Teste de conexão com ${service.toUpperCase()} concluído com sucesso! Latência: ${latencia}ms`);
  } else {
  showToast('error', `Falha no teste com ${service.toUpperCase()}: ${data.mensagem || 'Serviço offline'}`);
  }
@@ -2246,13 +2285,44 @@ export default function SuperAdmin() {
                   />
                   
                   <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Chave API (9router / Gemini)</label>
-                  <input
-                    type="password"
-                    value={config.ia.apiKey || ''}
-                    placeholder="Sua chave de API..."
-                    onChange={(e) => setConfig({ ...config, ia: { ...config.ia, apiKey: e.target.value } })}
-                    className="w-full p-2.5 bg-background border border-border rounded-xl text-sm font-medium text-foreground outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showIaKey ? "text" : "password"}
+                      value={config.ia.apiKey || ''}
+                      placeholder="Sua chave de API..."
+                      onChange={(e) => setConfig({ ...config, ia: { ...config.ia, apiKey: e.target.value } })}
+                      className="w-full p-2.5 pr-10 bg-background border border-border rounded-xl text-sm font-medium text-foreground outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowIaKey(!showIaKey)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+                      title={showIaKey ? "Ocultar Chave" : "Exibir Chave"}
+                    >
+                      {showIaKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 mt-3 pt-3 border-t border-border">
+                    <label className="flex items-center justify-between gap-2 text-xs text-foreground cursor-pointer">
+                      <span className="text-muted-foreground font-medium">Failover Automático (Erro 429)</span>
+                      <input
+                        type="checkbox"
+                        checked={config.ia.failoverAutomatico !== false}
+                        onChange={(e) => setConfig({ ...config, ia: { ...config.ia, failoverAutomatico: e.target.checked } })}
+                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-border"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-2 text-xs text-foreground cursor-pointer">
+                      <span className="text-muted-foreground font-medium">Alerta de Cota Esgotada no Dashboard</span>
+                      <input
+                        type="checkbox"
+                        checked={config.ia.alertarOperadoresEmEsgotamento !== false}
+                        onChange={(e) => setConfig({ ...config, ia: { ...config.ia, alertarOperadoresEmEsgotamento: e.target.checked } })}
+                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-border"
+                      />
+                    </label>
+                  </div>
  </div>
 
  <div>

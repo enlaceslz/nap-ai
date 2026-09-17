@@ -15,6 +15,7 @@ import Kanban from "./pages/Kanban";
 import SuperAdmin from "./pages/SuperAdmin";
 import Helpers from "./pages/Helpers";
 import CRM from "./pages/CRM";
+import Customer360 from "./pages/customers/Customer360";
 import Analytics from "./pages/Analytics";
 import Operadores from "./pages/Operadores";
 import Campanhas from "./pages/Campanhas";
@@ -255,7 +256,8 @@ export default function App() {
  <Route path="conta" element={<PortalConta />} />
  </Route>
 
- <Route path="*" element={<Navigate to="/" replace />} />
+ <Route path="/customer/:id" element={<Navigate to="/admin/customer360" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
  </Routes>
  </BrowserRouter>
  </ConfigProvider>

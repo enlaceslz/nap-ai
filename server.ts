@@ -29,6 +29,7 @@ import { setupHelpDeskRoutes } from "./server/helpdesk/routes";
 import { setupIpamRoutes } from "./server/ipam/routes";
 import { setupCorrelationRoutes } from "./server/correlation/routes";
 import { setupCommunicationRoutes } from "./server/communications/routes";
+import { setupPaymentRoutes } from "./server/payments";
 import { GenieacsService } from "./server/genieacs/genieacsService";
 
 const app = express();
@@ -1723,8 +1724,8 @@ app.post("/api/push/operator/test", (req, res) => {
   });
 
 // Gemini AI Routes Setup
-// import { setupGeminiRoutes } from "./server/gemini_routes.js";
 setupGeminiRoutes(app, { systemConfig, registrarAuditoria });
+setupPaymentRoutes(app);
 
 // NAP OLT Manager (ZTE & Huawei) Routes Setup
 setupOltRoutes(app, { registrarAuditoria });

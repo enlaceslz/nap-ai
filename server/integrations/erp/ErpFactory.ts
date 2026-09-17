@@ -1,34 +1,44 @@
 import { ErpAdapter } from './ErpAdapterInterface';
 import { SgpAdapter } from './SgpAdapter';
+import { IxcAdapter } from './IxcAdapter';
+import { HubSoftAdapter } from './HubSoftAdapter';
 
 export class ErpFactory {
-  // Singleton pattern to hold the active adapter
-  private static instance: ErpAdapter | null = null;
+  private static adapters: Map<string, ErpAdapter> = new Map();
+  private static defaultProvider: string = 'sgp';
 
-  static initialize(config: { provider: string; baseUrl?: string; appToken?: string; userToken?: string }): ErpAdapter {
-    const { provider, baseUrl = '', appToken = '', userToken = '' } = config;
+  static initialize(config: { provider: string; baseUrl?: string; appToken?: string; userToken?: string; apiKey?: string }): ErpAdapter {
+    const { provider, baseUrl = '', appToken = '', userToken = '', apiKey = '' } = config;
+    const provKey = provider.toLowerCase();
+    this.defaultProvider = provKey;
 
-    switch (provider.toLowerCase()) {
-      case 'sgp':
-        this.instance = new SgpAdapter(baseUrl, appToken, userToken);
+    let adapter: ErpAdapter;
+    switch (provKey) {
+      case 'ixc':
+        adapter = new IxcAdapter(baseUrl, appToken || apiKey);
         break;
-      // case 'ixc': 
-      //   this.instance = new IxcAdapter(...);
-      // case 'mikweb':
-      //   this.instance = new MikWebAdapter(...);
+      case 'hubsoft':
+        adapter = new HubSoftAdapter(baseUrl, apiKey || appToken);
+        break;
+      case 'sgp':
       default:
-        console.warn(`[Aviso ERP] Provedor ${provider} não reconhecido. Usando SGP como Fallback default.`);
-        this.instance = new SgpAdapter(baseUrl, appToken, userToken);
+        adapter = new SgpAdapter(baseUrl, appToken, userToken);
+        break;
     }
 
-    return this.instance;
+    this.adapters.set(provKey, adapter);
+    return adapter;
+  }
+
+  static getAdapter(providerName?: string): ErpAdapter {
+    const prov = (providerName || this.defaultProvider).toLowerCase();
+    if (!this.adapters.has(prov)) {
+      this.initialize({ provider: prov });
+    }
+    return this.adapters.get(prov)!;
   }
 
   static getInstance(): ErpAdapter {
-    if (!this.instance) {
-      // Inicia em Memory Fallback por padrão para desenvolvimento
-      return this.initialize({ provider: 'sgp' });
-    }
-    return this.instance;
+    return this.getAdapter();
   }
 }

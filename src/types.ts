@@ -90,3 +90,155 @@ export interface AuditLogEntry {
  data?: string;
 }
 
+
+// --- PRD CUSTOMER 360 & ENLACE-PAY TYPES ---
+export interface NapExternalReference {
+  externalSystem: 'sgp' | 'ixc' | 'hubsoft';
+  externalCustomerId: string;
+  externalContractId: string;
+  lastSyncAt: string;
+  syncStatus: 'synced' | 'syncing' | 'pending' | 'error';
+}
+
+export interface NapInvoice {
+  id: number;
+  napInvoiceId: string;
+  externalInvoiceId: string;
+  externalSystem: string;
+  amount: number;
+  dueDate: string;
+  status: 'open' | 'paid' | 'canceled' | 'divergent' | 'expired';
+  paymentChargeId?: string;
+  txid?: string;
+  pixCopiaECola?: string;
+  qrCodeBase64?: string;
+  paidAt?: string;
+  erpBaixaStatus?: 'posted' | 'pending_queue' | 'failed';
+  erpBaixaId?: string;
+}
+
+export interface NapPaymentTransaction {
+  id: string;
+  txid: string;
+  invoiceId: number;
+  amount: number;
+  method: string;
+  bank: string;
+  transactionId: string;
+  source: string;
+  status: 'confirmed' | 'reconciled' | 'divergent';
+  receivedAt: string;
+  reconciledAt?: string;
+  divergenceReason?: string;
+}
+
+export interface NapCustomerEvent {
+  id: string;
+  customerId: number;
+  eventType: 
+    | 'CUSTOMER_CREATED'
+    | 'CUSTOMER_UPDATED'
+    | 'CONTRACT_SYNCED'
+    | 'INVOICE_CREATED'
+    | 'PIX_CREATED'
+    | 'WHATSAPP_SENT'
+    | 'WHATSAPP_DELIVERED'
+    | 'EMAIL_SENT'
+    | 'LINK_OPENED'
+    | 'QR_VIEWED'
+    | 'PAYMENT_RECEIVED'
+    | 'PAYMENT_CONFIRMED'
+    | 'ERP_PAYMENT_POSTED'
+    | 'ERP_SYNC_FAILED'
+    | 'RECONCILED'
+    | 'TICKET_CREATED'
+    | 'TICKET_CLOSED'
+    | 'CALL_STARTED'
+    | 'CALL_ENDED'
+    | 'ONU_OFFLINE'
+    | 'ONU_ONLINE'
+    | 'ZABBIX_ALERT'
+    | 'TECHNICIAN_VISIT';
+  source: string;
+  referenceId?: string;
+  metadata?: Record<string, any>;
+  occurredAt: string;
+}
+
+export interface NapCustomer360 {
+  id: number;
+  napCustomerId: string; // cus_01JXXXXXXX
+  name: string;
+  document: string;
+  phone: string;
+  whatsapp: string;
+  email: string;
+  address: string;
+  status: 'active' | 'blocked' | 'canceled' | 'installing';
+  createdAt: string;
+  externalReferences: NapExternalReference[];
+  contract: {
+    contractId: string;
+    planName: string;
+    speedDown: string;
+    speedUp: string;
+    installDate: string;
+    status: string;
+    installAddress: string;
+    equipment: string;
+    monthlyPrice: number;
+  };
+  technical: {
+    olt: string;
+    pon: string;
+    onuSerial: string;
+    onuMac: string;
+    vlan: number;
+    ipPppoe: string;
+    pppoeUser: string;
+    opticalPowerRx: string;
+    opticalPowerTx: string;
+    onuState: 'online' | 'offline' | 'los';
+    uptime: string;
+    lastDisconnectReason?: string;
+    genieAcsDeviceId?: string;
+  };
+  financial: {
+    invoices: NapInvoice[];
+    totalPending: number;
+    totalPaid: number;
+    defaultRisk: 'baixo' | 'medio' | 'alto';
+  };
+  support: {
+    tickets: Array<{
+      id: string;
+      title: string;
+      status: 'aberto' | 'em_andamento' | 'resolvido' | 'fechado';
+      priority: 'baixa' | 'normal' | 'alta' | 'urgente';
+      openedAt: string;
+      assignedTo?: string;
+    }>;
+    callsCount: number;
+    whatsappInteractionsCount: number;
+    lastInteractionDate: string;
+  };
+  noc: {
+    availabilityPercent: number;
+    activeAlerts: number;
+    lastOutage?: string;
+    latencyMs: number;
+    packetLossPercent: number;
+    zabbixHostId?: string;
+  };
+  timeline: NapCustomerEvent[];
+}
+
+export interface DomainAuthorityRule {
+  domain: string;
+  description: string;
+  primarySource: string;
+  secondarySource: string;
+  syncMode: 'webhook' | 'event_driven' | 'scheduled' | 'manual';
+  lastSyncAt: string;
+  status: 'active' | 'degraded' | 'syncing';
+}

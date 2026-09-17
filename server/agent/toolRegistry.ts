@@ -15,8 +15,10 @@ export interface AgentTool {
   execute: (params: {
     prompt: string;
     cliente_cpf?: string;
+    cpf_cnpj?: string;
     telefone?: string;
     contexto?: any;
+    [key: string]: any;
   }) => Promise<{
     toolExecutada: string;
     toolDados: any;
@@ -29,6 +31,10 @@ class ToolRegistry {
 
   public register(tool: AgentTool): void {
     this.tools.set(tool.name, tool);
+  }
+
+  public hasTool(name: string): boolean {
+    return this.tools.has(name);
   }
 
   public getTool(name: string): AgentTool | undefined {
