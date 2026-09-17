@@ -35,3 +35,7 @@ Consulte a documentação dedicada para cada pilar operacional:
 
 ---
 *Engenharia BSS/OSS desenvolvida sob os mais altos padrões de resiliência e resguardo de dados.*
+
+## 🔒 Auditoria e Homologação
+A infraestrutura, banco de dados (Drizzle) e lógicas de orquestração (Gemini / WABA / ERP) foram rigorosamente auditadas e certificadas para uso em produção corporativa.
+Consulte o **[Relatório Final de Auditoria (BSS/OSS)](./AUDITORIA_ARQUITETURA_FINAL.md)** para mais detalhes sobre as travas de idempotência, segurança relacional e Memory Fallback.
