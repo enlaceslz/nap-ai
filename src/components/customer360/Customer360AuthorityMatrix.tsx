@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Database, ShieldCheck, RefreshCw, CheckCircle2, Layers, Cpu, Server } from 'lucide-react';
+import { Database, ShieldCheck, RefreshCw, CheckCircle2, Layers, Cpu, Server, Building2, X } from 'lucide-react';
 import type { DomainAuthorityRule } from '../../types';
+import C6BankIntegrationModal from './C6BankIntegrationModal';
 
 export default function Customer360AuthorityMatrix() {
   const [matrix, setMatrix] = useState<DomainAuthorityRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
+  const [showC6Modal, setShowC6Modal] = useState(false);
 
   useEffect(() => {
     fetch('/api/customer360/authority-matrix')
@@ -64,6 +66,13 @@ export default function Customer360AuthorityMatrix() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowC6Modal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/25 rounded-lg text-xs font-semibold transition shadow-sm"
+          >
+            <Building2 size={14} className="text-amber-400" />
+            Configurar C6 Bank (Pix)
+          </button>
           {savedMsg && (
             <span className="text-xs text-emerald-400 flex items-center gap-1 font-medium">
               <CheckCircle2 size={13} /> Matriz salva com sucesso!
@@ -140,6 +149,22 @@ export default function Customer360AuthorityMatrix() {
           </div>
         )}
       </div>
+
+      {/* MODAL: INTEGRAÇÃO C6 BANK & ENLACE-PAY */}
+      {showC6Modal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm overflow-y-auto">
+          <div className="max-w-4xl w-full my-8 relative">
+            <button
+              onClick={() => setShowC6Modal(false)}
+              className="absolute top-4 right-4 z-10 p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-lg transition"
+              title="Fechar"
+            >
+              <X size={18} />
+            </button>
+            <C6BankIntegrationModal />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

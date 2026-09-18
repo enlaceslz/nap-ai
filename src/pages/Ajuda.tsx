@@ -3,15 +3,18 @@ import {
  BookOpen, CheckCircle2, Circle, AlertCircle, Search, 
  Terminal, ShieldCheck, Database, Server, Smartphone, 
  Cpu, Zap, Layers, FileText, ChevronRight, Download,
- UserCheck, CreditCard
+ UserCheck, CreditCard, Building2, X
 } from 'lucide-react';
 import { useConfig } from '../contexts/ConfigContext';
+import C6BankProcedimentosGuia from '../components/customer360/C6BankProcedimentosGuia';
 
 export default function Ajuda() {
  const { config } = useConfig();
  const [activeTab, setActiveTab] = useState<'matriz' | 'manuais' | 'deploy'>('matriz');
+ const [showC6Guide, setShowC6Guide] = useState(false);
 
  const matrixStaging = [
+ { module: 'Customer 360 & C6 Bank (Pix mTLS)', status: 'done', desc: 'Vinculação visual segura C6 Bank (336), Handshake mTLS, Webhook Pix v2 e Reconciliação', date: 'Homologado' },
  { module: 'Customer 360 & Enlace-Pay', status: 'done', desc: 'Espelho operacional resiliente, Baixa Webhook C6, Conciliação e Timeline Unificada', date: 'Homologado' },
  { module: 'WABA & Inbox', status: 'done', desc: 'Integração Oficial WhatsApp Cloud API & Copiloto Gemini IA', date: 'Homologado' },
  { module: 'Cérebro IA (MaIA) & 9router', status: 'done', desc: 'Google Gemini 2.5 Flash com failover automático 9router e alertas de cota 429', date: 'Homologado' },
@@ -153,15 +156,44 @@ export default function Ajuda() {
  <div className="flex items-center text-indigo-400 text-sm font-medium">Ler manual <ChevronRight size={16} className="ml-1" /></div>
  </div>
 
+ <div 
+ onClick={() => setShowC6Guide(true)}
+ className="bg-card border border-border p-6 rounded-xl hover:border-amber-500/50 transition-colors cursor-pointer group"
+ >
+ <div className="h-12 w-12 bg-amber-500/10 rounded-lg flex items-center justify-center text-amber-400 mb-4 group-hover:scale-110 transition-transform">
+ <Building2 size={24} />
+ </div>
+ <h3 className="text-lg font-semibold text-card-foreground mb-2">Procedimentos C6 Bank (mTLS &amp; Pix)</h3>
+ <p className="text-muted-foreground text-sm mb-4 leading-relaxed">
+ Passo a passo com telas do Internet Banking C6 Empresas PJ para gerar chaves de API, baixar certificados mTLS (.crt/.pem) e registrar Webhooks.
+ </p>
+ <div className="flex items-center text-amber-400 text-sm font-medium">Abrir passo a passo <ChevronRight size={16} className="ml-1" /></div>
+ </div>
+
  <div className="bg-card border border-border p-6 rounded-xl hover:border-emerald-500/50 transition-colors cursor-pointer group">
  <div className="h-12 w-12 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-400 mb-4 group-hover:scale-110 transition-transform">
  <UserCheck size={24} />
  </div>
- <h3 className="text-lg font-semibold text-card-foreground mb-2">Customer 360 & Enlace-Pay</h3>
+ <h3 className="text-lg font-semibold text-card-foreground mb-2">Customer 360 &amp; Enlace-Pay</h3>
  <p className="text-muted-foreground text-sm mb-4 leading-relaxed">
  Conciliação bancária de Pix (C6 Bank), espelho operacional resiliente, auditoria de divergências e autoridade de domínio.
  </p>
  <div className="flex items-center text-emerald-400 text-sm font-medium">Ler manual <ChevronRight size={16} className="ml-1" /></div>
+ </div>
+ </div>
+ )}
+
+ {showC6Guide && (
+ <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm overflow-y-auto">
+ <div className="max-w-4xl w-full my-8 relative">
+ <button
+ onClick={() => setShowC6Guide(false)}
+ className="absolute top-4 right-4 z-10 p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-lg transition"
+ title="Fechar"
+ >
+ <X size={18} />
+ </button>
+ <C6BankProcedimentosGuia onClose={() => setShowC6Guide(false)} />
  </div>
  </div>
  )}

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, RefreshCw, AlertTriangle, CheckCircle2, Layers, 
-  CreditCard, ExternalLink, Check, ArrowUpRight, Database
+  CreditCard, ExternalLink, Check, ArrowUpRight, Database, Building2
 } from 'lucide-react';
 import type { NapPaymentTransaction } from '../../types';
+import C6BankIntegrationModal from './C6BankIntegrationModal';
 
 interface Props {
   onTriggerReconciliation: () => void;
@@ -25,6 +26,7 @@ export default function Customer360Reconciliation({
   });
   const [loading, setLoading] = useState(true);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [showC6Config, setShowC6Config] = useState(false);
 
   const loadData = () => {
     setLoading(true);
@@ -75,7 +77,18 @@ export default function Customer360Reconciliation({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => setShowC6Config(!showC6Config)}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold border transition ${
+              showC6Config
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+          >
+            <Building2 size={14} className="text-amber-400" />
+            {showC6Config ? "Ocultar Painel C6 Bank" : "Configurar Conta C6 Bank"}
+          </button>
           <button
             onClick={loadData}
             className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
@@ -96,6 +109,11 @@ export default function Customer360Reconciliation({
           </button>
         </div>
       </div>
+
+      {/* Painel Expansível de Vinculação do C6 Bank */}
+      {showC6Config && (
+        <C6BankIntegrationModal onConfigSaved={loadData} />
+      )}
 
       {/* Grid de Métricas da Reconciliação */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

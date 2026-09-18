@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { 
   Users, CreditCard, ShieldCheck, Database, LayoutDashboard, 
-  RefreshCw, CheckCircle2, AlertTriangle 
+  RefreshCw, CheckCircle2, AlertTriangle, Building2 
 } from 'lucide-react';
 import type { NapCustomer360 } from '../../types';
 import Customer360Dashboard from '../../components/customer360/Customer360Dashboard';
@@ -10,12 +10,13 @@ import Customer360List from '../../components/customer360/Customer360List';
 import Customer360Detail from '../../components/customer360/Customer360Detail';
 import Customer360Reconciliation from '../../components/customer360/Customer360Reconciliation';
 import Customer360AuthorityMatrix from '../../components/customer360/Customer360AuthorityMatrix';
+import C6BankIntegrationModal from '../../components/customer360/C6BankIntegrationModal';
 
 export default function Customer360() {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'detail' | 'reconciliation' | 'authority'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'list' | 'detail' | 'reconciliation' | 'authority' | 'c6-bank'>('dashboard');
   const [customers, setCustomers] = useState<NapCustomer360[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<NapCustomer360 | null>(null);
@@ -293,6 +294,21 @@ export default function Customer360() {
             <Database size={13} />
             Matriz de Autoridade
           </button>
+
+          <button
+            onClick={() => setActiveTab('c6-bank')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition shrink-0 ${
+              activeTab === 'c6-bank'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-md'
+                : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/30'
+            }`}
+          >
+            <Building2 size={13} className={activeTab === 'c6-bank' ? "text-slate-950" : "text-amber-400"} />
+            Banco C6 (336)
+            <span className="ml-0.5 px-1 py-0.2 rounded text-[9px] uppercase bg-amber-400/20 text-amber-300 border border-amber-400/30">
+              mTLS
+            </span>
+          </button>
         </div>
       </div>
 
@@ -355,6 +371,15 @@ export default function Customer360() {
 
       {activeTab === 'authority' && (
         <Customer360AuthorityMatrix />
+      )}
+
+      {activeTab === 'c6-bank' && (
+        <C6BankIntegrationModal 
+          onConfigSaved={() => {
+            showToast("Configurações do C6 Bank salvas com sucesso!", "success");
+            loadInitialData();
+          }}
+        />
       )}
     </div>
   );

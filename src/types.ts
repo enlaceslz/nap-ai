@@ -242,3 +242,22 @@ export interface DomainAuthorityRule {
   lastSyncAt: string;
   status: 'active' | 'degraded' | 'syncing';
 }
+
+export interface C6BankConfig {
+  id: string;
+  bankName: string;
+  ispName: string;
+  pixKey: string;
+  pixKeyType: 'cnpj' | 'email' | 'aleatoria' | 'telefone';
+  clientId: string;
+  clientSecretMasked: string;
+  webhookUrl: string;
+  mtlsCertificateUploaded: boolean;
+  mtlsCertificateName?: string;
+  mtlsCertificateExpiry?: string;
+  environment: 'production' | 'sandbox';
+  status: 'connected' | 'unconfigured' | 'testing';
+  lastHealthCheck?: string;
+  latencyMs?: number;
+}
+

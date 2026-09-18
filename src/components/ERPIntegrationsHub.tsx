@@ -3,12 +3,13 @@ import {
  Database, Server, CheckCircle2, AlertTriangle, RefreshCw, 
  ExternalLink, ShieldCheck, Zap, Lock, Eye, EyeOff, Radio, 
  Check, ArrowRight, BookOpen, Clock, Activity, Wifi, FileText,
- Sliders, Cpu, Sparkles, HelpCircle, Loader2, Save
+ Sliders, Cpu, Sparkles, HelpCircle, Loader2, Save, Building2
 } from 'lucide-react';
 import { useConfig, SupportedErp } from '../contexts/ConfigContext';
 import ApiValidationCard from './ApiValidationCard';
 import ErpPingBadge from './ErpPingBadge';
 import { useErpPingMonitor } from '../hooks/useErpPingMonitor';
+import C6BankIntegrationModal from './customer360/C6BankIntegrationModal';
 
 interface ErpCatalogoItem {
  id: SupportedErp;
@@ -56,7 +57,7 @@ interface TestResult {
 
 export default function ERPIntegrationsHub() {
  const { config: globalConfig, updateConfig } = useConfig();
- const [activeSubTab, setActiveSubTab] = useState<'validador' | 'conectores' | 'configuracao' | 'documentacao'>('validador');
+ const [activeSubTab, setActiveSubTab] = useState<'validador' | 'conectores' | 'configuracao' | 'documentacao' | 'c6-bank'>('validador');
  const [selectedErpId, setSelectedErpId] = useState<SupportedErp>('sgp');
  const [erpsList, setErpsList] = useState<ErpCatalogoItem[]>([]);
  const [loading, setLoading] = useState(true);
@@ -374,7 +375,28 @@ export default function ERPIntegrationsHub() {
  <BookOpen size={15} />
  <span>Documentação & Passo a Passo</span>
  </button>
+
+ <button
+ type="button"
+ id="btn-subtab-c6-bank"
+ onClick={() => setActiveSubTab('c6-bank')}
+ className={`flex-1 min-w-[170px] py-2.5 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+ activeSubTab === 'c6-bank'
+ ? 'bg-amber-600 text-white shadow'
+ : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+ }`}
+ >
+ <Building2 size={15} className={activeSubTab === 'c6-bank' ? 'text-white' : 'text-amber-400'} />
+ <span>Banco C6 (Pix mTLS)</span>
+ </button>
  </div>
+
+ {/* SUB-ABA: VINCULAÇÃO BANCÁRIA C6 BANK (ENLACE-PAY) */}
+ {activeSubTab === 'c6-bank' && (
+   <div className="space-y-4">
+     <C6BankIntegrationModal />
+   </div>
+ )}
 
  {/* SUB-ABA 0: VALIDADOR RÁPIDO DE API (IXC, HUBSOFT, MIKWEB) */}
  {activeSubTab === 'validador' && (

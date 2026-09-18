@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   Users, CheckCircle2, AlertTriangle, XCircle, CreditCard, 
   ArrowUpRight, RefreshCw, Headphones, PhoneCall, MessageSquare, 
-  Activity, Zap, ShieldCheck, Database, Layers
+  Activity, Zap, ShieldCheck, Database, Layers, Building2
 } from 'lucide-react';
 
 interface DashboardMetrics {
@@ -71,7 +71,14 @@ export default function Customer360Dashboard({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => onNavigateTab('c6-bank')}
+            className="flex items-center gap-2 px-3.5 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-semibold transition shadow-sm"
+          >
+            <Building2 size={14} className="text-amber-400" />
+            Configurar C6 Bank (336)
+          </button>
           <button
             onClick={onTriggerReconciliation}
             disabled={isReconciling}
@@ -155,12 +162,20 @@ export default function Customer360Dashboard({
             <CreditCard size={15} className="text-emerald-400" />
             2. Operação Financeira Pix & Enlace-Pay (C6)
           </h3>
-          <button 
-            onClick={() => onNavigateTab('reconciliation')} 
-            className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
-          >
-            Fila de Baixa & Divergências <ArrowUpRight size={13} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => onNavigateTab('c6-bank')} 
+              className="text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 rounded-md transition"
+            >
+              <Building2 size={12} /> Integração C6 Bank
+            </button>
+            <button 
+              onClick={() => onNavigateTab('reconciliation')} 
+              className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+            >
+              Fila de Baixa & Divergências <ArrowUpRight size={13} />
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

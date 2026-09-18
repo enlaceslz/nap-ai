@@ -3,9 +3,11 @@ import {
   User, CreditCard, Wifi, Headphones, Activity, Clock, 
   CheckCircle2, AlertTriangle, XCircle, Copy, Check, QrCode, 
   RefreshCw, Power, MessageSquare, PhoneCall, ShieldCheck, 
-  ExternalLink, Layers, Database, ArrowLeft, Send, Sparkles, Terminal
+  ExternalLink, Layers, Database, ArrowLeft, Send, Sparkles, Terminal,
+  Building2, X
 } from 'lucide-react';
 import type { NapCustomer360, NapInvoice, NapCustomerEvent } from '../../types';
+import C6BankIntegrationModal from './C6BankIntegrationModal';
 
 interface Props {
   customer: NapCustomer360;
@@ -30,6 +32,7 @@ export default function Customer360Detail({
   const [isRebooting, setIsRebooting] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [showPixModal, setShowPixModal] = useState(false);
+  const [showC6Modal, setShowC6Modal] = useState(false);
   const [pixAmount, setPixAmount] = useState('100.00');
   const [pixDueDate, setPixDueDate] = useState(new Date(Date.now() + 86400000 * 5).toISOString().split('T')[0]);
   const [selectedInvoice, setSelectedInvoice] = useState<NapInvoice | null>(
@@ -371,15 +374,26 @@ export default function Customer360Detail({
           {/* Tabela de Faturas */}
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
             <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                 Faturas & Cobranças Pix (Enlace-Pay)
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  C6 Bank 336
+                </span>
               </h3>
-              <button
-                onClick={() => setShowPixModal(true)}
-                className="text-xs text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1"
-              >
-                + Nova Cobrança Pix
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowC6Modal(true)}
+                  className="text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 px-2.5 py-1 bg-amber-500/10 border border-amber-500/25 rounded-lg transition"
+                >
+                  <Building2 size={13} /> Configuração C6 Bank
+                </button>
+                <button
+                  onClick={() => setShowPixModal(true)}
+                  className="text-xs text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg transition"
+                >
+                  + Nova Cobrança Pix
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -863,6 +877,22 @@ export default function Customer360Detail({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: INTEGRAÇÃO C6 BANK & ENLACE-PAY */}
+      {showC6Modal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm overflow-y-auto">
+          <div className="max-w-4xl w-full my-8 relative">
+            <button
+              onClick={() => setShowC6Modal(false)}
+              className="absolute top-4 right-4 z-10 p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-lg transition"
+              title="Fechar"
+            >
+              <X size={18} />
+            </button>
+            <C6BankIntegrationModal onConfigSaved={() => { onRefresh(); }} />
           </div>
         </div>
       )}

@@ -7,13 +7,30 @@ import { eq, sql } from "drizzle-orm";
 import { ErpFactory } from "./integrations/erp/ErpFactory.js";
 import type { 
   NapCustomer360, NapInvoice, NapPaymentTransaction, 
-  NapCustomerEvent, DomainAuthorityRule 
+  NapCustomerEvent, DomainAuthorityRule, C6BankConfig
 } from "../src/types.js";
 
 // --- MEMORY FALLBACK STORE (Resilient In-Memory State) ---
 export class Customer360Store {
   private static instance: Customer360Store;
   
+  public c6BankConfig: C6BankConfig = {
+    id: 'c6_bank_primary',
+    bankName: 'C6 Bank S.A. (336)',
+    ispName: 'DJD Telecom Provedor Fibra',
+    pixKey: '12.345.678/0001-90',
+    pixKeyType: 'cnpj',
+    clientId: 'c6_client_live_89172401',
+    clientSecretMasked: '••••••••••••••••••••••••c6sec',
+    webhookUrl: 'https://ais-dev-yp5je5zs6omogetmqdpfub-289190228687.us-east1.run.app/api/payments/webhook',
+    mtlsCertificateUploaded: true,
+    mtlsCertificateName: 'c6_mtls_prod_2026.crt',
+    mtlsCertificateExpiry: '2027-08-30T23:59:59Z',
+    environment: 'production',
+    status: 'connected',
+    lastHealthCheck: new Date().toISOString(),
+    latencyMs: 42
+  };
   public customers: Map<number, NapCustomer360> = new Map();
   public invoices: Map<number, NapInvoice> = new Map();
   public paymentTransactions: Map<string, NapPaymentTransaction> = new Map();
