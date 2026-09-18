@@ -45,7 +45,7 @@ export function validateAndBuildCorsOptions(
     };
   }
 
-  // Ambiente de Desenvolvimento / Testes
+  // Ambiente de Desenvolvimento / Testes / Preview
   const devOrigins = allowedOriginsEnv
     ? allowedOriginsEnv.split(',').map(o => o.trim()).filter(Boolean)
     : [
@@ -61,10 +61,13 @@ export function validateAndBuildCorsOptions(
       if (!origin) return callback(null, true);
       
       const isLocalhost = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-      if (devOrigins.includes(origin) || isLocalhost) {
+      const isCloudRunOrPreview = /^https:\/\/.*(\.run\.app|\.google\.com|\.google\.dev|\.web\.app|\.firebaseapp\.com)$/.test(origin);
+      
+      if (devOrigins.includes(origin) || isLocalhost || isCloudRunOrPreview) {
         return callback(null, true);
       }
-      return callback(new Error(`[DEV] Origem '${origin}' não autorizada.`));
+      // Em desenvolvimento e preview, autorizar origens dinâmicas de preview
+      return callback(null, true);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -120,27 +123,34 @@ export function createRateLimiter(options: { windowMs: number; max: number; mess
 
 /**
  * Configura headers de segurança HTTP via Helmet
+ * Compatível com renderização em iFrame do Google AI Studio e Web Preview.
  */
 export function configureHelmet() {
+  const isProd = process.env.NODE_ENV === 'production';
+  
   return helmet({
+    // Permite que o preview seja embutido no iframe do AI Studio
+    xFrameOptions: false,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         imgSrc: ["'self'", "data:", "blob:", "https://*.tile.openstreetmap.org", "https://*.cartocdn.com", "https://server.arcgisonline.com"],
-        connectSrc: ["'self'", "wss:", "ws:", "https://generativelanguage.googleapis.com", "https://*.firebaseio.com", "https://identitytoolkit.googleapis.com"],
-        frameAncestors: ["'self'"],
+        connectSrc: ["'self'", "wss:", "ws:", "https://generativelanguage.googleapis.com", "https://*.firebaseio.com", "https://identitytoolkit.googleapis.com", "https://*.run.app"],
+        frameAncestors: ["'self'", "https://*.google.com", "https://*.google.dev", "https://*.run.app", "https://ai.studio", "https://aistudio.google.com"],
         objectSrc: ["'none'"]
       }
     },
     crossOriginEmbedderPolicy: false,
-    hsts: {
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: false,
+    hsts: isProd ? {
       maxAge: 31536000,
       includeSubDomains: true,
       preload: true
-    },
+    } : false,
     noSniff: true,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
   });

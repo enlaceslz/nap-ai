@@ -134,7 +134,13 @@ app.use("/api/", authMiddleware);
 app.use("/api", authRouter);
 
 // Proteção granular de rotas críticas via RBAC (Fase 5)
-app.use("/api/configuracoes", requireRole("ADMIN"));
+// Para /api/configuracoes: Leitura (GET) é permitida para bootstrap do tema/provedor no frontend; mutações exigem ADMIN
+app.use("/api/configuracoes", (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'OPTIONS' || req.method === 'HEAD') {
+    return next();
+  }
+  return requireRole("ADMIN")(req, res, next);
+});
 app.use("/api/auditoria", requireRole("ADMIN", "AUDITOR"));
 app.use("/api/admin/auditoria", requireRole("ADMIN", "AUDITOR"));
 app.use("/api/telefonia", requireRole("ADMIN", "SUPORTE"));
