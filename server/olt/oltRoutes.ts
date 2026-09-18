@@ -1,6 +1,24 @@
 import { Express, Request, Response } from 'express';
 import { OltService } from './oltService';
 import { AuthorizeOnuPayload, BatchOnuOperationPayload } from './types';
+import { requirePermission } from '../auth/rbacMiddleware';
+import { z } from 'zod';
+
+const AuthorizeOnuSchema = z.object({
+  olt_id: z.string().min(1, 'olt_id é obrigatório'),
+  pon_identifier: z.string().min(1, 'pon_identifier é obrigatório'),
+  serial: z.string().min(4, 'Serial da ONU é obrigatório'),
+  cliente_id: z.union([z.string(), z.number()]).optional(),
+  cliente_nome: z.string().optional(),
+  vlan: z.number().int().min(1).max(4094),
+  profile_name: z.string().optional()
+});
+
+const BatchOnuSchema = z.object({
+  onu_ids: z.array(z.string()).min(1, 'Lista onu_ids não pode ser vazia'),
+  operation: z.enum(['reboot', 'enable', 'disable']),
+  reason: z.string().optional()
+});
 
 export function setupOltRoutes(
   app: Express,
@@ -29,40 +47,48 @@ export function setupOltRoutes(
     return req.socket?.remoteAddress || '127.0.0.1';
   };
 
-  const getUserName = (req: Request): string => {
-    return (req.headers['x-user-name'] as string) || (req.headers['x-usuario'] as string) || 'Operador NOC';
+  // Identidade obtida ESTRITAMENTE do contexto criptográfico autenticado (req.user), NUNCA de headers do cliente
+  const getUserIdentity = (req: Request) => {
+    return {
+      nome: req.user?.nome || 'Operador Autenticado',
+      email: req.user?.email || 'sistema@nap.local',
+      role: req.user?.role || 'NOC'
+    };
   };
 
   // ==================== DASHBOARD & ALARMES ====================
 
-  app.get('/api/v1/olts-dashboard', (req: Request, res: Response) => {
+  app.get('/api/v1/olts-dashboard', requirePermission('OLT_READ'), (req: Request, res: Response) => {
     try {
       const metrics = oltService.getDashboardMetrics();
       res.json(metrics);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao obter métricas de OLTs' });
     }
   });
 
-  app.get('/api/v1/olts-alarms', (req: Request, res: Response) => {
+  app.get('/api/v1/olts-alarms', requirePermission('OLT_READ'), (req: Request, res: Response) => {
     try {
       const oltId = req.query.olt_id as string;
       const alarms = oltService.getAlarms(oltId);
       res.json(alarms);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao consultar alarmes' });
     }
   });
 
-  app.post('/api/v1/olts-alarms/:id/ack', (req: Request, res: Response) => {
+  app.post('/api/v1/olts-alarms/:id/ack', requirePermission('OLT_UPDATE'), (req: Request, res: Response) => {
     try {
       const success = oltService.acknowledgeAlarm(req.params.id);
       if (success) {
+        const user = getUserIdentity(req);
         registrarAuditoria({
-          usuario: getUserName(req),
+          usuario: user.nome,
+          usuarioEmail: user.email,
+          usuarioRole: user.role,
           modulo: 'OLT Manager (GPON)',
-          acao: 'ACK_OLT_ALARM',
-          detalhes: `Alarme ID ${req.params.id} reconhecido pelo operador`,
+          acao: 'RECONHECER_ALARME',
+          detalhes: `Alarme ${req.params.id} reconhecido por operador`,
           ip: getClientIp(req),
           status: 'sucesso',
           severidade: 'info'
@@ -70,7 +96,7 @@ export function setupOltRoutes(
       }
       res.json({ success });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao reconhecer alarme' });
     }
   });
 
@@ -108,8 +134,11 @@ export function setupOltRoutes(
   app.post('/api/v1/olts', async (req: Request, res: Response) => {
     try {
       const newOlt = await oltService.createOlt(req.body);
+      const user = getUserIdentity(req);
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'CADASTRAR_OLT',
         detalhes: `Cadastrada OLT ${newOlt.nome} (${newOlt.fabricante} ${newOlt.modelo}) no IP ${newOlt.ip}`,
@@ -127,9 +156,12 @@ export function setupOltRoutes(
     try {
       const updated = oltService.updateOlt(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: 'OLT não encontrada' });
+      const user = getUserIdentity(req);
 
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'ATUALIZAR_OLT',
         detalhes: `Atualizadas configurações da OLT ${updated.nome}`,
@@ -148,9 +180,12 @@ export function setupOltRoutes(
       const olt = oltService.getOltById(req.params.id);
       const success = oltService.deleteOlt(req.params.id);
       if (!success) return res.status(404).json({ error: 'OLT não encontrada' });
+      const user = getUserIdentity(req);
 
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'EXCLUIR_OLT',
         detalhes: `OLT ${olt?.nome || req.params.id} e suas portas/ONUs foram removidas do sistema`,
@@ -177,9 +212,12 @@ export function setupOltRoutes(
     try {
       const olt = oltService.getOltById(req.params.id);
       const result = await oltService.runDiscovery(req.params.id);
+      const user = getUserIdentity(req);
 
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'DISCOVERY_OLT',
         detalhes: `Descoberta executada na OLT ${olt?.nome}. Identificados ${result.slots.length} slots e ${result.pons.length} interfaces PON.`,
@@ -257,13 +295,24 @@ export function setupOltRoutes(
     }
   });
 
-  app.post('/api/v1/onus', async (req: Request, res: Response) => {
+  app.post('/api/v1/onus', requirePermission('ONU_PROVISION'), async (req: Request, res: Response) => {
     try {
-      const payload: AuthorizeOnuPayload = req.body;
+      const parseResult = AuthorizeOnuSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: 'Dados de provisionamento inválidos',
+          detalhes: parseResult.error.format()
+        });
+      }
+      const payload: AuthorizeOnuPayload = parseResult.data as any;
       const result = await oltService.authorizeOnu(payload);
+      const user = getUserIdentity(req);
 
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'PROVISIONAR_ONU',
         detalhes: `ONU provisionada com sucesso: Serial ${payload.serial} na PON ${payload.pon_identifier} com VLAN ${payload.vlan} (Cliente: ${payload.cliente_nome || 'N/A'})`,
@@ -274,17 +323,20 @@ export function setupOltRoutes(
 
       res.status(201).json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao autorizar ONU' });
     }
   });
 
-  app.post('/api/v1/onus/:id/reboot', async (req: Request, res: Response) => {
+  app.post('/api/v1/onus/:id/reboot', requirePermission('ONU_REBOOT'), async (req: Request, res: Response) => {
     try {
       const onu = oltService.getOnuById(req.params.id);
       const result = await oltService.rebootOnu(req.params.id);
+      const user = getUserIdentity(req);
 
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'REBOOT_ONU',
         detalhes: `Comando de reinicialização enviado para ONU ${onu?.serial || req.params.id} (PON ${onu?.pon_identifier})`,
@@ -295,17 +347,20 @@ export function setupOltRoutes(
 
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao reiniciar ONU' });
     }
   });
 
-  app.post('/api/v1/onus/:id/enable', async (req: Request, res: Response) => {
+  app.post('/api/v1/onus/:id/enable', requirePermission('ONU_ENABLE'), async (req: Request, res: Response) => {
     try {
       const onu = oltService.getOnuById(req.params.id);
       const result = await oltService.enableOnu(req.params.id);
+      const user = getUserIdentity(req);
 
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'DESBLOQUEAR_ONU',
         detalhes: `ONU ${onu?.serial || req.params.id} desbloqueada administrativamente`,
@@ -316,17 +371,20 @@ export function setupOltRoutes(
 
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao habilitar ONU' });
     }
   });
 
-  app.post('/api/v1/onus/:id/disable', async (req: Request, res: Response) => {
+  app.post('/api/v1/onus/:id/disable', requirePermission('ONU_DISABLE'), async (req: Request, res: Response) => {
     try {
       const onu = oltService.getOnuById(req.params.id);
       const result = await oltService.disableOnu(req.params.id);
+      const user = getUserIdentity(req);
 
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'BLOQUEAR_ONU',
         detalhes: `ONU ${onu?.serial || req.params.id} bloqueada administrativamente`,
@@ -337,17 +395,20 @@ export function setupOltRoutes(
 
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao bloquear ONU' });
     }
   });
 
-  app.delete('/api/v1/onus/:id', async (req: Request, res: Response) => {
+  app.delete('/api/v1/onus/:id', requirePermission('ONU_DELETE'), async (req: Request, res: Response) => {
     try {
       const onu = oltService.getOnuById(req.params.id);
       const result = await oltService.deleteOnu(req.params.id);
+      const user = getUserIdentity(req);
 
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'REMOVER_ONU',
         detalhes: `ONU ${onu?.serial || req.params.id} removida e desprovisionada da OLT ${onu?.olt_nome}`,
@@ -358,38 +419,49 @@ export function setupOltRoutes(
 
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao remover ONU' });
     }
   });
 
-  app.get('/api/v1/onus/:id/optical', async (req: Request, res: Response) => {
+  app.get('/api/v1/onus/:id/optical', requirePermission('ONU_READ'), async (req: Request, res: Response) => {
     try {
       const telemetry = await oltService.getOpticalInfo(req.params.id);
       res.json(telemetry);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao consultar telemetria óptica' });
     }
   });
 
-  app.get('/api/v1/onus/:id/diagnostics', async (req: Request, res: Response) => {
+  app.get('/api/v1/onus/:id/diagnostics', requirePermission('ONU_READ'), async (req: Request, res: Response) => {
     try {
       const diagnostics = await oltService.runDiagnostics(req.params.id);
       res.json(diagnostics);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro nos diagnósticos da ONU' });
     }
   });
 
-  app.post('/api/v1/onus/batch', async (req: Request, res: Response) => {
+  app.post('/api/v1/onus/batch', requirePermission('ONU_BATCH'), async (req: Request, res: Response) => {
     try {
-      const payload: BatchOnuOperationPayload = req.body;
+      const parseResult = BatchOnuSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: 'Payload de lote inválido',
+          detalhes: parseResult.error.format()
+        });
+      }
+      const payload: any = parseResult.data;
       const result = await oltService.executeBatchOperation(payload);
+      const user = getUserIdentity(req);
 
       registrarAuditoria({
-        usuario: getUserName(req),
+        usuario: user.nome,
+        usuarioEmail: user.email,
+        usuarioRole: user.role,
         modulo: 'OLT Manager (GPON)',
         acao: 'BATCH_ONU_OPERATION',
-        detalhes: `Operação em lote '${payload.action}' executada para ${payload.onu_ids.length} ONUs. Sucesso: ${result.success}, Falhas: ${result.failed}`,
+        detalhes: `Operação em lote '${payload.operation}' executada para ${payload.onu_ids.length} ONUs. Sucesso: ${result.success}, Falhas: ${result.failed}`,
         ip: getClientIp(req),
         status: result.failed > 0 ? 'falha' : 'sucesso',
         severidade: result.failed > 0 ? 'atencao' : 'info'
@@ -397,7 +469,7 @@ export function setupOltRoutes(
 
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Erro ao executar lote de ONUs' });
     }
   });
 }

@@ -6,6 +6,19 @@ import fs from "fs";
 import { exec } from "child_process";
 import cors from "cors";
 import { GoogleGenAI } from "@google/genai";
+import { validateSecrets } from "./server/security/secretsValidator";
+import { configureHelmet, createRateLimiter, globalErrorHandler, appendAuditLog, getAuditChain } from "./server/security/httpSecurity";
+import { authMiddleware } from "./server/auth/rbacMiddleware";
+
+// Validação de segurança de inicialização
+try {
+  validateSecrets();
+} catch (e: any) {
+  console.error("[FATAL] Erro na validação de segredos:", e.message);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
+}
 
 import { db } from "./src/db/index";
 import { users, atendimentos, clientes, faturas } from "./src/db/schema";
@@ -104,9 +117,19 @@ async function fetchERP(endpoint, method = "GET", body = null) {
   return await res.json();
 }
 
-app.use(cors());
-app.use(express.json({ limit: "15mb" }));
-app.use(express.urlencoded({ extended: true, limit: "15mb" }));
+app.use(configureHelmet());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
+  credentials: true
+}));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Rate Limiter para APIs
+app.use("/api/", createRateLimiter({ windowMs: 60 * 1000, max: 180 }));
+
+// Autenticação e RBAC central
+app.use("/api/", authMiddleware);
 
 // --- Global System Configuration & State ---
 let systemConfig: any = {
@@ -258,6 +281,26 @@ function registrarAuditoria(entry: {
   };
   auditLogs.unshift(log);
   if (auditLogs.length > 500) auditLogs.pop();
+
+  // Encadeamento de hash SHA-256 à prova de adulteração
+  try {
+    appendAuditLog({
+      usuario: log.usuario,
+      usuarioEmail: log.usuarioEmail,
+      usuarioRole: log.usuarioRole,
+      modulo: log.modulo,
+      acao: log.acao,
+      detalhes: log.detalhes,
+      categoria: log.categoria,
+      severidade: log.severidade as any,
+      ip: log.ip,
+      userAgent: log.userAgent,
+      status: (log.status === 'falha' || log.status === 'bloqueado' ? log.status : 'sucesso') as 'sucesso' | 'bloqueado' | 'falha'
+    });
+  } catch (e) {
+    console.error("[AuditLog] Falha ao encadear hash:", e);
+  }
+
   return log;
 }
 
@@ -1755,52 +1798,67 @@ app.use("/api/ai", aiRoutes);
   // HelpDesk
   app.use("/api/v1/helpdesk", setupHelpDeskRoutes());
 
-  // Catch-all API 404 handler (único e limpo)
-  app.all("/api/*", (req, res) => {
-    res.status(404).json({ error: "API endpoint não encontrado", route: req.originalUrl });
+  // Endpoint para inspeção da cadeia de auditoria criptográfica append-only
+  app.get("/api/v1/auditoria/chain", (req, res) => {
+    res.json({
+      totalLogs: getAuditChain().length,
+      chain: getAuditChain().slice(0, 100)
+    });
   });
 
-  // Global Error Handler
-  app.use((err: any, req: any, res: any, next: any) => {
-    console.error(err);
-    if (req.path.startsWith("/api/")) {
-      res.status(500).json({ error: "Erro interno", details: err.message });
-    } else {
-      next(err);
-    }
-  });
-
-  // Setup Wizard Endpoints
+  // Setup Wizard Endpoints (Protegidos contra execução em ambiente produtivo já inicializado)
   app.post("/api/setup/install-genieacs", (req, res) => {
+    if (process.env.NODE_ENV === "production" && process.env.DATABASE_URL) {
+      return res.status(403).json({ error: "Instalação bloqueada: Instância já provisionada em produção." });
+    }
     exec("bash install_genieacs.sh", (error: any, stdout: any, stderr: any) => {
       if (error) {
         console.error(`GenieACS Install Error: ${error.message}`);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: "Falha na execução do instalador GenieACS" });
       }
       res.json({ success: true, logs: stdout });
     });
   });
 
   app.post("/api/setup/finish", (req, res) => {
+    if (process.env.NODE_ENV === "production" && process.env.DATABASE_URL) {
+      return res.status(403).json({ error: "Setup bloqueado: O ambiente já possui credenciais ativas." });
+    }
     const { adminEmail, adminPassword, sgpUrl, sgpApp, sgpToken, geminiApiKey, amiUser, amiPassword } = req.body;
+    
+    // Sanitização básica
+    if (!adminEmail || !adminPassword) {
+      return res.status(400).json({ error: "Email e senha do administrador são obrigatórios" });
+    }
+
     const envContent = `\
-GEMINI_API_KEY="${geminiApiKey}"\
-SGP_URL="${sgpUrl}"\
-SGP_APP="${sgpApp}"\
-SGP_TOKEN="${sgpToken}"\
-AMI_USER="${amiUser}"\
-AMI_PASSWORD="${amiPassword}"\
-DATABASE_URL="postgresql://postgres:nap_secure_pwd@db:5432/nap_crm"\
+GEMINI_API_KEY="${geminiApiKey || ''}"\
+SGP_URL="${sgpUrl || ''}"\
+SGP_APP="${sgpApp || ''}"\
+SGP_TOKEN="${sgpToken || ''}"\
+AMI_USER="${amiUser || ''}"\
+AMI_PASSWORD="${amiPassword || ''}"\
+DATABASE_URL="${process.env.DATABASE_URL || 'postgresql://postgres:nap_secure_pwd@db:5432/nap_crm'}"\
 GENIEACS_URL="http://127.0.0.1:7557"\
-GENIEACS_USER="api_user"\
-GENIEACS_PASSWORD="api_password"\
 ADMIN_EMAIL="${adminEmail}"\
 ADMIN_PASSWORD="${adminPassword}"\
 `;
-    fs.writeFileSync(path.join(process.cwd(), ".env"), envContent);
-    console.log("[SETUP] Variaveis .env configuradas com sucesso.");
-    res.json({ success: true });
+    try {
+      fs.writeFileSync(path.join(process.cwd(), ".env"), envContent, { mode: 0o600 });
+      console.log("[SETUP] Variáveis .env configuradas com sucesso.");
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao gravar arquivo de configuração .env" });
+    }
   });
+
+  // Catch-all API 404 handler (único e limpo)
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: "API endpoint não encontrado", route: req.originalUrl });
+  });
+
+  // Global Error Handler com sanitização e audit log automático
+  app.use(globalErrorHandler);
 
   if (!process.env.VERCEL && process.env.NODE_ENV === "production") {
     const distPath = path.join(process.cwd(), "dist");

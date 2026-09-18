@@ -9,18 +9,25 @@ services:
     container_name: nap_app
     restart: always
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - DATABASE_URL=postgresql://postgres:nap_secure_pwd@db:5432/nap_crm?schema=public
-      - REDIS_URL=redis://redis:6379
-      - MONGODB_URI=mongodb://mongo:27017/genieacs
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017/genieacs}
+      - JWT_SECRET=${JWT_SECRET}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - ERP_URL=${ERP_URL}
+      - ERP_APP=${ERP_APP}
+      - ERP_TOKEN=${ERP_TOKEN}
     depends_on:
       - db
       - redis
       - mongo
+    networks:
+      - nap_internal_network
 
   # ==========================================
   # 2. Banco de Dados Relacional (NAP / CRM)
@@ -30,13 +37,16 @@ services:
     container_name: nap_postgres
     restart: always
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: nap_secure_pwd
-      POSTGRES_DB: nap_crm
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-nap_crm}
     ports:
-      - "5432:5432"
+      # Somente acessível internamente ou via localhost na VPS
+      - "127.0.0.1:5432:5432"
     volumes:
       - nap_pg_data:/var/lib/postgresql/data
+    networks:
+      - nap_internal_network
 
   # ==========================================
   # 3. GenieACS: Dependências (MongoDB & Redis)
@@ -46,19 +56,22 @@ services:
     container_name: genieacs_mongo
     restart: always
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - genieacs_mongo_data:/data/db
+    networks:
+      - nap_internal_network
 
-  # Redis serve tanto ao GenieACS quanto ao NAP (para WebSockets/Sessões)
   redis:
     image: redis:7-alpine
     container_name: genieacs_redis
     restart: always
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - genieacs_redis_data:/data
+    networks:
+      - nap_internal_network
 
   # ==========================================
   # 4. GenieACS: Serviços Principais
@@ -69,13 +82,15 @@ services:
     restart: always
     command: ["genieacs-cwmp"]
     environment:
-      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://mongo:27017/genieacs
-      - GENIEACS_REDIS_URL=redis://redis:6379
+      - GENIEACS_MONGODB_CONNECTION_URL=${MONGODB_URI:-mongodb://mongo:27017/genieacs}
+      - GENIEACS_REDIS_URL=${REDIS_URL:-redis://redis:6379}
     ports:
-      - "7547:7547" # Porta principal TR-069 das ONUs
+      - "7547:7547" # Porta TR-069 pública para ONUs dos clientes
     depends_on:
       - mongo
       - redis
+    networks:
+      - nap_internal_network
 
   genieacs-nbi:
     image: genieacs/genieacs:1.2.12
@@ -83,13 +98,15 @@ services:
     restart: always
     command: ["genieacs-nbi"]
     environment:
-      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://mongo:27017/genieacs
-      - GENIEACS_REDIS_URL=redis://redis:6379
+      - GENIEACS_MONGODB_CONNECTION_URL=${MONGODB_URI:-mongodb://mongo:27017/genieacs}
+      - GENIEACS_REDIS_URL=${REDIS_URL:-redis://redis:6379}
     ports:
-      - "7557:7557" # API para o Node.js do NAP se comunicar
+      - "127.0.0.1:7557:7557" # API privada do GenieACS
     depends_on:
       - mongo
       - redis
+    networks:
+      - nap_internal_network
 
   genieacs-fs:
     image: genieacs/genieacs:1.2.12
@@ -97,13 +114,15 @@ services:
     restart: always
     command: ["genieacs-fs"]
     environment:
-      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://mongo:27017/genieacs
-      - GENIEACS_REDIS_URL=redis://redis:6379
+      - GENIEACS_MONGODB_CONNECTION_URL=${MONGODB_URI:-mongodb://mongo:27017/genieacs}
+      - GENIEACS_REDIS_URL=${REDIS_URL:-redis://redis:6379}
     ports:
       - "7567:7567" # File Server (Firmwares)
     depends_on:
       - mongo
       - redis
+    networks:
+      - nap_internal_network
 
   genieacs-ui:
     image: genieacs/genieacs:1.2.12
@@ -111,14 +130,20 @@ services:
     restart: always
     command: ["genieacs-ui"]
     environment:
-      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://mongo:27017/genieacs
-      - GENIEACS_REDIS_URL=redis://redis:6379
-      - GENIEACS_UI_JWT_SECRET=super_secret_jwt_genieacs
+      - GENIEACS_MONGODB_CONNECTION_URL=${MONGODB_URI:-mongodb://mongo:27017/genieacs}
+      - GENIEACS_REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - GENIEACS_UI_JWT_SECRET=${GENIEACS_UI_JWT_SECRET}
     ports:
-      - "3005:3000" # Interface pura do GenieACS (opcional)
+      - "127.0.0.1:3005:3000" # Interface GenieACS bindada apenas em localhost
     depends_on:
       - mongo
       - redis
+    networks:
+      - nap_internal_network
+
+networks:
+  nap_internal_network:
+    driver: bridge
 
 volumes:
   nap_pg_data:

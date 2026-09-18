@@ -1,126 +1,123 @@
-# NAP - Arquitetura de Infraestrutura e Banco de Dados
+# NAP — Arquitetura de Infraestrutura de Produção (Single-Tenant)
 
-Este documento apresenta o modelo estrutural do NAP SaaS (Núcleo de Atendimento ao Provedor), focando no armazenamento de dados (PostgreSQL + Drizzle) e as correlações com serviços externos.
+**Sistema:** NAP (Núcleo de Atendimento ao Provedor)  
+**Modelo de Implantação:** Instância Dedicada por Provedor (Single-Tenant VPS / Bare Metal)  
+**Sistema Operacional Homologado:** Debian 12 (Bookworm) 64-bit  
+**Data da Consolidação:** Setembro de 2026
 
-## Diagrama Entidade-Relacionamento (ERD) - Core
+---
+
+## 1. Topologia de Rede e Portas do Servidor
+
+A arquitetura do NAP foi projetada para isolamento rigoroso de tráfego, garantindo que portas administrativas e de dados nunca fiquem expostas à internet pública.
+
+```
+                    INTERNET PÚBLICA / REDE DO CLIENTE
+                                   │
+         ┌─────────────────────────┴─────────────────────────┐
+         │                                                   │
+  Porta 80/443 (HTTPS)                              Porta 7547 (TCP)
+  Nginx Reverse Proxy                               GenieACS TR-069 CWMP
+         │                                                   │
+         ▼                                                   ▼
+┌──────────────────┐                               ┌──────────────────┐
+│   NAP Frontend   │                               │  ONUs / CPEs dos │
+│ (Admin + Portal) │                               │    Assinantes    │
+└────────┬─────────┘                               └────────┬─────────┘
+         │                                                   │
+         ▼                                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      AMBINETE INTERNO (127.0.0.1)                   │
+│                                                                     │
+│  • NAP Core (Express/Node.js): Porta 3000                           │
+│  • PostgreSQL 16 (Drizzle ORM): Porta 5432                          │
+│  • Redis 7 (Cache/Sessions): Porta 6379                             │
+│  • MongoDB 6 (GenieACS Data): Porta 27017                           │
+│  • GenieACS NBI (Private API): Porta 7557                           │
+│  • Asterisk 20+ (ARI / AMI / WSS): 8088 / 5038 / 8089              │
+│  • Asterisk SIP / RTP (Telefonia): 5060 UDP / 10000-20000 UDP       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Matriz de Portas
+
+| Porta | Protocolo | Escopo | Descrição |
+| :--- | :---: | :---: | :--- |
+| **80 / 443** | TCP | Público | Acesso Web seguro Nginx com TLS 1.3 (Admin e Portal PWA) |
+| **7547** | TCP | Público / WAN | Comunicação CWMP TR-069 das ONUs com o GenieACS |
+| **5060 / 5061** | UDP / TCP | Tronco SIP | Sinalização de voz com operadoras / PSTN |
+| **8089** | TCP | Público | WebSockets seguros (WSS) para WebRTC Webphone do portal |
+| **10000:20000** | UDP | Público | Fluxo de mídia de áudio RTP para chamadas telefônicas |
+| **3799** | UDP | Rede Interna | Radius PoD / CoA (Desconexão / Reautorização) |
+| **3000** | TCP | **Loopback (127.0.0.1)** | Aplicação NAP Node.js (Acessível apenas via Nginx) |
+| **5432** | TCP | **Loopback (127.0.0.1)** | Banco de Dados PostgreSQL (Blindado da WAN) |
+| **6379** | TCP | **Loopback (127.0.0.1)** | Cache Redis e Filas de Mensageria |
+| **27017** | TCP | **Loopback (127.0.0.1)** | Banco NoSQL MongoDB para inventário GenieACS |
+| **7557** | TCP | **Loopback (127.0.0.1)** | API NBI privada do GenieACS |
+
+---
+
+## 2. Diagrama Entidade-Relacionamento (ERD) — Customer 360 Oficial
+
+O modelo relacional do NAP foi unificado em `src/db/schema.ts` para eliminar redundâncias e garantir integridade referencial:
 
 ```mermaid
 erDiagram
-    users {
-        int id PK
-        varchar email
-        varchar nome
-        varchar role "admin, operador, tecnico_n1, tecnico_n2, superadmin"
-        varchar photoURL
-        timestamp createdAt
-    }
-
-    clientes {
-        int id PK
-        varchar nome
-        varchar cpf_cnpj "Unique"
-        varchar telefone
-        varchar plano_interesse
-        varchar status "lead, ativo, bloqueado, cancelado"
-        varchar endereco_cep
-        timestamp createdAt
-    }
-
-    faturas {
-        int id PK
-        int cliente_id FK
-        numeric(15,2) valor "Transacional"
-        date vencimento
-        varchar status "pendente, pago, vencido"
-        text linha_digitavel
-        timestamp created_at
-    }
-
-    conversas {
-        int id PK
-        varchar provedor_id "Tenant Isolado"
-        varchar cliente_numero "Telefone WhatsApp"
-        varchar status "ativa, resolvida, transferida"
-        varchar canal "waba, webchat, voz"
-        varchar assignee_id "UUID do Operador"
-        jsonb contexto_ia "Memória do Gemini"
-        varchar waba_session_id
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    mensagens {
-        int id PK
-        int conversa_id FK
-        varchar direction "incoming, outgoing"
-        text body
-        varchar tipo "texto, imagem, audio, documento, template"
-        varchar wabaMessageId "Unique Idempotency Key"
-        varchar remote_url "URL do S3/Firebase"
-        timestamp created_at
-    }
-
-    waba_webhooks {
-        int id PK
-        varchar provedor_id
-        varchar event_type "messages, statuses"
-        jsonb payload
-        varchar process_status "pending, processed, error"
-        timestamp received_at
-    }
-
-    atendimentos {
-        int id PK
-        varchar titulo
-        varchar estagio "Prospecção, Suporte_N1, Cobranca"
-        varchar pipeline "vendas, suporte, financeiro"
-        varchar contato "Nome do Contato"
-        varchar valor "R$"
-        timestamp created_at
-    }
-
-    clientes ||--o{ faturas : "possui"
-    clientes ||--o{ atendimentos : "vinculado_a"
-    conversas ||--o{ mensagens : "contem"
     users ||--o{ conversas : "atende"
+    users ||--o{ atendimentos : "cria"
+    users ||--o{ ordens_servico : "executa"
+
+    clientes ||--o{ contratos : "possui"
+    clientes ||--o{ faturas : "cobrado"
+    clientes ||--o{ pagamentos_transacoes : "paga"
+    clientes ||--o{ conversas : "interage"
+    clientes ||--o{ atendimentos : "solicita"
+    clientes ||--o{ ordens_servico : "recebe"
+
+    contratos ||--o{ faturas : "gera"
+    faturas ||--o{ pagamentos_transacoes : "liquida"
+
+    conversas ||--o{ mensagens : "contem"
+
+    logs_auditoria {
+        int id PK
+        varchar usuario
+        varchar modulo
+        varchar acao
+        text detalhes
+        varchar previous_hash
+        varchar entry_hash
+        timestamp created_at
+    }
+
+    webhooks_recebidos {
+        int id PK
+        varchar origem
+        varchar identificador_externo UK
+        varchar payload_hash
+        boolean processado_com_sucesso
+        timestamp created_at
+    }
 ```
 
-## Fluxo de Arquitetura Omnichannel
+---
 
-```mermaid
-flowchart TD
-    %% Entradas Externas
-    C[Cliente WhatsApp] <-->|API WABA| W(Webhook WABA `/api/waba/webhook`)
-    S[Portal Cliente PWA] <-->|WebChat / WebRTC| N(NAP Node.js backend)
-    
-    %% Core System
-    subgraph NAP_Backend [NAP Server - Node.js + Express]
-        W -->|Eventos| EW(Event Worker / Drizzle)
-        EW <-->|Consulta e Persiste| DB[(PostgreSQL)]
-        EW -->|Handoff / Inteligência| G{Gemini AI Copilot}
-        
-        G -->|Tool Calling| TR[Tool Registry]
-        TR -->|Ação: Reiniciar ONU| ACS(GenieACS TR-069)
-        TR -->|Ação: Fatura Pix| ERP(ERP - SGP)
-        TR -->|Ação: NOC Check| ZBX(Zabbix / GIS)
-    end
-    
-    %% Marketing e Cobrança
-    subgraph Marketing_Automacao [Régua de Cobrança / Marketing]
-        CRON((Cron Engine)) -->|Busca Faturas Pendentes| DB
-        CRON -->|Executa| RG(Régua de Cobrança API)
-        RG -->|Templates Dinâmicos| W
-    end
+## 3. Integração Financeira Enlace-Pay / Banco C6 (336) via mTLS
 
-    %% Painéis Front-End (Vite/React)
-    N <--> CRM[CRM & Kanban / Admin]
-    N <--> NOC[Radar NOC / GIS]
-    N <--> T(PWA Técnico Campo)
-```
+O módulo financeiro do NAP opera com comunicação bilateral autenticada:
+1. **Autenticação mTLS Direta:**
+   O certificado do cliente (`/opt/nap/certs/c6_client.crt`) e a chave privada (`/opt/nap/certs/c6_client.key`) são carregados em memória no handshake TLS contra o endpoint `https://pix.c6bank.com.br/api/v2/cob/`.
+2. **Geração de Cobrança Pix Dinâmica:**
+   Para cada fatura, é criado um `txid` alfanumérico único. A resposta fornece o QR Code dinâmico e a string Copia e Cola.
+3. **Webhook Notificação e Baixa:**
+   O Banco C6 notifica o endpoint `/api/payments/webhook`. O webhook é autenticado, deduplicado na tabela `webhooks_recebidos` e dispara imediatamente a baixa no ERP do provedor (SGP / IXC / HubSoft).
+4. **Fila de Contingência Resiliente (`erpSyncQueue`):**
+   Se o ERP estiver temporariamente instável ou inacessível no momento do pagamento, a transação é retida na fila com retry exponencial garantido (Zero Data Loss).
 
-## Descrição dos Módulos Principais
+---
 
-1. **WABA Engine & Conversas**: A tabela `conversas` centraliza o estado do atendimento. Se o `assignee_id` estiver nulo, quem controla a conversa é a **IA (Gemini)** operando através da coluna `contexto_ia` que armazena a janela de contexto conversacional.
-2. **CRM e Atendimentos (Kanban)**: Os `atendimentos` (deals) representam cards no Kanban do SGP emulator. Podem ser gerados automaticamente via WABA através da *tool* de `criar_lead_vendas` e estão atrelados ao funil comercial, suporte ou financeiro.
-3. **Régua de Cobrança (Faturas)**: A tabela `faturas` armazena os boletos. O módulo `server/marketing/reguaRoutes.ts` consome dados daqui baseado nos parâmetros `D-3`, `D-0`, `D+3` e interage com o disparo WABA.
-4. **Isolamento de Tenant**: Na arquitetura, o banco prevê um `provedor_id`, suportando a filosofia de instalação em máquina (VPS) dedicada, isolando os dados, metadados do WABA, e instâncias de PABX.
+## 4. Governança e Resiliência (Memory Fallback)
+
+Para assegurar disponibilidade mesmo em situações atípicas:
+- **Circuit Breakers em Módulos Externos:** Se o Zabbix, GenieACS, Asterisk ou SGP ficarem fora do ar, o backend entra em modo de contingência suave, operando com dados em memória e informando o usuário de forma amigável sem interromper os demais módulos.
+- **Auditoria Append-Only Contínua:** Todas as alterações administrativas em OLTs, desbloqueios de confiança e parametrizações são carimbadas no banco relacional e assinadas com hash encadeado SHA-256.
