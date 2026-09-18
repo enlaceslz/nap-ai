@@ -243,7 +243,8 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
     const provedorGateway = iaConfig.provedorGateway || (process.env.GEMINI_BASE_URL ? "9router" : "direct");
 
     try {
-      const agentResult = await processGeminiAgentRun(req.body, iaConfig);
+      const payloadComUser = { ...req.body, user: (req as any).user || req.body.user };
+      const agentResult = await processGeminiAgentRun(payloadComUser, iaConfig);
       const tempoTotal = Date.now() - startTime;
       
       const isQuota = agentResult.toolExecutada === 'QUOTA_EXHAUSTED';
@@ -267,17 +268,28 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
       });
     } catch (err: any) {
       console.error("[Agent Run Error]", err);
-      // Fallback heurístico
+      // Fallback heurístico seguro via Policy Engine
       const prompt = req.body.prompt || "";
       const matchedTool = agentToolRegistry.matchTool(prompt);
       let toolExec = undefined;
       let toolD = null;
       let resp = "Olá! Sou a MaIA da DJD Telecom. Como posso te ajudar hoje?";
       if (matchedTool) {
-        const exec = await matchedTool.execute(req.body);
+        const currentUser = (req as any).user || req.body.user || {
+          id: 'maia-agent',
+          email: 'maia@nap.local',
+          nome: 'MaIA Telecom Bot',
+          role: 'ATENDIMENTO',
+          permissions: ['CUSTOMER_READ', 'INVOICE_READ', 'ONU_READ', 'HELPDESK_WRITE', 'CUSTOMER_CREATE', 'FIELD_WRITE']
+        };
+        const exec = await agentToolRegistry.executeToolSecurely(matchedTool.name, req.body, {
+          user: currentUser,
+          isConfirmed: req.body.isConfirmed,
+          origem: 'Gemini Route Heuristic Fallback'
+        });
         toolExec = exec.toolExecutada;
         toolD = exec.toolDados;
-        resp = exec.respostaGerada;
+        resp = exec.respostaGerada || (exec.status === 'CONFIRMATION_REQUIRED' ? exec.confirmationPrompt : exec.message) || resp;
       }
       res.json({
         sucesso: true,

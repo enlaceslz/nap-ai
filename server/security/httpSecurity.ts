@@ -1,6 +1,85 @@
 import helmet from 'helmet';
 import crypto from 'crypto';
+import cors, { CorsOptions } from 'cors';
 import { Request, Response, NextFunction } from 'express';
+
+/**
+ * Valida a configuração de CORS em conformidade estrita com o ambiente.
+ * Em produção (NODE_ENV=production), ALLOWED_ORIGINS é OBRIGATÓRIA e proíbe wildcard (*).
+ */
+export function validateAndBuildCorsOptions(
+  allowedOriginsEnv = process.env.ALLOWED_ORIGINS,
+  isProduction = process.env.NODE_ENV === 'production'
+): CorsOptions {
+  if (isProduction) {
+    if (!allowedOriginsEnv || !allowedOriginsEnv.trim()) {
+      throw new Error(
+        '[FALHA CRÍTICA DE STARTUP] Em produção (NODE_ENV=production), a variável ALLOWED_ORIGINS é OBRIGATÓRIA. Defina os domínios autorizados (ex: https://admin.provedor.com.br,https://portal.provedor.com.br).'
+      );
+    }
+
+    const origins = allowedOriginsEnv.split(',').map(o => o.trim()).filter(Boolean);
+
+    if (origins.length === 0 || origins.includes('*')) {
+      throw new Error(
+        '[FALHA CRÍTICA DE STARTUP] Em produção, o uso de wildcard (*) ou lista vazia em ALLOWED_ORIGINS é terminantemente proibido por segurança.'
+      );
+    }
+
+    return {
+      origin: (origin, callback) => {
+        // Requisições sem Origin (ex: server-to-server, Postman local, Webhooks com mTLS/HMAC) são permitidas
+        if (!origin) {
+          return callback(null, true);
+        }
+
+        if (origins.includes(origin)) {
+          return callback(null, true);
+        } else {
+          return callback(new Error(`Origem '${origin}' não autorizada pelas políticas estritas de CORS do NAP.`));
+        }
+      },
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+    };
+  }
+
+  // Ambiente de Desenvolvimento / Testes
+  const devOrigins = allowedOriginsEnv
+    ? allowedOriginsEnv.split(',').map(o => o.trim()).filter(Boolean)
+    : [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:3001'
+      ];
+
+  return {
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      
+      const isLocalhost = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      if (devOrigins.includes(origin) || isLocalhost) {
+        return callback(null, true);
+      }
+      return callback(new Error(`[DEV] Origem '${origin}' não autorizada.`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+  };
+}
+
+export function configureCors(
+  allowedOriginsEnv?: string,
+  isProduction?: boolean
+) {
+  const options = validateAndBuildCorsOptions(allowedOriginsEnv, isProduction);
+  return cors(options);
+}
+
 
 // Rate Limiter em memória por IP
 interface RateLimitBucket {

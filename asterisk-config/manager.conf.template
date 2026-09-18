@@ -1,5 +1,6 @@
 ; ====================================================================
-; NAP TELECOM - ASTERISK MANAGER INTERFACE (MANAGER.CONF)
+; NAP TELECOM - ASTERISK MANAGER INTERFACE TEMPLATE (MANAGER.CONF)
+; O script render-configs.sh gera as credenciais seguras em runtime.
 ; ====================================================================
 
 [general]

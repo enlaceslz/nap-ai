@@ -289,8 +289,12 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
     try {
       const chats = await db.select().from(conversas).orderBy(desc(conversas.updatedAt));
       res.json(chats);
-    } catch (e) {
-      // Silenced error for mock fallback
+    } catch (e: any) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[DATABASE CRITICAL] Falha ao consultar conversas no PostgreSQL:', e.message);
+        return res.status(503).json({ success: false, error: 'Banco de dados indisponível em produção.' });
+      }
+      console.warn('[DEV] DB offline, utilizando conversas mock para visualização de desenvolvimento');
       res.json(mockWabaChats);
     }
   });
@@ -299,8 +303,12 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
     try {
       const msgs = await db.select().from(mensagens).where(eq(mensagens.conversaId, parseInt(req.params.id))).orderBy(mensagens.createdAt);
       res.json(msgs);
-    } catch (e) {
-      // Silenced error for mock fallback
+    } catch (e: any) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[DATABASE CRITICAL] Falha ao consultar mensagens no PostgreSQL:', e.message);
+        return res.status(503).json({ success: false, error: 'Banco de dados indisponível em produção.' });
+      }
+      console.warn('[DEV] DB offline, utilizando mensagens mock para visualização de desenvolvimento');
       res.json(mockWabaMessages.filter(m => m.conversaId == req.params.id));
     }
   });

@@ -201,7 +201,12 @@ export class CrmService {
         criado_em: record.criadoEm || record.createdAt.toISOString(),
         contexto_ia: record.contextoIa || ''
       };
-    } catch(e) {
+    } catch(e: any) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[DATABASE CRITICAL] Falha na persistência de Deal no CRM:', e.message);
+        throw new Error('Falha de persistência no banco de dados em produção.');
+      }
+      console.warn('[DEV] DB offline. Utilizando fallback em memória para Deal em ambiente de desenvolvimento.');
       const fallbackDeal = { ...deal, id: Date.now(), criado_em: new Date().toISOString() };
       this.memoryDeals.unshift(fallbackDeal as Deal);
       return fallbackDeal as Deal;

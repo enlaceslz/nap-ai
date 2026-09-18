@@ -181,8 +181,12 @@ export class HelpDeskService {
         old_value: oldValue,
         new_value: newValue,
       });
-    } catch(e) {
-      console.log("[Info] Audit Log memory fallback");
+    } catch(e: any) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[DATABASE CRITICAL] Falha ao gravar Help Desk audit log no PostgreSQL:', e.message);
+        throw new Error('Falha de auditoria Help Desk no banco de dados em produção.');
+      }
+      console.warn('[DEV] Audit Log memory fallback no ambiente de desenvolvimento');
     }
   }
 }

@@ -23,8 +23,12 @@ export class IPAMService {
         nap_entity_type: napType,
         nap_entity_id: napId,
       });
-    } catch(e) {
-      console.log("[Info] DB offline, IPAM registerBinding memory fallback");
+    } catch(e: any) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[DATABASE CRITICAL] Falha ao registrar binding IPAM no PostgreSQL:', e.message);
+        throw new Error('Falha de persistência IPAM no banco de dados em produção.');
+      }
+      console.warn('[DEV] DB offline, IPAM registerBinding memory fallback');
     }
   }
 
@@ -38,8 +42,12 @@ export class IPAMService {
         before,
         after,
       });
-    } catch(e) {
-      console.log("[Info] DB offline, IPAM auditLog memory fallback");
+    } catch(e: any) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[DATABASE CRITICAL] Falha ao gravar audit log IPAM no PostgreSQL:', e.message);
+        throw new Error('Falha de auditoria IPAM no banco de dados em produção.');
+      }
+      console.warn('[DEV] DB offline, IPAM auditLog memory fallback');
     }
   }
 
@@ -65,8 +73,12 @@ export class IPAMService {
         purpose: 'IPv6 Prefix Delegation (PD)',
       }).returning();
       reservationId = reservation.id;
-    } catch(e) {
-      console.log("[Info] DB offline, IPAM delegateIPv6Prefix memory fallback");
+    } catch(e: any) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[DATABASE CRITICAL] Falha ao reservar prefixo IPv6 no PostgreSQL:', e.message);
+        throw new Error('Falha de persistência de reserva IPv6 em produção.');
+      }
+      console.warn('[DEV] DB offline, IPAM delegateIPv6Prefix memory fallback');
       this.memoryReservations.push({ id: reservationId, prefix_id: backendId, customer_id: customerId, purpose: 'IPv6 Prefix Delegation (PD)' });
     }
 
@@ -92,8 +104,12 @@ export class IPAMService {
         purpose: 'WAN Allocation',
       }).returning();
       resData = reservation as any;
-    } catch(e) {
-      console.log("[Info] DB offline, IPAM allocateIP memory fallback");
+    } catch(e: any) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[DATABASE CRITICAL] Falha ao alocar IP no PostgreSQL:', e.message);
+        throw new Error('Falha de persistência na alocação de IP em produção.');
+      }
+      console.warn('[DEV] DB offline, IPAM allocateIP memory fallback');
       this.memoryReservations.push(resData);
     }
 
@@ -116,8 +132,12 @@ export class IPAMService {
         purpose,
       }).returning();
       resData = reservation as any;
-    } catch(e) {
-      console.log("[Info] DB offline, IPAM allocateNextAvailableIP memory fallback");
+    } catch(e: any) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[DATABASE CRITICAL] Falha ao alocar próximo IP disponível no PostgreSQL:', e.message);
+        throw new Error('Falha de persistência na alocação de próximo IP em produção.');
+      }
+      console.warn('[DEV] DB offline, IPAM allocateNextAvailableIP memory fallback');
       this.memoryReservations.push(resData);
     }
 

@@ -1,19 +1,44 @@
 import { ErpFactory } from '../integrations/erp/ErpFactory';
 import { mcpIpamTools } from "./ipamTools";
-/**
- * NAP AI Agent Engine - Dynamic Tool Registry
- * Gerenciador modular e extensível de ferramentas para o Agente Autônomo de Telecom & ISP
- */
+import { AiPolicyEngine, RiskLevel, TOOL_POLICIES } from "./policyEngine";
+import { AuthenticatedUser } from "../auth/types";
+import { appendAuditLog } from "../security/httpSecurity";
 
-export interface AgentTool {
+/**
+ * Token interno e privado para impedir qualquer chamada direta a tool.execute()
+ * Somente o ToolRegistry.executeToolSecurely() possui acesso a este símbolo.
+ */
+const SECURE_EXECUTION_TOKEN = Symbol('SECURE_TOOL_EXECUTION_TOKEN');
+
+export interface SecureExecutionOptions {
+  user?: AuthenticatedUser;
+  isConfirmed?: boolean;
+  ip?: string;
+  origem?: string;
+}
+
+export interface SecureExecutionResult {
+  success: boolean;
+  status: 'APPROVED' | 'CONFIRMATION_REQUIRED' | 'FORBIDDEN';
+  toolExecutada: string;
+  toolDados?: any;
+  respostaGerada?: string;
+  message?: string;
+  confirmationPrompt?: string;
+  riskLevel?: RiskLevel;
+  handoff?: boolean;
+  fila_destino?: string;
+}
+
+export interface AgentToolDefinition {
   name: string;
   label: string;
   description: string;
   keywords: string[];
   category: 'financeiro' | 'suporte_noc' | 'telemetria_tr069' | 'radius_erp' | 'comercial' | 'qualidade';
   parametersSchema?: Record<string, any>;
-  execute: (params: {
-    prompt: string;
+  handler: (params: {
+    prompt?: string;
     cliente_cpf?: string;
     cpf_cnpj?: string;
     telefone?: string;
@@ -23,14 +48,48 @@ export interface AgentTool {
     toolExecutada: string;
     toolDados: any;
     respostaGerada: string;
+    [key: string]: any;
   }>;
+}
+
+export interface AgentTool {
+  name: string;
+  label: string;
+  description: string;
+  keywords: string[];
+  category: 'financeiro' | 'suporte_noc' | 'telemetria_tr069' | 'radius_erp' | 'comercial' | 'qualidade';
+  parametersSchema?: Record<string, any>;
+  /**
+   * Método de execução protegido: impede bypass estruturalmente se invocado sem passar pelo ToolRegistry
+   */
+  execute: (params: any, internalToken?: symbol) => Promise<any>;
 }
 
 class ToolRegistry {
   private tools: Map<string, AgentTool> = new Map();
 
-  public register(tool: AgentTool): void {
-    this.tools.set(tool.name, tool);
+  public register(toolDef: AgentToolDefinition | (AgentTool & { execute?: any })): void {
+    const handler = (toolDef as any).handler || (toolDef as any).execute;
+    
+    // Envelopa o handler em um wrapper seguro que bloqueia chamadas diretas não autorizadas
+    const safeTool: AgentTool = {
+      name: toolDef.name,
+      label: toolDef.label,
+      description: toolDef.description,
+      keywords: toolDef.keywords,
+      category: toolDef.category,
+      parametersSchema: toolDef.parametersSchema,
+      execute: async (params: any, internalToken?: symbol) => {
+        if (internalToken !== SECURE_EXECUTION_TOKEN) {
+          throw new Error(
+            `[VIOLAÇÃO DE SEGURANÇA] Tentativa de bypass detectada! A ferramenta '${toolDef.name}' não pode ser executada diretamente via tool.execute(). Use ToolRegistry.executeToolSecurely().`
+          );
+        }
+        return await handler(params);
+      }
+    };
+
+    this.tools.set(safeTool.name, safeTool);
   }
 
   public hasTool(name: string): boolean {
@@ -45,9 +104,6 @@ class ToolRegistry {
     return Array.from(this.tools.values());
   }
 
-  /**
-   * Busca ferramenta por correspondência semântica e palavras-chave do ISP
-   */
   public matchTool(prompt: string): AgentTool | undefined {
     const promptLower = prompt.toLowerCase();
     
@@ -61,22 +117,135 @@ class ToolRegistry {
   }
 
   /**
-   * Executa a ferramenta correspondente com fallback seguro
+   * ENTRADA ÚNICA E SEGURA PARA EXECUÇÃO DE QUALQUER FERRAMENTA DA MAIA
+   * 
+   * Fluxo Obrigatório de Segurança:
+   * 1. Localizar a ferramenta (se inexistente -> DENY);
+   * 2. Verificar se existe política associada (se não existir -> DENY);
+   * 3. Validar identidade do usuário (se ausente -> DENY);
+   * 4. Validar permissão RBAC (se ausente -> DENY);
+   * 5. Determinar nível de risco;
+   * 6. Validar integridade dos parâmetros;
+   * 7. Verificar necessidade de confirmação humana explícita;
+   * 8. Executar o handler protegido somente se aprovado;
+   * 9. Registrar auditoria;
+   * 10. Retornar resultado seguro e estruturado.
    */
-  public async executeTool(
+  public async executeToolSecurely(
     toolName: string,
-    params: { prompt: string; cliente_cpf?: string; telefone?: string; contexto?: any }
-  ): Promise<{ toolExecutada: string; toolDados: any; respostaGerada: string }> {
+    params: any,
+    options: SecureExecutionOptions = {}
+  ): Promise<SecureExecutionResult> {
+    const { user, isConfirmed = false, ip, origem = 'MaIA Core' } = options;
+
+    // 1. Localizar a ferramenta
     const tool = this.tools.get(toolName);
     if (!tool) {
-      throw new Error(`Ferramenta "${toolName}" não está registrada no Tool Registry.`);
+      appendAuditLog({
+        usuario: user?.nome || 'Não Autenticado',
+        usuarioEmail: user?.email || 'desconhecido',
+        usuarioRole: user?.role || 'ANONIMO',
+        modulo: 'MaIA Tool Registry',
+        acao: 'TOOL_NOT_FOUND',
+        detalhes: `Tentativa de executar ferramenta inexistente ou não registrada: '${toolName}'.`,
+        severidade: 'atencao',
+        status: 'bloqueado'
+      });
+
+      return {
+        success: false,
+        status: 'FORBIDDEN',
+        toolExecutada: toolName,
+        message: `A ferramenta '${toolName}' não existe ou não está registrada no sistema.`
+      };
     }
-    return await tool.execute(params);
+
+    // 2, 3, 4, 5, 6, 7. Validação Estrita no Policy Engine (Deny-by-Default)
+    const policyResult = AiPolicyEngine.evaluate(toolName, params, user, isConfirmed);
+
+    if (!policyResult.allowed) {
+      return {
+        success: false,
+        status: policyResult.status,
+        toolExecutada: toolName,
+        riskLevel: policyResult.riskLevel,
+        message: policyResult.message,
+        confirmationPrompt: policyResult.confirmationPrompt
+      };
+    }
+
+    // 8. Executar com token de autorização seguro (sem permissão de bypass)
+    try {
+      const result = await tool.execute(params, SECURE_EXECUTION_TOKEN);
+
+      // 9. Registrar auditoria de execução com sucesso
+      appendAuditLog({
+        usuario: user!.nome,
+        usuarioEmail: user!.email,
+        usuarioRole: user!.role,
+        modulo: 'MaIA Tool Execution',
+        acao: `TOOL_EXECUTED_${toolName.toUpperCase()}`,
+        detalhes: `Ferramenta '${toolName}' executada com sucesso via ${origem} sob privilégio de ${user!.role}.`,
+        severidade: 'info',
+        status: 'sucesso'
+      });
+
+      // 10. Retornar resultado estruturado seguro
+      return {
+        success: true,
+        status: 'APPROVED',
+        toolExecutada: toolName,
+        toolDados: result.toolDados || result,
+        respostaGerada: result.respostaGerada,
+        riskLevel: policyResult.riskLevel,
+        handoff: result.handoff,
+        fila_destino: result.fila_destino
+      };
+    } catch (err: any) {
+      appendAuditLog({
+        usuario: user!.nome,
+        usuarioEmail: user!.email,
+        usuarioRole: user!.role,
+        modulo: 'MaIA Tool Execution',
+        acao: `TOOL_EXECUTION_ERROR_${toolName.toUpperCase()}`,
+        detalhes: `Falha na execução da ferramenta '${toolName}': ${err.message}`,
+        severidade: 'critico',
+        status: 'erro'
+      });
+
+      return {
+        success: false,
+        status: 'FORBIDDEN',
+        toolExecutada: toolName,
+        riskLevel: policyResult.riskLevel,
+        message: `Erro durante a execução da ferramenta: ${err.message}`
+      };
+    }
   }
 
   /**
-   * Converte ferramentas registradas para o schema de Function Calling do Gemini SDK
+   * Método legado protegido: redireciona obrigatoriamente para executeToolSecurely
+   * Impedindo chamadas desprotegidas sem validação de política e identidade.
    */
+  public async executeTool(
+    toolName: string,
+    params: any,
+    options?: SecureExecutionOptions
+  ): Promise<{ toolExecutada: string; toolDados: any; respostaGerada: string }> {
+    const opts = options || (params?._user ? { user: params._user, isConfirmed: params._isConfirmed } : {});
+    const result = await this.executeToolSecurely(toolName, params, opts);
+
+    if (!result.success) {
+      throw new Error(`[POLICY DENIED] ${result.message || 'Execução bloqueada pelo Policy Engine.'}`);
+    }
+
+    return {
+      toolExecutada: result.toolExecutada,
+      toolDados: result.toolDados,
+      respostaGerada: result.respostaGerada || ''
+    };
+  }
+
   public toGeminiFunctionDeclarations(): any[] {
     return Array.from(this.tools.values()).map(tool => ({
       name: tool.name,
@@ -92,6 +261,7 @@ class ToolRegistry {
 }
 
 export const agentToolRegistry = new ToolRegistry();
+
 
 // =========================================================================
 // REGISTRO DAS FERRAMENTAS DO ECOSSISTEMA TELECOM / CALL CENTER
@@ -430,3 +600,79 @@ agentToolRegistry.register({
     };
   }
 });
+
+// =========================================================================
+// REGISTRO DE ALIASES E FERRAMENTAS DO IPAM / NSoT NO TOOL REGISTRY
+// =========================================================================
+
+// Aliases Canônicos mapeados
+agentToolRegistry.register({
+  name: "consultar_status_conexao",
+  label: "Consulta de Status de Conexão",
+  description: "Alias para sgp_consultar_status_conexao",
+  category: "suporte_noc",
+  keywords: ["status", "conexao", "sinal"],
+  execute: async (params: any) => {
+    const original = agentToolRegistry.getTool("sgp_consultar_status_conexao");
+    return original ? (original as any).execute(params, SECURE_EXECUTION_TOKEN) : { toolExecutada: "consultar_status_conexao", toolDados: {}, respostaGerada: "OK" };
+  }
+});
+
+agentToolRegistry.register({
+  name: "gerar_pix_segunda_via",
+  label: "Gerar PIX Segunda Via",
+  description: "Alias para sgp_gerar_pix",
+  category: "financeiro",
+  keywords: ["pix", "segunda via", "fatura"],
+  execute: async (params: any) => {
+    const original = agentToolRegistry.getTool("sgp_gerar_pix");
+    return original ? (original as any).execute(params, SECURE_EXECUTION_TOKEN) : { toolExecutada: "gerar_pix_segunda_via", toolDados: {}, respostaGerada: "OK" };
+  }
+});
+
+agentToolRegistry.register({
+  name: "reiniciar_equipamento_cpe",
+  label: "Reiniciar Equipamento CPE",
+  description: "Alias para genieacs_reboot_cpe",
+  category: "telemetria_tr069",
+  keywords: ["reiniciar", "reboot", "cpe"],
+  execute: async (params: any) => {
+    const original = agentToolRegistry.getTool("genieacs_reboot_cpe");
+    return original ? (original as any).execute(params, SECURE_EXECUTION_TOKEN) : { toolExecutada: "reiniciar_equipamento_cpe", toolDados: {}, respostaGerada: "OK" };
+  }
+});
+
+agentToolRegistry.register({
+  name: "desbloqueio_confianca",
+  label: "Desbloqueio em Confiança",
+  description: "Alias para sgp_desbloqueio_confianca",
+  category: "financeiro",
+  keywords: ["desbloqueio", "confiança", "promessa"],
+  execute: async (params: any) => {
+    const original = agentToolRegistry.getTool("sgp_desbloqueio_confianca");
+    return original ? (original as any).execute(params, SECURE_EXECUTION_TOKEN) : { toolExecutada: "desbloqueio_confianca", toolDados: {}, respostaGerada: "OK" };
+  }
+});
+
+// Registro de Ferramentas IPAM
+for (const [name, mcpTool] of Object.entries(mcpIpamTools)) {
+  if (!agentToolRegistry.hasTool(name)) {
+    agentToolRegistry.register({
+      name,
+      label: `IPAM: ${name}`,
+      description: mcpTool.declaration.description || `Ferramenta de rede IPAM ${name}`,
+      category: "suporte_noc",
+      keywords: ["ipam", "ip", "ipv6", "ipv4", "prefixo", "sub-rede", name],
+      parametersSchema: mcpTool.declaration.parameters as any,
+      execute: async (params: any) => {
+        const res = await mcpTool.execute(params);
+        return {
+          toolExecutada: name,
+          toolDados: res,
+          respostaGerada: JSON.stringify(res)
+        };
+      }
+    });
+  }
+}
+

@@ -1,5 +1,6 @@
 ; ====================================================================
-; NAP TELECOM - PJSIP CONFIGURATION
+; NAP TELECOM - PJSIP CONFIGURATION TEMPLATE
+; O script render-configs.sh gera as credenciais seguras em runtime.
 ; ====================================================================
 
 [transport-udp]

@@ -1,5 +1,6 @@
 ; ====================================================================
-; NAP TELECOM - ARI CONFIGURATION (Asterisk REST Interface)
+; NAP TELECOM - ARI CONFIGURATION TEMPLATE (Asterisk REST Interface)
+; O script render-configs.sh gera as credenciais seguras em runtime.
 ; ====================================================================
 
 [general]

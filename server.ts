@@ -7,7 +7,7 @@ import { exec } from "child_process";
 import cors from "cors";
 import { GoogleGenAI } from "@google/genai";
 import { validateSecrets } from "./server/security/secretsValidator";
-import { configureHelmet, createRateLimiter, globalErrorHandler, appendAuditLog, getAuditChain } from "./server/security/httpSecurity";
+import { configureHelmet, configureCors, createRateLimiter, globalErrorHandler, appendAuditLog, getAuditChain } from "./server/security/httpSecurity";
 import { authMiddleware } from "./server/auth/rbacMiddleware";
 
 // Validação de segurança de inicialização
@@ -120,10 +120,7 @@ async function fetchERP(endpoint, method = "GET", body = null) {
 }
 
 app.use(configureHelmet());
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
-  credentials: true
-}));
+app.use(configureCors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 

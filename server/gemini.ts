@@ -66,21 +66,43 @@ Solicitação do usuário (Texto/Transcrição de Áudio): "${prompt}"`;
             
             console.log(`[Gateway Gemini] Ferramenta detectada: ${functionName}`, functionArgs);
             if (agentToolRegistry.hasTool(functionName)) {
-               toolDados = await agentToolRegistry.executeTool(functionName, functionArgs);
-               const promptFollowup = `A ferramenta ${functionName} retornou o seguinte JSON: ${JSON.stringify(toolDados)}. Responda ao usuário baseando-se NESTES DADOS, sem inventar nada. Seja humano.`;
-               
-               const reqPayload2 = {
-                 contents: [{ parts: [{ text: promptRaiz + "\n" + promptFollowup }] }]
+               const currentUser = reqBody.user || {
+                 id: 'maia-agent',
+                 email: 'maia@nap.local',
+                 nome: 'MaIA Telecom Bot',
+                 role: 'ATENDIMENTO',
+                 permissions: ['CUSTOMER_READ', 'INVOICE_READ', 'ONU_READ', 'HELPDESK_WRITE', 'CUSTOMER_CREATE', 'FIELD_WRITE']
                };
                
-               const res2 = await fetch(`${baseUrl}/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-                 method: 'POST',
-                 headers: { 'Content-Type': 'application/json' },
-                 body: JSON.stringify(reqPayload2)
-               });
-               
-               const data2 = await res2.json();
-               respostaGerada = data2.candidates?.[0]?.content?.parts?.[0]?.text || "Desculpe, ocorreu um erro ao analisar os dados do sistema.";
+               const execResult = await agentToolRegistry.executeToolSecurely(
+                 functionName,
+                 functionArgs,
+                 { user: currentUser, isConfirmed: reqBody.isConfirmed, origem: 'Gemini Gateway' }
+               );
+
+               if (execResult.status === 'CONFIRMATION_REQUIRED') {
+                 respostaGerada = `⚠️ Ação de alto impacto: ${execResult.confirmationPrompt || 'Esta operação exige autorização de um operador humano.'} Deseja que eu confirme ou transfira para um atendente?`;
+                 toolDados = { status: 'aguardando_confirmacao', prompt: execResult.confirmationPrompt };
+               } else if (!execResult.success) {
+                 respostaGerada = `Não foi possível executar esta ação no momento: ${execResult.message || 'Operação restrita pelas políticas de segurança.'}`;
+                 toolDados = { status: 'bloqueado', motivo: execResult.message };
+               } else {
+                 toolDados = execResult.toolDados || execResult;
+                 const promptFollowup = `A ferramenta ${functionName} retornou o seguinte JSON: ${JSON.stringify(toolDados)}. Responda ao usuário baseando-se NESTES DADOS, sem inventar nada. Seja humano.`;
+                 
+                 const reqPayload2 = {
+                   contents: [{ parts: [{ text: promptRaiz + "\n" + promptFollowup }] }]
+                 };
+                 
+                 const res2 = await fetch(`${baseUrl}/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                   method: 'POST',
+                   headers: { 'Content-Type': 'application/json' },
+                   body: JSON.stringify(reqPayload2)
+                 });
+                 
+                 const data2 = await res2.json();
+                 respostaGerada = data2.candidates?.[0]?.content?.parts?.[0]?.text || "Desculpe, ocorreu um erro ao analisar os dados do sistema.";
+               }
             } else {
                respostaGerada = `Eu detectei a necessidade de usar a ferramenta ${functionName}, mas ela não está ativa.`;
             }
@@ -113,22 +135,43 @@ Solicitação do usuário (Texto/Transcrição de Áudio): "${prompt}"`;
           console.log(`[Gemini SDK] Tool Call detectado: ${toolExecutada}`, args);
           
           if (agentToolRegistry.hasTool(toolExecutada)) {
-            const execResult = await agentToolRegistry.executeTool(toolExecutada, { ...args, cliente_cpf, telefone, contexto } as any);
-            toolDados = execResult.toolDados || execResult;
-            
-            try {
-              const promptFollowup = `A ferramenta ${toolExecutada} retornou os seguintes dados: ${JSON.stringify(toolDados)}. Responda ao assinante de forma acolhedora, humana e objetiva baseando-se nestes dados (por exemplo, informando o código PIX Copia e Cola, valor e vencimento). Nunca invente dados e nunca mencione a palavra JSON.`;
+            const currentUser = reqBody.user || {
+              id: 'maia-agent',
+              email: 'maia@nap.local',
+              nome: 'MaIA Telecom Bot',
+              role: 'ATENDIMENTO',
+              permissions: ['CUSTOMER_READ', 'INVOICE_READ', 'ONU_READ', 'HELPDESK_WRITE', 'CUSTOMER_CREATE', 'FIELD_WRITE']
+            };
+
+            const execResult = await agentToolRegistry.executeToolSecurely(
+              toolExecutada,
+              { ...args, cliente_cpf, telefone, contexto },
+              { user: currentUser, isConfirmed: reqBody.isConfirmed, origem: 'Gemini SDK' }
+            );
+
+            if (execResult.status === 'CONFIRMATION_REQUIRED') {
+              respostaGerada = `⚠️ Ação de alto impacto: ${execResult.confirmationPrompt || 'Esta operação exige autorização explícita do operador.'} Deseja confirmar?`;
+              toolDados = { status: 'aguardando_confirmacao', prompt: execResult.confirmationPrompt };
+            } else if (!execResult.success) {
+              respostaGerada = `Não foi possível executar esta ação no momento: ${execResult.message || 'Operação restrita pelas políticas de segurança.'}`;
+              toolDados = { status: 'bloqueado', motivo: execResult.message };
+            } else {
+              toolDados = execResult.toolDados || execResult;
               
-              const followupPromise = ai.models.generateContent({
-                model: "gemini-flash-latest",
-                contents: promptRaiz + "\n\n" + promptFollowup
-              });
-              const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout followup")), 4000));
-              const responseFollowup: any = await Promise.race([followupPromise, timeoutPromise]);
-              respostaGerada = responseFollowup?.text || execResult.respostaGerada || "Prontinho! Solicitação processada com sucesso.";
-            } catch (followupErr) {
-              console.log("[Gemini SDK] Usando resposta direta da ferramenta:", followupErr);
-              respostaGerada = execResult.respostaGerada || "Prontinho! Solicitação processada com sucesso no sistema.";
+              try {
+                const promptFollowup = `A ferramenta ${toolExecutada} retornou os seguintes dados: ${JSON.stringify(toolDados)}. Responda ao assinante de forma acolhedora, humana e objetiva baseando-se nestes dados (por exemplo, informando o código PIX Copia e Cola, valor e vencimento). Nunca invente dados e nunca mencione a palavra JSON.`;
+                
+                const followupPromise = ai.models.generateContent({
+                  model: "gemini-flash-latest",
+                  contents: promptRaiz + "\n\n" + promptFollowup
+                });
+                const timeoutPromise = new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout followup")), 4000));
+                const responseFollowup: any = await Promise.race([followupPromise, timeoutPromise]);
+                respostaGerada = responseFollowup?.text || execResult.respostaGerada || "Prontinho! Solicitação processada com sucesso.";
+              } catch (followupErr) {
+                console.log("[Gemini SDK] Usando resposta direta da ferramenta:", followupErr);
+                respostaGerada = execResult.respostaGerada || "Prontinho! Solicitação processada com sucesso no sistema.";
+              }
             }
           }
         } else {
