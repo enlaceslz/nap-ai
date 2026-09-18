@@ -234,8 +234,8 @@ export const DEFAULT_CONFIG: SystemConfig = {
  ipPrivadoTr069: "10.10.10.254",
  radiusHost: "127.0.0.1",
  radiusPort: 3799,
- radiusSecret: "nap_radius_secret_2026",
- postgresUrl: "postgresql://postgres:nap_secure_pwd@localhost:5432/nap_crm"
+ radiusSecret: "",
+ postgresUrl: ""
  },
  landingPage: {
  templatePadrao: 1,
@@ -344,7 +344,7 @@ export const DEFAULT_CONFIG: SystemConfig = {
  protocolo: 'REST / HTTPS v2.4',
  urlBase: 'http://127.0.0.1:3000/api/mock-sgp',
  appId: 'DJD_NATIVE_APP',
- token: 'nap_native_sec_token_sgp',
+ token: '',
  autoDesbloqueio48h: true,
  avisoSonoroInadimplente: true,
  habilitarConsultaRadius: true,
@@ -357,7 +357,7 @@ export const DEFAULT_CONFIG: SystemConfig = {
  sgp: {
  urlBase: "http://127.0.0.1:3000/api/mock-sgp",
  appId: "DJD_NATIVE_APP",
- token: "nap_native_sec_token_sgp",
+ token: "",
  syncIntervalMinutes: 15,
  autoDesbloqueio48h: true,
  avisoSonoroInadimplente: true,
@@ -366,19 +366,19 @@ export const DEFAULT_CONFIG: SystemConfig = {
  },
  telefonia: {
  troncosSip: [
- { id: '1', nome: 'Tronco SIP Localhost (PJSIP Nativo)', host: '127.0.0.1', porta: 5060, usuario: 'nap_pjsip', senha: 'nap_pjsip_secret', codecs: 'alaw, ulaw, g729, opus', status: 'ativo' }
+ { id: '1', nome: 'Tronco SIP Localhost (PJSIP Nativo)', host: '127.0.0.1', porta: 5060, usuario: 'nap_pjsip', senha: '', codecs: 'alaw, ulaw, g729, opus', status: 'ativo' }
  ],
  ariHost: "127.0.0.1",
  ariPort: 8088,
  ariUser: "nap_admin",
- ariSecret: "nap_ari_secret_2026",
+ ariSecret: "",
  amiHost: "127.0.0.1",
  amiPort: 5038,
  amiUser: "nap_ami",
- amiSecret: "nap_ami_secret_2026",
+ amiSecret: "",
  contextoDiscagem: "from-internal",
  ramalWebRTC: "2001",
- secretWebRTC: "sip_pass_2001_webrtc",
+ secretWebRTC: "",
  websocketUrl: "wss://127.0.0.1:8089/ws",
  gravarChamadas: true,
  transcricaoAutomatica: true,
@@ -389,12 +389,12 @@ export const DEFAULT_CONFIG: SystemConfig = {
  urlCwmp: "http://127.0.0.1:7547",
  urlUi: "http://127.0.0.1:3005",
  usuarioNbi: "nap_acs_admin",
- senhaNbi: "nap_acs_pwd_2026",
+ senhaNbi: "",
  status: "conectado"
  },
  zabbix: {
  urlJsonRpc: "http://127.0.0.1:8080/zabbix/api_jsonrpc.php",
- apiToken: "nap_zabbix_live_token_sec70",
+ apiToken: "",
  usuarioApi: "nap_zabbix_api",
  portaAgent: 10050,
  versao: "Zabbix Server 7.0 LTS",
@@ -412,11 +412,11 @@ export const DEFAULT_CONFIG: SystemConfig = {
  status: "ativo"
  },
  whatsapp: {
- phoneNumberId: "109823471029384",
- businessAccountId: "394857201928374",
- tokenAcesso: "EAAGm0PXq1...9823h4",
- webhookUrl: "https://api.djdtelecom.com.br/api/webhooks/whatsapp",
- verifyToken: "nap_waba_verify_token_secure",
+ phoneNumberId: "",
+ businessAccountId: "",
+ tokenAcesso: "",
+ webhookUrl: "https://api.provedor.com.br/api/webhooks/whatsapp",
+ verifyToken: "",
  canalOficial: true,
  envioAutomaticoPix: false, // Por padrão, a critério do operador (não envio forçado)
  canalPrincipalPortal: true, // Portal do Cliente é o canal principal para notificação, cobrança e suporte

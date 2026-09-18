@@ -23,9 +23,18 @@ services:
       - ERP_APP=${ERP_APP}
       - ERP_TOKEN=${ERP_TOKEN}
     depends_on:
-      - db
-      - redis
-      - mongo
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     networks:
       - nap_internal_network
 
@@ -43,6 +52,11 @@ services:
     ports:
       # Somente acessível internamente ou via localhost na VPS
       - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-nap_crm}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - nap_pg_data:/var/lib/postgresql/data
     networks:
@@ -68,6 +82,11 @@ services:
     restart: always
     ports:
       - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - genieacs_redis_data:/data
     networks:

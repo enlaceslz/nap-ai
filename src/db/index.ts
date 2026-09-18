@@ -5,18 +5,47 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Usamos a string de conexão padrão do nosso Docker caso não exista no .env
-const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:nap_secure_pwd@localhost:5432/nap_crm';
+const isProduction = process.env.NODE_ENV === 'production';
+const connectionString = process.env.DATABASE_URL?.trim();
 
-const pool = new Pool({
- connectionString,
+if (isProduction && (!connectionString || connectionString.includes('nap_secure_pwd') || connectionString.includes('CHANGE_ME'))) {
+  throw new Error('[SEGURANÇA CRÍTICA] DATABASE_URL não configurada ou contendo credencial padrão em ambiente de produção.');
+}
+
+export let isDatabaseConnected = false;
+
+// Em não-produção, permite fallback para URI local ou memória mockada
+const effectiveConnectionString = connectionString || 'postgresql://postgres:postgres@127.0.0.1:5432/nap_crm';
+
+export const pool = new Pool({
+  connectionString: effectiveConnectionString,
+  connectionTimeoutMillis: isProduction ? 5000 : 2000,
+  max: 20
 });
 
-// Evita que erros do pool não tratados derrubem a aplicação (ex: ECONNREFUSED em modo fallback)
+pool.on('connect', () => {
+  isDatabaseConnected = true;
+});
+
 pool.on('error', (err) => {
- // Ignoramos a exibição do erro explícito no console para evitar 
- // que a UI da plataforma dispare triggers falsos de "Crash", já que 
- // o sistema foi projetado para operar com Memory Fallback de forma silenciosa.
+  isDatabaseConnected = false;
+  if (isProduction) {
+    console.error('[DATABASE ERROR] Falha no pool do PostgreSQL:', err.message);
+  }
+});
+
+// Teste inicial não-bloqueante de conexão
+pool.query('SELECT 1').then(() => {
+  isDatabaseConnected = true;
+  console.log('[DATABASE] Conexão com PostgreSQL estabelecida com sucesso.');
+}).catch((err) => {
+  isDatabaseConnected = false;
+  if (isProduction) {
+    console.error('[DATABASE] Falha de conexão inicial com PostgreSQL em produção:', err.message);
+  } else {
+    console.warn('[DATABASE] PostgreSQL não disponível no ambiente local/preview. Operando em modo desacoplado.');
+  }
 });
 
 export const db = drizzle(pool, { schema });
+

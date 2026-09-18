@@ -8,6 +8,6 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgresql://postgres:nap_secure_pwd@localhost:5432/nap_crm',
+    url: process.env.DATABASE_URL || '',
   },
 });

@@ -6,7 +6,7 @@ import { GoogleGenAI } from "@google/genai";
 
 const ARI_URL = process.env.ARI_URL || process.env.ASTERISK_ARI_URL || `http://${process.env.ASTERISK_HOST || '127.0.0.1'}:${process.env.ASTERISK_PORT_ARI || '8088'}`;
 const ARI_USER = process.env.ARI_USER || process.env.ASTERISK_USER_ARI || 'nap_admin';
-const ARI_PASS = process.env.ARI_PASS || process.env.ASTERISK_SECRET_ARI || 'nap_ari_secret_2026';
+const ARI_PASS = process.env.ARI_PASS || process.env.ASTERISK_SECRET_ARI || '';
 
 let ariInstance: any = null;
 let isConnected = false;
@@ -22,9 +22,14 @@ async function playAudioOnAsterisk(channel: any, text: string) {
 }
 
 export async function connectARI() {
+  if (!ARI_PASS) {
+    console.warn('[Asterisk] ASTERISK_SECRET_ARI não configurado. ARI desabilitado neste ambiente.');
+    return;
+  }
   try {
     console.log(`[Asterisk] Tentando conectar ao ARI em ${ARI_URL}...`);
     ariInstance = await client.connect(ARI_URL, ARI_USER, ARI_PASS);
+    isConnected = true;
     console.log('[Asterisk] Conectado ao ARI com sucesso!');
 
     ariInstance.on('StasisStart', async (event: any, channel: any) => {

@@ -66,12 +66,12 @@ Configure as credenciais e permissões para o App Engine do NAP:
 [general]
 enabled = yes
 pretty = yes
-allowed_origins = *
+allowed_origins = 127.0.0.1:3000,localhost:3000
 
 [nap_admin] ; O usuário parametrizado no painel do NAP
 type = user
 read_only = no
-password = nap_ari_secret_2026
+password = CHANGE_ME_IN_PRODUCTION
 ```
 
 Após salvar, aplique as mudanças:
@@ -92,8 +92,8 @@ import WebSocket from 'ws';
 
 const ARI_HOST = process.env.ARI_HOST || '127.0.0.1';
 const ARI_PORT = process.env.ARI_PORT || 8088;
-const ARI_USER = 'nap_admin';
-const ARI_PASS = 'nap_ari_secret_2026';
+const ARI_USER = process.env.ASTERISK_USER_ARI || 'nap_admin';
+const ARI_PASS = process.env.ASTERISK_SECRET_ARI || '';
 const APP_NAME = 'nap_voice_agent';
 
 const wsUrl = `ws://${ARI_HOST}:${ARI_PORT}/ari/events?api_key=${ARI_USER}:${ARI_PASS}&app=${APP_NAME}`;

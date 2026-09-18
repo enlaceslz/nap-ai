@@ -9,7 +9,10 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
   
   // 1. Verificação do Webhook pela Meta
   app.get("/api/webhooks/waba/incoming", (req, res) => {
-    const verify_token = process.env.WABA_VERIFY_TOKEN || "nap_token_secreto_123";
+    const verify_token = process.env.WABA_VERIFY_TOKEN || process.env.WHATSAPP_VERIFY_TOKEN;
+    if (!verify_token) {
+      return res.status(500).json({ error: "WABA_VERIFY_TOKEN não configurado no servidor" });
+    }
     let mode = req.query["hub.mode"];
     let token = req.query["hub.verify_token"];
     let challenge = req.query["hub.challenge"];
@@ -499,7 +502,10 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
     const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
 
-    const EXPECTED_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "nap_waba_verify_token_secure";
+    const EXPECTED_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || process.env.WABA_VERIFY_TOKEN;
+    if (!EXPECTED_TOKEN) {
+      return res.status(500).json({ error: "Token de verificação WABA não configurado no servidor" });
+    }
 
     if (mode === "subscribe" && token === EXPECTED_TOKEN) {
       console.log("[WABA Webhook] Handshake da Meta verificado com sucesso!");

@@ -12,9 +12,9 @@ declare global {
 }
 
 // Chave secreta de sessão interna (gerada aleatoriamente no boot ou carregada do ambiente seguro)
-const JWT_SECRET = process.env.NAP_JWT_SECRET || process.env.SESSION_SECRET || (() => {
+const JWT_SECRET = process.env.NAP_JWT_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET || (() => {
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('[SEGURANÇA CRÍTICA] NAP_JWT_SECRET ou SESSION_SECRET deve estar configurado no ambiente de produção.');
+    throw new Error('[SEGURANÇA CRÍTICA] NAP_JWT_SECRET, JWT_SECRET ou SESSION_SECRET deve estar configurado no ambiente de produção.');
   }
   return crypto.randomBytes(32).toString('hex');
 })();
@@ -157,5 +157,32 @@ export function requirePermission(...requiredPermissions: Permission[]) {
     }
 
     next();
+  };
+}
+
+/**
+ * Middleware para autorização baseada em Papéis (Roles)
+ * ADMIN sempre tem acesso total.
+ */
+export function requireRole(...allowedRoles: UserRole[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Autenticação necessária para acessar esta operação.',
+        code: 'UNAUTHORIZED'
+      });
+    }
+
+    if (req.user.role === 'ADMIN' || allowedRoles.includes(req.user.role)) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      error: `Acesso negado. Esta operação requer um dos seguintes papéis: ${allowedRoles.join(', ')}`,
+      code: 'FORBIDDEN',
+      userRole: req.user.role
+    });
   };
 }

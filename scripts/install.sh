@@ -21,17 +21,21 @@ fi
 
 # Criação do arquivo .env a partir do example se não existir
 if [ ! -f .env ]; then
-    echo "⚙️  Criando arquivo .env padrão..."
+    echo "⚙️  Criando arquivo .env padrão com senhas geradas..."
+    PG_SEC=$(openssl rand -hex 16)
+    JWT_SEC=$(openssl rand -hex 32)
     cat <<EOT > .env
 NODE_ENV=production
-GEMINI_API_KEY=sua_chave_gemini_aqui
-SGP_URL=https://api.sgp.net.br
-SGP_APP=seu_app_id_aqui
-SGP_TOKEN=seu_token_api_aqui
-DATABASE_URL=postgres://postgres:nap_secure_pwd@db:5432/nap_crm
-REDIS_URL=redis://redis:6379
+JWT_SECRET=${JWT_SEC}
+GEMINI_API_KEY=CHANGE_ME_IN_PRODUCTION
+SGP_URL=https://api.provedor.com.br
+SGP_APP=NAP_PROVEDOR_APP
+SGP_TOKEN=CHANGE_ME_IN_PRODUCTION
+POSTGRES_PASSWORD=${PG_SEC}
+DATABASE_URL=postgres://postgres:${PG_SEC}@127.0.0.1:5432/nap_crm
+REDIS_URL=redis://127.0.0.1:6379
 EOT
-    echo "⚠️  Lembre-se de editar o .env e inserir sua GEMINI_API_KEY real."
+    echo "⚠️  Lembre-se de editar o .env e preencher as credenciais de produção."
 fi
 
 echo "🔨 Construindo e iniciando containers Docker..."

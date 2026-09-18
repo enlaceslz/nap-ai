@@ -36,12 +36,12 @@ NODE_ENV=production
 PORT=3000
 
 # Banco de Dados
-DATABASE_URL=postgresql://postgres:nap_secure_pwd@localhost:5432/nap_crm
+DATABASE_URL=postgresql://postgres:CHANGE_ME_IN_PRODUCTION@127.0.0.1:5432/nap_crm
 
 # Integração Bancária C6 Bank (Pix mTLS & Enlace-Pay)
 C6_BANK_ENABLED=true
-C6_CLIENT_ID=c6_client_live_89172401
-C6_CLIENT_SECRET=seu_c6_secret_aqui
+C6_CLIENT_ID=CHANGE_ME_IN_PRODUCTION
+C6_CLIENT_SECRET=CHANGE_ME_IN_PRODUCTION
 C6_PIX_KEY=12.345.678/0001-90
 C6_MTLS_CERT_PATH=/opt/nap/certs/c6_mtls_prod.crt
 C6_ENVIRONMENT=production # "production" ou "sandbox"
@@ -49,13 +49,13 @@ C6_ENVIRONMENT=production # "production" ou "sandbox"
 # ERP BSS Primário (SGP, IXC Soft ou HubSoft)
 ERP_PROVIDER=sgp
 SGP_API_URL=https://sgp.provedor.com.br/api/v1
-SGP_API_TOKEN=seu_token_sgp_aqui
-SGP_APP_ID=nap_integrator
+SGP_API_TOKEN=CHANGE_ME_IN_PRODUCTION
+SGP_APP_ID=NAP_PROVEDOR_APP
 
 # WhatsApp Cloud API (WABA)
-WABA_VERIFY_TOKEN=nap_waba_verify_token_secure
-WABA_ACCESS_TOKEN=seu_meta_token
-WABA_PHONE_NUMBER_ID=seu_phone_number_id
+WABA_VERIFY_TOKEN=CHANGE_ME_IN_PRODUCTION
+WABA_ACCESS_TOKEN=CHANGE_ME_IN_PRODUCTION
+WABA_PHONE_NUMBER_ID=CHANGE_ME_IN_PRODUCTION
 
 # Inteligência Artificial (Gemini 2.5/Flash)
 GEMINI_API_KEY=sua_chave_gemini_api
@@ -87,7 +87,7 @@ VITE_FIREBASE_API_KEY=sua_chave_firebase
 
 2. **Configurar o PostgreSQL:**
    ```bash
-   sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'nap_secure_pwd';"
+   sudo -u postgres psql -c "CREATE USER postgres WITH PASSWORD 'SUA_SENHA_FORTE_AQUI';"
    sudo -u postgres psql -c "CREATE DATABASE nap_crm OWNER postgres;"
    ```
 

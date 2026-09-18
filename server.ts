@@ -44,6 +44,8 @@ import { setupCorrelationRoutes } from "./server/correlation/routes";
 import { setupCommunicationRoutes } from "./server/communications/routes";
 import { setupPaymentRoutes } from "./server/payments";
 import { GenieacsService } from "./server/genieacs/genieacsService";
+import { authRouter } from "./server/auth/authRoutes";
+import { requireRole, requireAuth } from "./server/auth/rbacMiddleware";
 
 const app = express();
 const PORT = 3000;
@@ -54,30 +56,30 @@ let mockWabaChats = [];
 let mockWabaMessages = [];
 
 // Credenciais Nativas Pré-configuradas do Sistema (Padrão Factory / Ambiente VPS)
-const ERP_URL = process.env.ERP_URL || process.env.SGP_URL || "http://127.0.0.1:3000/api/mock-sgp";
-const ERP_APP = process.env.ERP_APP || process.env.SGP_APP || "NAP_NATIVE_APP";
-const ERP_TOKEN = process.env.ERP_TOKEN || process.env.SGP_TOKEN || "nap_native_sec_token_sgp";
+const ERP_URL = process.env.ERP_URL || process.env.SGP_URL || "";
+const ERP_APP = process.env.ERP_APP || process.env.SGP_APP || "NAP_PROVEDOR_APP";
+const ERP_TOKEN = process.env.ERP_TOKEN || process.env.SGP_TOKEN || "";
 
 // Asterisk 20+ Puro / ARI / AMI Nativo
 const ASTERISK_HOST = process.env.ASTERISK_HOST || "127.0.0.1";
 const ASTERISK_PORT_ARI = process.env.ASTERISK_PORT_ARI || "8088";
 const ASTERISK_USER_ARI = process.env.ASTERISK_USER_ARI || "nap_admin";
-const ASTERISK_SECRET_ARI = process.env.ASTERISK_SECRET_ARI || "nap_ari_secret_2026";
+const ASTERISK_SECRET_ARI = process.env.ASTERISK_SECRET_ARI || "";
 const ASTERISK_PORT_AMI = process.env.ASTERISK_PORT_AMI || "5038";
 const ASTERISK_USER_AMI = process.env.ASTERISK_USER_AMI || "nap_ami";
-const ASTERISK_SECRET_AMI = process.env.ASTERISK_SECRET_AMI || "nap_ami_secret_2026";
+const ASTERISK_SECRET_AMI = process.env.ASTERISK_SECRET_AMI || "";
 const ASTERISK_WEBSOCKET_URL = process.env.ASTERISK_WEBSOCKET_URL || "wss://127.0.0.1:8089/ws";
 
 // GenieACS TR-069 / CWMP Nativo
 const GENIEACS_URL = process.env.GENIEACS_URL || "http://127.0.0.1:7557";
 const GENIEACS_CWMP_URL = process.env.GENIEACS_CWMP_URL || "http://127.0.0.1:7547";
 const GENIEACS_USER = process.env.GENIEACS_USER || "nap_acs_admin";
-const GENIEACS_PASSWORD = process.env.GENIEACS_PASSWORD || "nap_acs_pwd_2026";
+const GENIEACS_PASSWORD = process.env.GENIEACS_PASSWORD || "";
 const GENIEACS_UI_URL = process.env.GENIEACS_UI_URL || "http://127.0.0.1:3005";
 
 // Zabbix 7.0 LTS JSON-RPC Nativo
 const ZABBIX_URL = process.env.ZABBIX_URL || "http://127.0.0.1:8080/zabbix/api_jsonrpc.php";
-const ZABBIX_TOKEN = process.env.ZABBIX_TOKEN || "nap_zabbix_live_token_sec70";
+const ZABBIX_TOKEN = process.env.ZABBIX_TOKEN || "";
 const ZABBIX_USER = process.env.ZABBIX_USER || "nap_zabbix_api";
 const ZABBIX_AGENT_PORT = Number(process.env.ZABBIX_AGENT_PORT || 10050);
 
@@ -90,13 +92,13 @@ const MAPA_ATTRIBUTION = process.env.MAPA_ATTRIBUTION || '&copy; <a href="https:
 // Radius PoD / CoA Nativo
 const RADIUS_HOST = process.env.RADIUS_HOST || "127.0.0.1";
 const RADIUS_PORT = Number(process.env.RADIUS_PORT || 3799);
-const RADIUS_SECRET = process.env.RADIUS_SECRET || "nap_radius_secret_2026";
+const RADIUS_SECRET = process.env.RADIUS_SECRET || "";
 
 // Meta WhatsApp WABA Nativo
-const WABA_PHONE_NUMBER_ID = process.env.WABA_PHONE_NUMBER_ID || "109823471029384";
-const WABA_BUSINESS_ACCOUNT_ID = process.env.WABA_BUSINESS_ACCOUNT_ID || "394857201928374";
-const WABA_VERIFY_TOKEN = process.env.WABA_VERIFY_TOKEN || "nap_waba_verify_token_secure";
-const WABA_ACCESS_TOKEN = process.env.WABA_ACCESS_TOKEN || "EAAGm0PXq1...9823h4";
+const WABA_PHONE_NUMBER_ID = process.env.WABA_PHONE_NUMBER_ID || "";
+const WABA_BUSINESS_ACCOUNT_ID = process.env.WABA_BUSINESS_ACCOUNT_ID || "";
+const WABA_VERIFY_TOKEN = process.env.WABA_VERIFY_TOKEN || "";
+const WABA_ACCESS_TOKEN = process.env.WABA_ACCESS_TOKEN || "";
 
 // Função mock para fetchERP
 async function fetchERP(endpoint, method = "GET", body = null) {
@@ -130,6 +132,20 @@ app.use("/api/", createRateLimiter({ windowMs: 60 * 1000, max: 180 }));
 
 // Autenticação e RBAC central
 app.use("/api/", authMiddleware);
+
+// Rotas de Autenticação Unificada (Login, Me, Logout)
+app.use("/api", authRouter);
+
+// Proteção granular de rotas críticas via RBAC (Fase 5)
+app.use("/api/configuracoes", requireRole("ADMIN"));
+app.use("/api/auditoria", requireRole("ADMIN", "AUDITOR"));
+app.use("/api/admin/auditoria", requireRole("ADMIN", "AUDITOR"));
+app.use("/api/telefonia", requireRole("ADMIN", "SUPORTE"));
+app.use("/api/olt", requireRole("ADMIN", "NOC", "CAMPO", "SUPORTE"));
+app.use("/api/cpe", requireRole("ADMIN", "NOC", "CAMPO", "SUPORTE"));
+app.use("/api/financeiro", requireRole("ADMIN", "FINANCEIRO"));
+app.use("/api/payments/c6-config", requireRole("ADMIN", "FINANCEIRO"));
+app.use("/api/payments/reconcile", requireRole("ADMIN", "FINANCEIRO"));
 
 // --- Global System Configuration & State ---
 let systemConfig: any = {
@@ -165,7 +181,7 @@ let systemConfig: any = {
     amiSecret: ASTERISK_SECRET_AMI,
     contextoDiscagem: "from-internal",
     ramalWebRTC: process.env.ASTERISK_RAMAL_PADRAO || "2001",
-    secretWebRTC: process.env.ASTERISK_RAMAL_SECRET || "sip_pass_2001_webrtc",
+    secretWebRTC: process.env.ASTERISK_RAMAL_SECRET || "",
     websocketUrl: ASTERISK_WEBSOCKET_URL,
     gravarChamadas: true,
     transcricaoAutomatica: true,
@@ -223,7 +239,7 @@ let systemConfig: any = {
     radiusHost: RADIUS_HOST,
     radiusPort: RADIUS_PORT,
     radiusSecret: RADIUS_SECRET,
-    postgresUrl: process.env.DATABASE_URL || "postgresql://postgres:nap_secure_pwd@localhost:5432/nap_crm"
+    postgresUrl: process.env.DATABASE_URL || ""
   },
   seguranca: {}
 };
@@ -587,7 +603,7 @@ app.post("/api/push/operator/test", (req, res) => {
         amiSecret: ASTERISK_SECRET_AMI,
         contextoDiscagem: "from-internal",
         ramalWebRTC: process.env.ASTERISK_RAMAL_PADRAO || "2001",
-        secretWebRTC: process.env.ASTERISK_RAMAL_SECRET || "sip_pass_2001_webrtc",
+        secretWebRTC: process.env.ASTERISK_RAMAL_SECRET || "",
         websocketUrl: ASTERISK_WEBSOCKET_URL,
         gravarChamadas: true,
         transcricaoAutomatica: true,
@@ -652,7 +668,7 @@ app.post("/api/push/operator/test", (req, res) => {
         radiusHost: RADIUS_HOST,
         radiusPort: RADIUS_PORT,
         radiusSecret: RADIUS_SECRET,
-        postgresUrl: process.env.DATABASE_URL || "postgresql://postgres:nap_secure_pwd@localhost:5432/nap_crm"
+        postgresUrl: process.env.DATABASE_URL || ""
       };
 
       if (systemConfig.zabbix) {
@@ -1838,7 +1854,7 @@ SGP_APP="${sgpApp || ''}"\
 SGP_TOKEN="${sgpToken || ''}"\
 AMI_USER="${amiUser || ''}"\
 AMI_PASSWORD="${amiPassword || ''}"\
-DATABASE_URL="${process.env.DATABASE_URL || 'postgresql://postgres:nap_secure_pwd@db:5432/nap_crm'}"\
+DATABASE_URL="${process.env.DATABASE_URL || ''}"\
 GENIEACS_URL="http://127.0.0.1:7557"\
 ADMIN_EMAIL="${adminEmail}"\
 ADMIN_PASSWORD="${adminPassword}"\
