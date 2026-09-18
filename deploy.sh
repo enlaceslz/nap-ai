@@ -26,10 +26,18 @@ if ! command -v node &> /dev/null; then
 fi
 
 # 4. Project Setup
-echo "[4/7] Configurando Diretório da Aplicação..."
-# Assume-se que o script está rodando de dentro do diretório do projeto clonado
+echo "[4/7] Configurando Diretório da Aplicação e Certificados..."
 DIR=$(pwd)
 echo "Diretório de trabalho: $DIR"
+
+# Criação de diretório para certificados mTLS do C6 Bank e chaves privadas
+mkdir -p "$DIR/certs"
+chmod 700 "$DIR/certs"
+
+if [ ! -f "$DIR/.env" ] && [ -f "$DIR/.env.example" ]; then
+    echo "Criando .env a partir de .env.example..."
+    cp "$DIR/.env.example" "$DIR/.env"
+fi
 
 echo "[5/7] Instalando Pacotes NPM e realizando Build de Produção..."
 npm install
@@ -58,7 +66,12 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
     }
 }
 NGINX_EOF
@@ -67,11 +80,19 @@ ln -sf /etc/nginx/sites-available/nap /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 systemctl restart nginx
 
-# Firewall básico
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 3000/tcp
-ufw allow 5432/tcp
+# Firewall Completo para ISP (Telefonia, TR-069, Zabbix, Radius e Web)
+ufw allow 80/tcp comment 'Nginx HTTP'
+ufw allow 443/tcp comment 'Nginx HTTPS mTLS'
+ufw allow 3000/tcp comment 'Node.js Express'
+ufw allow 5432/tcp comment 'PostgreSQL CRM'
+ufw allow 5060/tcp comment 'Asterisk SIP TCP'
+ufw allow 5060/udp comment 'Asterisk SIP UDP'
+ufw allow 8089/tcp comment 'Asterisk WebRTC WSS'
+ufw allow 10000:20000/udp comment 'Asterisk RTP Audio'
+ufw allow 7547/tcp comment 'GenieACS CWMP'
+ufw allow 10050/tcp comment 'Zabbix Agent'
+ufw allow 10051/tcp comment 'Zabbix Server Trapper'
+ufw allow 3799/udp comment 'Radius CoA PoD'
 
 echo "========================================================="
 echo "   Deploy do NAP finalizado com sucesso!                "

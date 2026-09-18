@@ -397,6 +397,14 @@ export default function NocMonitoramento() {
  <Zap size={15} /> Simular Trigger
  </button>
 
+ <Link 
+ to="/admin/ajuda"
+ className="flex items-center gap-2 px-3.5 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-xl transition-colors border border-blue-500/30 text-xs font-bold"
+ title="Ver documentação oficial, portas e guia de implantação"
+ >
+ <Terminal size={15} /> Portas &amp; Deploy
+ </Link>
+
  <button 
  onClick={() => setShowConfigModal(true)}
  className="flex items-center gap-2 px-3.5 py-2 bg-muted hover:bg-accent text-muted-foreground rounded-xl transition-colors border border-border text-xs font-bold"

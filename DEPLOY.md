@@ -10,35 +10,70 @@ Para que o sistema opere corretamente, os seguintes serviços e portas devem est
 
 | Serviço | Porta TCP | Porta UDP | Descrição |
 | :--- | :---: | :---: | :--- |
-| **HTTP/HTTPS** | 80, 443 | - | Tráfego web via Nginx Proxy Reverso |
-| **Node.js (NAP API)**| 3000 | - | Backend da Aplicação (Express + Vite Proxy) |
-| **PostgreSQL** | 5432 | - | Banco de Dados Relacional (Core do NAP) |
-| **SIP (Asterisk)** | 5060, 5061| 5060 | Comunicação de Ramais PABX |
-| **RTP (Voz)** | - | 10000-20000 | Fluxo de mídia de voz (WebRTC e Softphones) |
+| **HTTP/HTTPS** | 80, 443 | - | Tráfego web via Nginx Proxy Reverso (com SSL Let's Encrypt) |
+| **Node.js (NAP API)**| 3000 | - | Backend da Aplicação (Express + Vite SPA Fallback) |
+| **PostgreSQL** | 5432 | - | Banco de Dados Relacional (Core do NAP com Drizzle ORM) |
+| **SIP (Asterisk)** | 5060, 5061| 5060 | Sinalização SIP de Ramais PABX e Operadores |
+| **RTP (Voz)** | - | 10000-20000 | Fluxo de mídia de áudio (WebRTC e Softphones) |
 | **WSS (Asterisk)** | 8089 | - | WebSockets Seguros para o Webphone do Portal PWA |
-| **GenieACS CWMP** | 7547, 7567| - | Comunicação TR-069 com CPEs e Roteadores |
-| **Zabbix Server** | 10051 | - | Telemetria ativa e passiva do NOC |
-| **Radius (PoD/CoA)**| 3799 | 3799 | Desconexão e Kick de sessão PPPoE |
+| **GenieACS CWMP** | 7547, 7567| - | Comunicação TR-069 com CPEs e Roteadores Wi-Fi |
+| **GenieACS UI** | 3005 | - | Painel Administrativo do GenieACS TR-069 |
+| **Zabbix Agent** | 10050 | - | Agente local de métricas do host e traps |
+| **Zabbix Server** | 10051 | - | Telemetria ativa e passiva do NOC e OLTs |
+| **Radius (PoD/CoA)**| 3799 | 3799 | Desconexão e Kick de sessão PPPoE no BNG/MikroTik |
+| **C6 Bank Webhook** | 443 | - | Recepção de notificações Pix v2 via HTTPS mTLS |
 
 ## Pré-requisitos
 - Um servidor ou VPS rodando **Debian 12**.
 - Pelo menos 4GB de RAM (8GB+ recomendado para cenários completos com Zabbix e Asterisk).
 - Acesso *root* ou privilégios de *sudo*.
 - Domínio apontado para o IP da VPS (para Let's Encrypt SSL).
+- Chaves e certificados mTLS emitidos no C6 Empresas (para o módulo Enlace-Pay).
 
 ## Variáveis de Ambiente Necessárias (`.env`)
 ```env
 NODE_ENV=production
+PORT=3000
+
+# Banco de Dados
 DATABASE_URL=postgresql://postgres:nap_secure_pwd@localhost:5432/nap_crm
+
+# Integração Bancária C6 Bank (Pix mTLS & Enlace-Pay)
+C6_BANK_ENABLED=true
+C6_CLIENT_ID=c6_client_live_89172401
+C6_CLIENT_SECRET=seu_c6_secret_aqui
+C6_PIX_KEY=12.345.678/0001-90
+C6_MTLS_CERT_PATH=/opt/nap/certs/c6_mtls_prod.crt
+C6_ENVIRONMENT=production # "production" ou "sandbox"
+
+# ERP BSS Primário (SGP, IXC Soft ou HubSoft)
+ERP_PROVIDER=sgp
+SGP_API_URL=https://sgp.provedor.com.br/api/v1
+SGP_API_TOKEN=seu_token_sgp_aqui
+SGP_APP_ID=nap_integrator
+
+# WhatsApp Cloud API (WABA)
 WABA_VERIFY_TOKEN=nap_waba_verify_token_secure
 WABA_ACCESS_TOKEN=seu_meta_token
+WABA_PHONE_NUMBER_ID=seu_phone_number_id
+
+# Inteligência Artificial (Gemini 2.5/Flash)
 GEMINI_API_KEY=sua_chave_gemini_api
 GEMINI_BASE_URL=https://9router.enlace.slz.br # Opcional: Gateway corporativo 9router com failover
 GEMINI_GATEWAY_PROVIDER=direct # "direct" (Google oficial gratuito) ou "9router" (Enterprise)
+
+# NOC, Telegram & Event Engine
 TELEGRAM_BOT_TOKEN=seu_bot_token_do_telegram
 TELEGRAM_NOC_GROUP_ID=id_do_grupo_noc
+ZABBIX_URL=http://127.0.0.1:8080/zabbix/api_jsonrpc.php
+ZABBIX_USER=Admin
+ZABBIX_PASSWORD=zabbix
+
+# IPAM & Nautobot
 NAUTOBOT_URL=http://nautobot.isp.local/api
 NAUTOBOT_TOKEN=seu_token_nautobot
+
+# Firebase Client (Auth & System Config)
 VITE_FIREBASE_API_KEY=sua_chave_firebase
 ```
 
@@ -62,10 +97,16 @@ VITE_FIREBASE_API_KEY=sua_chave_firebase
    sudo apt install -y nodejs
    ```
 
-4. **Clonar a Aplicação e Instalar:**
+4. **Clonar a Aplicação, Configurar Certificados mTLS e Instalar:**
    ```bash
    git clone <seu-repo> /opt/nap
    cd /opt/nap
+   
+   # Criar diretório seguro para certificados mTLS do C6 Bank
+   mkdir -p /opt/nap/certs
+   chmod 700 /opt/nap/certs
+   # Copie seu certificado c6_mtls_prod.crt para /opt/nap/certs/ com permissão 600
+   
    npm install
    npm run build
    ```
@@ -79,7 +120,7 @@ VITE_FIREBASE_API_KEY=sua_chave_firebase
    pm2 startup
    ```
 
-6. **Configuração Nginx (Proxy Reverso para 3000):**
+6. **Configuração Nginx (Proxy Reverso para 3000 com Suporte a WebSockets/WSS):**
    Crie `/etc/nginx/sites-available/nap`:
    ```nginx
    server {
@@ -88,13 +129,31 @@ VITE_FIREBASE_API_KEY=sua_chave_firebase
 
        location / {
            proxy_pass http://localhost:3000;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection 'upgrade';
            proxy_set_header Host $host;
            proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_addrs;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+           proxy_cache_bypass $http_upgrade;
+           proxy_read_timeout 86400s;
+           proxy_send_timeout 86400s;
        }
    }
    ```
-   Ative com `sudo ln -s /etc/nginx/sites-available/nap /etc/nginx/sites-enabled/` e recarregue `sudo systemctl reload nginx`.
+   Ative com:
+   ```bash
+   sudo ln -sf /etc/nginx/sites-available/nap /etc/nginx/sites-enabled/
+   sudo rm -f /etc/nginx/sites-enabled/default
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+7. **Instalação de Certificado SSL Gratuito (Let's Encrypt / Certbot):**
+   ```bash
+   sudo apt install -y certbot python3-certbot-nginx
+   sudo certbot --nginx -d seu-dominio.com.br
+   ```
 
 Alternativamente, execute o script de instalação automatizada: `./deploy.sh`
 
