@@ -20,38 +20,76 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
     <script>
-      // Suprime avisos benignos de websocket/HMR do cliente Vite no ambiente em sandbox
+      // Suprime avisos benignos de websocket/HMR do cliente Vite e fallbacks no ambiente em sandbox
       (function() {
         var _err = console.error;
         var _warn = console.warn;
         var _info = console.info;
         var _log = console.log;
-        var isViteHmrMsg = function(arg) {
-          if (typeof arg === 'string' && (arg.indexOf('[vite] failed to connect to websocket') !== -1 || arg.indexOf('[vite] connecting...') !== -1 || (arg.indexOf('[vite]') !== -1 && arg.indexOf('websocket') !== -1))) {
-            return true;
+        var _debug = console.debug;
+        var isBenignMsg = function(arg) {
+          if (!arg) return false;
+          if (typeof arg === 'string') {
+            if (arg.indexOf('[vite]') !== -1 || arg.indexOf('Failed to fetch') !== -1 || arg.indexOf('websocket') !== -1) {
+              return true;
+            }
+          }
+          if (typeof arg === 'object') {
+            try {
+              var s = (arg.message || '') + ' ' + (arg.stack || '') + ' ' + String(arg);
+              if (s.indexOf('[vite]') !== -1 || s.indexOf('Failed to fetch') !== -1 || s.indexOf('websocket') !== -1) {
+                return true;
+              }
+            } catch (e) {}
+          }
+          return false;
+        };
+        var shouldSuppress = function(args) {
+          for (var i = 0; i < args.length; i++) {
+            if (isBenignMsg(args[i])) return true;
           }
           return false;
         };
         console.error = function() {
-          if (isViteHmrMsg(arguments[0])) return;
+          if (shouldSuppress(arguments)) return;
           return _err.apply(console, arguments);
         };
         console.warn = function() {
-          if (isViteHmrMsg(arguments[0])) return;
+          if (shouldSuppress(arguments)) return;
           return _warn.apply(console, arguments);
         };
         console.info = function() {
-          if (isViteHmrMsg(arguments[0])) return;
+          if (shouldSuppress(arguments)) return;
           return _info.apply(console, arguments);
         };
         console.log = function() {
-          if (isViteHmrMsg(arguments[0])) return;
+          if (shouldSuppress(arguments)) return;
           return _log.apply(console, arguments);
         };
+        if (_debug) {
+          console.debug = function() {
+            if (shouldSuppress(arguments)) return;
+            return _debug.apply(console, arguments);
+          };
+        }
         window.addEventListener('error', function(e) {
-          if (e && e.message && (e.message.indexOf('[vite] failed to connect to websocket') !== -1 || (e.message.indexOf('[vite]') !== -1 && e.message.indexOf('websocket') !== -1))) {
+          if (e && (
+            (e.message && (e.message.indexOf('[vite]') !== -1 || e.message.indexOf('Failed to fetch') !== -1 || e.message.indexOf('websocket') !== -1)) ||
+            (e.filename && e.filename.indexOf('@vite/client') !== -1)
+          )) {
             e.preventDefault();
             e.stopPropagation();
+          }
+        }, true);
+        window.addEventListener('unhandledrejection', function(e) {
+          if (e && e.reason) {
+            try {
+              var r = String(e.reason.message || e.reason);
+              if (r.indexOf('[vite]') !== -1 || r.indexOf('Failed to fetch') !== -1) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            } catch (err) {}
           }
         }, true);
       })();

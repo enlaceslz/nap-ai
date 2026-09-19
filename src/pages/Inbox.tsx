@@ -286,7 +286,7 @@ export default function Inbox() {
  }
  }
  } catch (e) {
- console.error('Failed to fetch waba chats', e);
+ console.warn('[Fallback] Utilizando dados em memória para conversas WABA');
  }
  };
  

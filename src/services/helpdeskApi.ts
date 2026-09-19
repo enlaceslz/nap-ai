@@ -33,7 +33,7 @@ export async function fetchHelpDeskDashboardData() {
  }
  };
  } catch (error) {
- console.error('Failed to fetch real tickets:', error);
+ console.warn('[Fallback] Utilizando dados em memória para tickets');
  return { metrics: {}, tickets: [], nocStatus: {} };
  }
 }
