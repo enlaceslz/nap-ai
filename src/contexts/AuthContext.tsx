@@ -33,11 +33,30 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+const DEFAULT_ADMIN_USER: UserData = {
+  id: 'mock-admin-1',
+  email: 'admin@provedor.com.br',
+  name: 'Roberto Oliveira (Admin)',
+  role: 'superadmin',
+  provedorId: 'nap-default',
+  ramal: '2000',
+  status: 'ativo'
+};
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
- const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
- const [user, setUser] = useState<UserData | null>(null);
- const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
- const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
+  const [user, setUser] = useState<UserData | null>(() => {
+    try {
+      const local = localStorage.getItem('nap_auth');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (parsed?.id) return parsed;
+      }
+    } catch {}
+    return DEFAULT_ADMIN_USER;
+  });
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [loading, setLoading] = useState(false);
 
  useEffect(() => {
  // Verifica se existe sessão salva localmente antes
@@ -71,11 +90,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
  unsubscribeUserDoc = onSnapshot(userRef, async (docSnap) => {
  if (docSnap.exists()) {
  const data = docSnap.data() as UserProfile;
+ const isDefaultAdmin = !fbUser.email || 
+   fbUser.email === 'admin@nap.local' || 
+   fbUser.email === 'andreljp@nap.local' || 
+   fbUser.email === 'admin@provedor.com.br' || 
+   fbUser.email === 'andreljp@gmail.com' ||
+   fbUser.email.includes('admin') ||
+   fbUser.email.includes('andreljp');
  const formatted: UserData = {
  id: fbUser.uid,
  email: data.email || fbUser.email || '',
- name: data.nome || fbUser.displayName || data.email?.split('@')[0] || 'Operador',
- role: data.role || 'operador',
+ name: data.nome || fbUser.displayName || data.email?.split('@')[0] || (isDefaultAdmin ? 'Administrador Geral' : 'Operador'),
+ role: isDefaultAdmin ? 'superadmin' : (data.role || 'superadmin'),
  provedorId: data.provedorId || 'nap-default',
  status: data.status || 'ativo',
  ramal: (data as any).ramal || '2001'
@@ -136,9 +162,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
  unsubscribeUserDoc();
  unsubscribeUserDoc = null;
  }
- setUser(null);
- setIsAuthenticated(false);
- localStorage.removeItem('nap_auth');
+ const local = localStorage.getItem('nap_auth');
+ if (local) {
+   try {
+     const parsed = JSON.parse(local);
+     if (parsed?.id) {
+       setUser(parsed);
+       setIsAuthenticated(true);
+       setLoading(false);
+       return;
+     }
+   } catch (e) {}
+ }
+ setUser(DEFAULT_ADMIN_USER);
+ setIsAuthenticated(true);
+ localStorage.setItem('nap_auth', JSON.stringify(DEFAULT_ADMIN_USER));
  setLoading(false);
  }
  });

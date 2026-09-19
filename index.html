@@ -2,83 +2,6 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <script>
-      (function() {
-        var OrigWebSocket = window.WebSocket;
-        if (OrigWebSocket) {
-          window.WebSocket = function(url, protocols) {
-            var isViteHmr = protocols === 'vite-hmr' || (Array.isArray(protocols) && protocols.indexOf('vite-hmr') !== -1);
-            if (isViteHmr) {
-              return {
-                readyState: 1,
-                OPEN: 1,
-                CONNECTING: 0,
-                CLOSING: 2,
-                CLOSED: 3,
-                protocol: 'vite-hmr',
-                url: String(url),
-                send: function() {},
-                close: function() {},
-                addEventListener: function() {},
-                removeEventListener: function() {},
-                dispatchEvent: function() { return true; }
-              };
-            }
-            if (arguments.length === 1) {
-              return new OrigWebSocket(url);
-            }
-            return new OrigWebSocket(url, protocols);
-          };
-          window.WebSocket.prototype = OrigWebSocket.prototype;
-          window.WebSocket.CONNECTING = 0;
-          window.WebSocket.OPEN = 1;
-          window.WebSocket.CLOSING = 2;
-          window.WebSocket.CLOSED = 3;
-        }
-
-        var isViteNotice = function(arg) {
-          if (!arg) return false;
-          if (typeof arg === 'string') {
-            return arg.indexOf('[vite]') !== -1 || 
-                   arg.indexOf('failed to connect to websocket') !== -1 ||
-                   arg.indexOf('Could not reach Cloud Firestore backend') !== -1 ||
-                   arg.indexOf('code=unavailable') !== -1;
-          }
-          if (typeof arg === 'object') {
-            var text = (arg.message || '') + ' ' + (arg.stack || '') + ' ' + String(arg);
-            return text.indexOf('[vite]') !== -1 || 
-                   text.indexOf('failed to connect to websocket') !== -1 ||
-                   text.indexOf('Could not reach Cloud Firestore backend') !== -1 ||
-                   text.indexOf('code=unavailable') !== -1;
-          }
-          return false;
-        };
-        var _err = console.error;
-        var _warn = console.warn;
-        console.error = function() {
-          var args = Array.prototype.slice.call(arguments);
-          if (args.some(isViteNotice)) return;
-          _err.apply(console, args);
-        };
-        console.warn = function() {
-          var args = Array.prototype.slice.call(arguments);
-          if (args.some(isViteNotice)) return;
-          _warn.apply(console, args);
-        };
-        window.addEventListener('error', function(e) {
-          if (isViteNotice(e.message) || isViteNotice(e.error)) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-          }
-        }, true);
-        window.addEventListener('unhandledrejection', function(e) {
-          if (isViteNotice(e.reason)) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-          }
-        }, true);
-      })();
-    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NAP WACRM</title>
     <meta property="og:title" content="NAP WACRM" />
@@ -97,16 +20,56 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
     <script>
+      // Suprime avisos benignos de websocket/HMR do cliente Vite no ambiente em sandbox
+      (function() {
+        var _err = console.error;
+        var _warn = console.warn;
+        var _info = console.info;
+        var _log = console.log;
+        var isViteHmrMsg = function(arg) {
+          if (typeof arg === 'string' && (arg.indexOf('[vite] failed to connect to websocket') !== -1 || arg.indexOf('[vite] connecting...') !== -1 || (arg.indexOf('[vite]') !== -1 && arg.indexOf('websocket') !== -1))) {
+            return true;
+          }
+          return false;
+        };
+        console.error = function() {
+          if (isViteHmrMsg(arguments[0])) return;
+          return _err.apply(console, arguments);
+        };
+        console.warn = function() {
+          if (isViteHmrMsg(arguments[0])) return;
+          return _warn.apply(console, arguments);
+        };
+        console.info = function() {
+          if (isViteHmrMsg(arguments[0])) return;
+          return _info.apply(console, arguments);
+        };
+        console.log = function() {
+          if (isViteHmrMsg(arguments[0])) return;
+          return _log.apply(console, arguments);
+        };
+        window.addEventListener('error', function(e) {
+          if (e && e.message && (e.message.indexOf('[vite] failed to connect to websocket') !== -1 || (e.message.indexOf('[vite]') !== -1 && e.message.indexOf('websocket') !== -1))) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }, true);
+      })();
+    </script>
+    <script>
       (function() {
         try {
           var savedTheme = localStorage.getItem('nap_theme');
-          var isDark = true;
-          if (savedTheme === 'light') {
-            isDark = false;
+          var isDark = false;
+          if (savedTheme === 'dark') {
+            isDark = true;
           } else if (savedTheme === 'system') {
             isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          } else if (savedTheme === 'light') {
+            isDark = false;
           } else {
-            isDark = true;
+            // Padrão do sistema: Claro Corporativo (Daylight)
+            isDark = false;
           }
 
           if (isDark) {

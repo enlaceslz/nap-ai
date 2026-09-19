@@ -15,7 +15,7 @@ export default function ThemeToggle({
  direction = 'down',
  align = 'right'
 }: ThemeToggleProps) {
- const { theme, themeMode, setThemeMode, isDark } = useTheme();
+ const { theme, themeMode, setThemeMode, isDark, toggleTheme } = useTheme();
  const [isOpen, setIsOpen] = useState(false);
  const containerRef = useRef<HTMLDivElement>(null);
 
@@ -48,35 +48,45 @@ export default function ThemeToggle({
  };
 
  return (
- <div className="relative inline-block" ref={containerRef}>
+ <div className="relative inline-flex items-center" ref={containerRef}>
+ <div className={`inline-flex items-center rounded-xl border border-border bg-card shadow-xs transition-all ${className}`}>
+ {/* Botão de alternância instantânea com 1 clique */}
  <button
  type="button"
  id="theme-toggle-btn"
- onClick={() => setIsOpen(prev => !prev)}
- className={`relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all duration-150 cursor-pointer text-xs font-semibold select-none ${
- isDark
- ? 'bg-card hover:bg-muted text-card-foreground border border-border shadow-xs'
- : 'bg-card hover:bg-slate-100 text-muted-foreground border border-border shadow-xs'
- } ${className}`}
- title={`Tema atual: ${themeMode === 'system' ? 'Sistema (' + (isDark ? 'Escuro' : 'Claro') + ')' : isDark ? 'Escuro NOC' : 'Claro Corporativo'}`}
- aria-label="Selecionar tema visual do sistema"
- aria-expanded={isOpen}
+ onClick={() => toggleTheme()}
+ className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-l-xl hover:bg-muted text-card-foreground transition-colors cursor-pointer text-xs font-semibold select-none"
+ title={isDark ? "Clique para ativar Modo Claro (Daylight)" : "Clique para ativar Modo Escuro (NOC)"}
+ aria-label={isDark ? "Mudar para Modo Claro" : "Mudar para Modo Escuro"}
  >
  <div className="flex items-center justify-center w-4 h-4">
  {getActiveIcon()}
  </div>
 
- {showLabel && (
  <span className="hidden sm:inline font-medium">
- {themeMode === 'system' ? 'Automático' : isDark ? 'Escuro NOC' : 'Claro'}
+ {themeMode === 'system' ? 'Auto' : isDark ? 'Escuro' : 'Claro'}
  </span>
- )}
+ </button>
 
+ {/* Botão de menu detalhado com presets */}
+ <button
+ type="button"
+ id="theme-menu-btn"
+ onClick={(e) => {
+ e.stopPropagation();
+ setIsOpen(prev => !prev);
+ }}
+ className="px-1.5 py-1.5 border-l border-border hover:bg-muted text-muted-foreground hover:text-foreground rounded-r-xl transition-colors cursor-pointer"
+ title="Opções avançadas de tema (Claro / Escuro / Sistema)"
+ aria-label="Abrir opções de tema"
+ aria-expanded={isOpen}
+ >
  <ChevronDown
  size={13}
- className={`text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-180' : 'rotate-0'}`}
+ className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : 'rotate-0'}`}
  />
  </button>
+ </div>
 
  {/* Menu Popover de Seleção de Tema */}
  {isOpen && (

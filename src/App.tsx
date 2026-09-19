@@ -56,7 +56,8 @@ export default function App() {
  <ConfigProvider>
  <BrowserRouter>
  <Routes>
- <Route path="/" element={<ErrorBoundary fallbackTitle="Falha na Vitrine da Landing Page"><LandingPage /></ErrorBoundary>} />
+ <Route path="/" element={<Navigate to="/admin/inbox" replace />} />
+ <Route path="/inbox" element={<Navigate to="/admin/inbox" replace />} />
  <Route path="/landingpage" element={<ErrorBoundary fallbackTitle="Falha na Vitrine da Landing Page"><LandingPage /></ErrorBoundary>} />
  <Route path="/nap" element={<ErrorBoundary fallbackTitle="Erro na Landing Page SaaS"><NapSaasLanding /></ErrorBoundary>} />
  <Route path="/landing" element={<ErrorBoundary fallbackTitle="Falha na Vitrine da Landing Page"><LandingPage /></ErrorBoundary>} />
@@ -78,6 +79,7 @@ export default function App() {
  }
  >
  <Route index element={<Inbox />} />
+ <Route path="inbox" element={<Inbox />} />
  </Route>
 
  <Route

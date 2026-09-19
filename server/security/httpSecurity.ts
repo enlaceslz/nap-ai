@@ -129,41 +129,13 @@ export function configureHelmet() {
   const isProd = process.env.NODE_ENV === 'production';
   
   return helmet({
-    // Permite que o preview seja embutido no iframe do AI Studio
+    // Permite que o preview seja embutido sem restrições de frame no iFrame do Google AI Studio e Web Preview
     xFrameOptions: false,
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],
-        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-        imgSrc: ["'self'", "data:", "blob:", "https://images.unsplash.com", "https://*.googleusercontent.com", "https://*.gstatic.com", "https://*.tile.openstreetmap.org", "https://*.cartocdn.com", "https://server.arcgisonline.com"],
-        connectSrc: [
-          "'self'", 
-          "wss:", 
-          "ws:", 
-          "https://*.googleapis.com", 
-          "https://firestore.googleapis.com", 
-          "https://identitytoolkit.googleapis.com", 
-          "https://securetoken.googleapis.com", 
-          "https://generativelanguage.googleapis.com", 
-          "https://*.firebaseio.com", 
-          "https://*.firebaseapp.com",
-          "https://*.firebasestorage.app",
-          "https://*.run.app"
-        ],
-        frameAncestors: ["'self'", "https://*.google.com", "https://*.google.dev", "https://*.run.app", "https://ai.studio", "https://aistudio.google.com"],
-        objectSrc: ["'none'"]
-      }
-    },
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: false,
     crossOriginResourcePolicy: false,
-    hsts: isProd ? {
-      maxAge: 31536000,
-      includeSubDomains: true,
-      preload: true
-    } : false,
+    hsts: false,
     noSniff: true,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
   });

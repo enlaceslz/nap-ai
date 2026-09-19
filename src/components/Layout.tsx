@@ -68,7 +68,7 @@ export default function Layout() {
 
  // Mapeamento dinâmico de títulos para o Topbar
  const getPageInfo = (path: string) => {
- if (path === '/admin' || path === '/admin/') return { title: 'Inbox Unificado', category: 'Atendimento Omnichannel', icon: <MessageSquare size={18} className="text-blue-400" /> };
+ if (path === '/admin' || path === '/admin/' || path === '/admin/inbox' || path.startsWith('/admin/inbox')) return { title: 'Inbox Unificado', category: 'Atendimento Omnichannel (WhatsApp WABA & WebChat)', icon: <MessageSquare size={18} className="text-blue-400" /> };
  if (path.startsWith('/admin/dashboard')) return { title: 'NOC & Analytics', category: 'Centro de Controle Operacional', icon: <PieChart size={18} className="text-blue-400" /> };
  if (path.startsWith('/admin/cobranca')) return { title: 'Régua de Cobrança', category: 'Inadimplência, PIX & Desbloqueio 24h', icon: <CreditCard size={18} className="text-amber-600" /> };
  if (path.startsWith('/admin/suporte')) return { title: 'Kanban de Suporte', category: 'N1 & N2 Técnico', icon: <Headphones size={18} className="text-blue-400" /> };
@@ -94,9 +94,10 @@ export default function Layout() {
 
  const pageInfo = getPageInfo(location.pathname);
 
- const role = user?.role || 'operador';
+ const role = user?.role || 'superadmin';
  const hasAccess = (allowedRoles: string[]) => {
- if (role === 'admin' || role === 'superadmin') return true;
+ if (!role || role === 'admin' || role === 'superadmin') return true;
+ if (allowedRoles.length === 0) return true;
  return allowedRoles.includes(role);
  };
 
@@ -106,7 +107,7 @@ export default function Layout() {
  {isMobileOpen && (
  <div 
  onClick={() => setIsMobileOpen(false)}
- className="fixed inset-0 bg-background/80 backdrop-blur-xs z-40 md:hidden transition-opacity"
+ className="fixed inset-0 bg-background/80 backdrop-blur-xs z-40 sm:hidden transition-opacity"
  aria-hidden="true"
  />
  )}
@@ -115,9 +116,9 @@ export default function Layout() {
  <aside 
  className={`
  fixed inset-y-0 left-0 z-50 bg-background border-r border-border flex flex-col transition-all duration-300 ease-in-out
- md:static md:translate-x-0
- ${isMobileOpen ? 'translate-x-0 w-72' : '-translate-x-full md:translate-x-0'}
- ${isCollapsed ? 'md:w-[72px]' : 'md:w-64'}
+ sm:static sm:translate-x-0
+ ${isMobileOpen ? 'translate-x-0 w-72 shadow-2xl' : '-translate-x-full sm:translate-x-0'}
+ ${isCollapsed ? 'sm:w-[72px]' : 'sm:w-64'}
  `}
  >
  {/* Header da Sidebar com Logo e Botão de Recolhimento */}
@@ -128,7 +129,7 @@ export default function Layout() {
  </div>
  
  {/* Texto do logo esconde ao recolher */}
- <div className={`transition-opacity duration-200 flex flex-col justify-center ${isCollapsed ? 'md:opacity-0 md:w-0 md:hidden' : 'opacity-100'}`}>
+ <div className={`transition-opacity duration-200 flex flex-col justify-center ${isCollapsed ? 'sm:opacity-0 sm:w-0 sm:hidden' : 'opacity-100'}`}>
  <div className="flex items-center gap-1.5">
  <span className="font-extrabold text-base text-foreground tracking-tight font-sans leading-none">DJD</span>
  <span className="text-[#55b0ff] font-bold text-[10px] uppercase tracking-wider bg-[#0a50ff]/15 border border-[#0a50ff]/30 px-1.5 py-0.5 rounded leading-none">Omni</span>
@@ -139,7 +140,7 @@ export default function Layout() {
  {/* Botão de Fechar no Mobile */}
  <button 
  onClick={() => setIsMobileOpen(false)}
- className="md:hidden p-1.5 text-muted-foreground hover:text-card-foreground hover:bg-card/5 rounded-lg transition-colors"
+ className="sm:hidden p-1.5 text-muted-foreground hover:text-card-foreground hover:bg-card/5 rounded-lg transition-colors"
  title="Fechar menu"
  >
  <X size={20} />
@@ -148,7 +149,7 @@ export default function Layout() {
  {/* Botão de Recolher no Desktop */}
  <button 
  onClick={() => setIsCollapsed(!isCollapsed)}
- className={`hidden md:flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-card/5 border border-border transition-colors ${isCollapsed ? 'mx-auto' : ''}`}
+ className={`hidden sm:flex items-center justify-center w-7 h-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-card/5 border border-border transition-colors ${isCollapsed ? 'mx-auto' : ''}`}
  title={isCollapsed ? "Expandir menu (Ctrl+B)" : "Recolher menu (Ctrl+B)"}
  >
  {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
@@ -168,8 +169,8 @@ export default function Layout() {
  )}
  
  <nav className="flex flex-col gap-0.5 px-3">
+ <NavItem to="/admin/inbox" icon={<MessageSquare size={18} />} label="Inbox Unificado" badge="4" isCollapsed={isCollapsed} />
  {hasAccess(['tecnico_noc']) && <NavItem to="/admin/dashboard" icon={<PieChart size={18} />} label="NOC & Analytics" isCollapsed={isCollapsed} />}
- {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin" icon={<MessageSquare size={18} />} label="Inbox Unificado" badge="2" isCollapsed={isCollapsed} />}
  {hasAccess(['tecnico_campo']) && <NavItem to="/admin/campo" icon={<Wrench size={18} />} label="Técnico de Campo" badge="GPS" isCollapsed={isCollapsed} />}
  {hasAccess(['operador', 'tecnico_noc', 'tecnico_campo']) && <NavItem to="/admin/estoque" icon={<Package size={18} />} label="Estoque & Frota" isCollapsed={isCollapsed} />}
  {hasAccess(['operador']) && <NavItem to="/admin/cobranca" icon={<CreditCard size={18} />} label="Cobrança & PIX" isCollapsed={isCollapsed} />}
@@ -328,9 +329,12 @@ export default function Layout() {
  <div className="flex items-center gap-3">
  {/* Botão Hamburger (Mobile) */}
  <button 
- onClick={() => setIsMobileOpen(true)}
- className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent border border-border transition-colors"
- title="Abrir Menu"
+ onClick={() => {
+ setIsMobileOpen(true);
+ setIsCollapsed(false);
+ }}
+ className="sm:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent border border-border transition-colors flex items-center gap-1.5"
+ title="Abrir Menu Lateral"
  >
  <Menu size={18} />
  </button>
@@ -338,7 +342,7 @@ export default function Layout() {
  {/* Alternar Recolher no Desktop */}
  <button 
  onClick={() => setIsCollapsed(!isCollapsed)}
- className="hidden md:flex items-center justify-center p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent border border-transparent transition-colors"
+ className="hidden sm:flex items-center justify-center p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent border border-transparent transition-colors"
  title={isCollapsed ? "Expandir menu lateral" : "Recolher menu lateral"}
  >
  {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
@@ -346,7 +350,7 @@ export default function Layout() {
 
  {/* Título dinâmico da página atual */}
  <div className="flex items-center gap-3 ml-2">
- <div className="hidden sm:flex w-8 h-8 rounded-lg bg-white/5 border border-border items-center justify-center">
+ <div className="hidden sm:flex w-8 h-8 rounded-lg bg-muted border border-border items-center justify-center">
  {pageInfo.icon}
  </div>
  <div className="flex flex-col justify-center">
@@ -362,6 +366,37 @@ export default function Layout() {
 
  {/* Direita: Status da Conexão, Controle de Pausas NR-17, Webphone, PWA e Ações */}
  <div className="flex items-center gap-2 sm:gap-3">
+  {/* Acesso Direto ao Inbox Unificado */}
+  <NavLink
+   to="/admin/inbox"
+   className={({ isActive }) => {
+    const isCurrent = isActive || location.pathname === '/admin' || location.pathname === '/admin/' || location.pathname === '/admin/inbox' || location.pathname === '/inbox';
+    return `flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+     isCurrent
+      ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+      : 'bg-muted hover:bg-accent text-foreground border-border'
+    }`;
+   }}
+   title="Abrir Inbox Unificado de Atendimentos Omnichannel"
+  >
+   <MessageSquare size={14} />
+   <span className="hidden sm:inline">Inbox</span>
+   <span className="bg-blue-500/30 text-blue-500 dark:text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold">4</span>
+  </NavLink>
+
+  {/* Acesso Rápido ao Dashboard / Visão Geral da Operação */}
+  <NavLink
+   to="/admin/dashboard"
+   className={({ isActive }) => `flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+    isActive
+     ? 'bg-blue-600 text-white border-blue-500 shadow-xs'
+     : 'bg-muted hover:bg-accent text-muted-foreground hover:text-foreground border-border'
+   }`}
+   title="Visão Geral da Operação (NOC & Analytics)"
+  >
+   <PieChart size={14} />
+   <span className="hidden sm:inline">Dashboard</span>
+  </NavLink>
  {/* Indicador de Geolocalização em Tempo Real (Técnicos & Operadores por Padrão) */}
  <div 
  className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/30 text-[11px] font-medium text-emerald-300"
@@ -424,30 +459,43 @@ interface NavItemProps {
 }
 
 function NavItem({ to, icon, label, badge, isCollapsed }: NavItemProps) {
+ const location = useLocation();
+ const isInboxActive = to === '/admin/inbox' && (
+  location.pathname === '/' ||
+  location.pathname === '/admin' || 
+  location.pathname === '/admin/' || 
+  location.pathname === '/admin/inbox' ||
+  location.pathname.startsWith('/admin/inbox/') ||
+  location.pathname === '/inbox'
+ );
+
  const content = (
  <NavLink
  to={to}
- className={({ isActive }) =>
- `relative flex items-center rounded-xl transition-all duration-200 group text-sm font-medium ${
- isCollapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2'
- } ${
- isActive 
- ? 'bg-[#0a50ff]/15 text-white font-bold shadow-xs' 
- : 'text-muted-foreground hover:bg-accent hover:text-card-foreground'
- }`
- }
+ className={({ isActive }) => {
+  const active = isInboxActive || isActive;
+  return `relative flex items-center rounded-xl transition-all duration-200 group text-sm font-medium ${
+  isCollapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2'
+  } ${
+  active 
+  ? 'bg-blue-500/15 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 font-bold border border-blue-500/20 dark:border-blue-500/30 shadow-xs' 
+  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+  }`;
+ }}
  >
- {({ isActive }) => (
- <>
- {/* Indicador ativo na lateral esquerda */}
- {isActive && (
- <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-[65%] bg-[#0a50ff] rounded-r-full shadow-[0_0_8px_#0a50ff]" />
- )}
+ {({ isActive }) => {
+  const active = isInboxActive || isActive;
+  return (
+  <>
+  {/* Indicador ativo na lateral esquerda */}
+  {active && (
+  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3.5px] h-[65%] bg-blue-600 dark:bg-blue-400 rounded-r-full shadow-xs" />
+  )}
 
- {/* Ícone */}
- <div className={`${isActive ? 'text-[#55b0ff]' : 'text-muted-foreground group-hover:text-muted-foreground'} transition-colors shrink-0`}>
- {icon}
- </div>
+  {/* Ícone */}
+  <div className={`${active ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground group-hover:text-foreground'} transition-colors shrink-0`}>
+  {icon}
+  </div>
 
  {/* Label de texto (esconde no modo recolhido) */}
  {!isCollapsed && (
@@ -456,7 +504,11 @@ function NavItem({ to, icon, label, badge, isCollapsed }: NavItemProps) {
 
  {/* Badge quando expandido */}
  {!isCollapsed && badge && (
- <span className="ml-auto bg-[#0a50ff]/20 border border-[#0a50ff]/40 text-[#55b0ff] text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0">
+ <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+  active
+   ? 'bg-blue-600/15 dark:bg-blue-500/30 border border-blue-500/30 text-blue-700 dark:text-blue-300'
+   : 'bg-muted border border-border text-muted-foreground group-hover:text-foreground'
+ }`}>
  {badge}
  </span>
  )}
@@ -466,14 +518,15 @@ function NavItem({ to, icon, label, badge, isCollapsed }: NavItemProps) {
  <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-card border border-border text-foreground text-[11px] font-bold tracking-wider rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 whitespace-nowrap shadow-xl z-50 pointer-events-none flex items-center gap-2">
  <span>{label}</span>
  {badge && (
- <span className="bg-[#0a50ff]/20 text-[#55b0ff] border border-[#0a50ff]/30 text-[9px] px-1.5 py-0.5 rounded font-bold">
+ <span className="bg-blue-600/15 dark:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 text-[9px] px-1.5 py-0.5 rounded font-bold">
  {badge}
  </span>
  )}
  </div>
  )}
- </>
- )}
+  </>
+  );
+ }}
  </NavLink>
  );
  

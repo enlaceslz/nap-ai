@@ -222,8 +222,13 @@ const INITIAL_CHATS: ExtendedConversa[] = [
 
 export default function Inbox() {
  const [chats, setChats] = useState<ExtendedConversa[]>(INITIAL_CHATS);
- const [activeChatId, setActiveChatId] = useState<number | null>(4);
- const [filterQueue, setFilterQueue] = useState<'meus' | 'fila_geral' | 'triagem_ia' | 'finalizados'>('triagem_ia');
+ const [activeChatId, setActiveChatId] = useState<number | null>(() => {
+  if (typeof window !== 'undefined' && window.innerWidth < 768) {
+   return null;
+  }
+  return 1;
+ });
+ const [filterQueue, setFilterQueue] = useState<'todos' | 'meus' | 'fila_geral' | 'triagem_ia' | 'finalizados'>('todos');
  const [searchQuery, setSearchQuery] = useState('');
 
  useEffect(() => {
@@ -234,30 +239,45 @@ export default function Inbox() {
  const data = await res.json();
  if (data && data.length > 0) {
  const merged = data.map((bChat: any) => {
- const base = INITIAL_CHATS.find(c => c.telefone === bChat.telefone);
+ const base = INITIAL_CHATS.find(c => c.telefone === bChat.telefone || c.id === bChat.id);
  return {
+ ...base,
+ ...bChat,
  id: bChat.id,
- canal: 'whatsapp',
- contato_id: bChat.id,
- nome_cliente: bChat.nome_cliente || (base ? base.nome_cliente : 'Novo Cliente'),
+ canal: bChat.canal || (base ? base.canal : 'whatsapp'),
+ contato_id: bChat.contato_id || bChat.contatoId || bChat.id,
+ nome_cliente: bChat.nome_cliente || bChat.nomeCliente || (base ? base.nome_cliente : 'Novo Cliente'),
  telefone: bChat.telefone || (base ? base.telefone : ''),
  cpf: base ? base.cpf : '000.000.000-00',
- plano: base ? base.plano : 'Não Identificado',
- protocolo: `DJD-${new Date().getFullYear()}-${bChat.id}`,
- tempo_espera: 'Recente',
- fila: bChat.fila || 'triagem_ia',
+ plano: base ? base.plano : 'Fibra 500MB',
+ protocolo: base ? base.protocolo : `DJD-${new Date().getFullYear()}-${bChat.id}`,
+ tempo_espera: base ? base.tempo_espera : 'Recente',
+ fila: bChat.fila || (base ? base.fila : 'triagem_ia'),
  pilar_negocio: base ? base.pilar_negocio : 'suporte',
  status: bChat.status || 'aberta',
  prioridade: base ? base.prioridade : 2,
- endereco: base ? base.endereco : '',
+ endereco: base ? base.endereco : 'Rua das Flores, 123 - Centro',
  coordenadas: base ? base.coordenadas : undefined,
+ status_conexao: base ? base.status_conexao : {
+ status: 'online',
+ sinal_onu: '-19.4 dBm (Ótimo)',
+ ip: '177.45.2.19',
+ concentrador: 'MikroTik-Core-01',
+ uptime: '15d 2h'
+ },
+ financeiro: base ? base.financeiro : {
+ valor: 99.90,
+ vencimento: '2026-09-10',
+ status: 'pendente',
+ pix_copia_cola: '00020126580014BR.GOV.BCB.PIX...'
+ },
  mensagens: bChat.mensagens && bChat.mensagens.length > 0 ? bChat.mensagens : (base ? base.mensagens : [])
  };
  });
  
  // Add remaining INITIAL_CHATS that aren't in backend
  INITIAL_CHATS.forEach(ic => {
- if (!merged.find((m:any) => m.telefone === ic.telefone)) {
+ if (!merged.find((m:any) => m.telefone === ic.telefone || m.id === ic.id)) {
  merged.push(ic);
  }
  });
@@ -271,7 +291,7 @@ export default function Inbox() {
  };
  
  fetchChats();
- const interval = setInterval(fetchChats, 3000);
+ const interval = setInterval(fetchChats, 4000);
  return () => clearInterval(interval);
  }, []);
 
@@ -342,10 +362,20 @@ export default function Inbox() {
  // Conversa ativa
  const activeChat = chats.find(c => c.id === activeChatId) || null;
 
+ // Auto-selecionar conversa válida se a atual não existir (apenas quando activeChatId !== null)
+ useEffect(() => {
+  if (activeChatId !== null && chats.length > 0) {
+   const exists = chats.some(c => c.id === activeChatId);
+   if (!exists) {
+    setActiveChatId(chats[0].id);
+   }
+  }
+ }, [chats, activeChatId]);
+
  // Rolar para o final ao mudar ou enviar mensagens
  useEffect(() => {
  chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
- }, [activeChat?.mensagens.length, activeChatId]);
+ }, [activeChat?.mensagens?.length, activeChatId]);
 
  // Exibir toast temporário
  const showToast = (msg: string) => {
@@ -353,25 +383,33 @@ export default function Inbox() {
  setTimeout(() => setToastMessage(null), 3000);
  };
 
- // Filtragem de fila
+ // Filtragem de fila segura
  const filteredChats = chats.filter(chat => {
- const matchesSearch = chat.nome_cliente.toLowerCase().includes(searchQuery.toLowerCase()) ||
- chat.protocolo.toLowerCase().includes(searchQuery.toLowerCase()) ||
- chat.cpf.includes(searchQuery);
+ const term = searchQuery.toLowerCase().trim();
+ const nome = (chat.nome_cliente || '').toLowerCase();
+ const prot = (chat.protocolo || '').toLowerCase();
+ const cpf = (chat.cpf || '');
+ const tel = (chat.telefone || '');
+ const matchesSearch = !term || nome.includes(term) || prot.includes(term) || cpf.includes(term) || tel.includes(term);
 
+ if (!matchesSearch) return false;
+
+ if (filterQueue === 'todos') {
+ return true;
+ }
  if (filterQueue === 'meus') {
- return matchesSearch && chat.status === 'aberta' && chat.id !== 3;
+ return chat.status === 'aberta' && chat.id !== 3;
  }
  if (filterQueue === 'fila_geral') {
- return matchesSearch && chat.status === 'aberta' && chat.id === 3;
+ return chat.status === 'aberta' && chat.id === 3;
  }
  if (filterQueue === 'triagem_ia') {
- return matchesSearch && chat.status === 'triagem_ia';
+ return chat.status === 'triagem_ia';
  }
  if (filterQueue === 'finalizados') {
- return matchesSearch && chat.status === 'fechada';
+ return chat.status === 'fechada';
  }
- return matchesSearch;
+ return true;
  });
 
  // Enviar Mensagem Real (ou simular resposta do Gemini em triagem)
@@ -575,12 +613,12 @@ export default function Inbox() {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({
- prompt: `Aja como a MaIA, uma operadora incrivelmente empática, humana e carinhosa. Gere uma resposta acolhedora, natural e não-robótica de ISP para o cliente ${activeChat.nome_cliente} que perguntou: "${lastClientMsg}". Se for sobre sinal, use a informação real de que a ONU dele está em ${activeChat.status_conexao.sinal_onu} e a conexão dura ${activeChat.status_conexao.uptime}. Seja conciso.`,
+ prompt: `Aja como a MaIA, uma operadora incrivelmente empática, humana e carinhosa. Gere uma resposta acolhedora, natural e não-robótica de ISP para o cliente ${activeChat.nome_cliente} que perguntou: "${lastClientMsg}". Se for sobre sinal, use a informação real de que a ONU dele está em ${activeChat.status_conexao?.sinal_onu || '-19.4 dBm (Ótimo)'} e a conexão dura ${activeChat.status_conexao?.uptime || '15d 2h'}. Seja conciso.`,
  clientContext: {
  nome: activeChat.nome_cliente,
  plano: activeChat.plano,
- sinal_onu: activeChat.status_conexao.sinal_onu,
- uptime: activeChat.status_conexao.uptime
+ sinal_onu: activeChat.status_conexao?.sinal_onu || '-19.4 dBm',
+ uptime: activeChat.status_conexao?.uptime || '15d 2h'
  }
  })
  });
@@ -603,7 +641,7 @@ export default function Inbox() {
  // Enviar PIX instantâneo no Chat
  const handleSendPixToChat = () => {
  if (!activeChat) return;
- const pixText = `Olá ${activeChat.nome_cliente.split(' ')[0]}! Segue sua chave PIX Copia e Cola para pagamento da mensalidade de R$ ${activeChat.financeiro.valor.toFixed(2)}:\n\n${activeChat.financeiro.pix_copia_cola}\n\nApós o pagamento, a baixa no SGP ocorre automaticamente em até 2 minutos.`;
+ const pixText = `Olá ${(activeChat.nome_cliente || 'Cliente').split(' ')[0]}! Segue sua chave PIX Copia e Cola para pagamento da mensalidade de R$ ${activeChat.financeiro?.valor ? activeChat.financeiro.valor.toFixed(2) : '99.90'}:\n\n${activeChat.financeiro?.pix_copia_cola || '00020126580014br.gov.bcb.pix...'}\n\nApós o pagamento, a baixa no SGP ocorre automaticamente em até 2 minutos.`;
  setMessageText(pixText);
  setIsInternalNote(false);
  showToast('Chave PIX inserida no campo de resposta!');
@@ -629,9 +667,10 @@ export default function Inbox() {
  const handleKickRadius = async () => {
  if (!activeChat) return;
  try {
- const res = await fetch(`/api/network/kick-radius/${activeChat.status_conexao.ip}`, { method: 'POST' });
+ const ip = activeChat.status_conexao?.ip || '177.45.2.19';
+			const res = await fetch(`/api/network/kick-radius/${ip}`, { method: 'POST' });
  if (res.ok) {
- showToast(`⚡ Comando Kick Radius (PoD) enviado para ${activeChat.status_conexao.concentrador}. Sessão PPPoE derrubada com sucesso.`);
+ showToast(`⚡ Comando Kick Radius (PoD) enviado para ${activeChat.status_conexao?.concentrador || 'MikroTik-Core-01'}. Sessão PPPoE derrubada com sucesso.`);
  }
  } catch {
  showToast('Erro ao tentar derrubar a sessão PPPoE.');
@@ -759,7 +798,7 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  );
  default:
  return (
- <span className="flex items-center gap-1 text-[10px] font-bold text-card-foreground bg-white/[0.02] border border-border px-2 py-0.5 rounded-full">
+ <span className="flex items-center gap-1 text-[10px] font-bold text-card-foreground bg-muted/60 border border-border px-2 py-0.5 rounded-full">
  <Phone size={11} className="text-muted-foreground" />
  <span>Voz / Asterisk</span>
  </span>
@@ -799,39 +838,54 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  </div>
 
  {/* Abas de Fila */}
- <div className="flex rounded-xl bg-white/[0.02] p-1 mb-3 text-xs font-semibold text-muted-foreground overflow-x-auto whitespace-nowrap hide-scrollbar">
+ <div className="flex rounded-xl bg-muted/60 p-1 mb-3 text-xs font-semibold text-muted-foreground overflow-x-auto whitespace-nowrap hide-scrollbar gap-1">
+ <button
+ onClick={() => setFilterQueue('todos')}
+ className={`flex-1 min-w-[65px] py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+ filterQueue === 'todos' ? 'bg-card text-foreground font-bold border border-border shadow-xs' : 'hover:text-foreground'
+ }`}
+ >
+ <span>Todos</span>
+ <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full font-bold">{chats.length}</span>
+ </button>
  <button
  onClick={() => setFilterQueue('meus')}
- className={`flex-1 min-w-[70px] py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
- filterQueue === 'meus' ? 'bg-card text-foreground font-bold' : 'hover:text-foreground'
+ className={`flex-1 min-w-[65px] py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+ filterQueue === 'meus' ? 'bg-card text-foreground font-bold border border-border shadow-xs' : 'hover:text-foreground'
  }`}
  >
  <span>Meus</span>
- <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full font-bold">2</span>
+ <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-bold">
+ {chats.filter(c => c.status === 'aberta' && c.id !== 3).length}
+ </span>
  </button>
  <button
  onClick={() => setFilterQueue('fila_geral')}
- className={`flex-1 min-w-[70px] py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
- filterQueue === 'fila_geral' ? 'bg-card text-foreground font-bold' : 'hover:text-foreground'
+ className={`flex-1 min-w-[65px] py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+ filterQueue === 'fila_geral' ? 'bg-card text-foreground font-bold border border-border shadow-xs' : 'hover:text-foreground'
  }`}
  >
  <span>Espera</span>
- <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full font-bold">1</span>
+ <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full font-bold">
+ {chats.filter(c => c.status === 'aberta' && c.id === 3).length}
+ </span>
  </button>
  <button
  onClick={() => setFilterQueue('triagem_ia')}
- className={`flex-1 min-w-[80px] py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
- filterQueue === 'triagem_ia' ? 'bg-card text-foreground font-bold' : 'hover:text-foreground'
+ className={`flex-1 min-w-[70px] py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+ filterQueue === 'triagem_ia' ? 'bg-card text-foreground font-bold border border-border shadow-xs' : 'hover:text-foreground'
  }`}
  >
- <Sparkles size={12} className={filterQueue === 'triagem_ia' ? 'text-indigo-400' : 'text-muted-foreground'} />
- <span>Triagem IA</span>
- <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.2 rounded-full font-bold">1</span>
+ <Sparkles size={11} className={filterQueue === 'triagem_ia' ? 'text-indigo-400' : 'text-muted-foreground'} />
+ <span>IA</span>
+ <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded-full font-bold">
+ {chats.filter(c => c.status === 'triagem_ia').length}
+ </span>
  </button>
  <button
  onClick={() => setFilterQueue('finalizados')}
- className={`flex-1 min-w-[70px] py-1.5 rounded-lg transition-all ${
- filterQueue === 'finalizados' ? 'bg-card text-foreground font-bold' : 'hover:text-foreground'
+ className={`flex-1 min-w-[65px] py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
+ filterQueue === 'finalizados' ? 'bg-card text-foreground font-bold border border-border shadow-xs' : 'hover:text-foreground'
  }`}
  >
  <span>Fechados</span>
@@ -854,13 +908,23 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  {/* Lista de Atendimentos */}
  <div className="flex-1 overflow-y-auto divide-y divide-white/5" style={{ scrollbarWidth: 'thin' }}>
  {filteredChats.length === 0 ? (
- <div className="p-8 text-center text-muted-foreground">
- <InboxIcon size={32} className="mx-auto mb-2 text-muted-foreground" />
+ <div className="p-8 text-center text-muted-foreground space-y-3">
+ <InboxIcon size={32} className="mx-auto text-muted-foreground" />
  <p className="text-xs font-semibold">Nenhum chamado nesta fila</p>
+ <button
+ onClick={() => {
+ setFilterQueue('todos');
+ setSearchQuery('');
+ }}
+ className="px-3 py-1.5 bg-muted hover:bg-accent text-foreground text-xs font-semibold rounded-lg border border-border transition-colors cursor-pointer"
+ >
+ Ver Todos os Chamados ({chats.length})
+ </button>
  </div>
  ) : (
  filteredChats.map(chat => {
- const lastMsg = chat.mensagens[chat.mensagens.length - 1];
+ const msgs = chat.mensagens || [];
+ const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
  const isSelected = activeChatId === chat.id;
 
  return (
@@ -887,12 +951,12 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  </div>
 
  <p className="text-xs text-muted-foreground line-clamp-1 mb-2">
- {lastMsg?.tipo === 'nota_interna' ? `🔒 [Nota] ${lastMsg.conteudo}` : lastMsg?.conteudo}
+ {lastMsg?.tipo === 'nota_interna' ? `🔒 [Nota] ${lastMsg.conteudo}` : (lastMsg?.conteudo || 'Nenhuma mensagem')}
  </p>
 
  <div className="flex items-center justify-between text-[10px]">
  <div className="flex items-center gap-1.5 text-muted-foreground">
- <span className="font-mono">{chat.plano.split(' ')[0]} {chat.plano.split(' ')[1]}</span>
+ <span className="font-mono">{(chat.plano || 'Fibra 500MB').split(' ')[0]} {(chat.plano || 'Fibra 500MB').split(' ')[1] || ''}</span>
  <span>•</span>
  <span className="flex items-center gap-0.5 text-amber-400 font-semibold">
  <Clock size={10} /> {chat.tempo_espera}
@@ -911,7 +975,7 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  </button>
  ) : (
  <span className="text-muted-foreground font-mono text-[10px]">
- #{chat.protocolo.slice(-4)}
+ #{(chat.protocolo || '0000').slice(-4)}
  </span>
  )}
  </div>
@@ -931,10 +995,11 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  <div className="flex items-center gap-3">
  <button 
  onClick={() => setActiveChatId(null)}
- className="md:hidden p-1.5 -ml-1 text-muted-foreground hover:text-foreground hover:bg-white/[0.02] rounded-lg transition-colors"
- title="Voltar à lista"
+ className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 -ml-1 text-xs font-bold text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded-xl transition-all cursor-pointer shadow-xs"
+ title="Voltar à lista de conversas do Inbox"
  >
- <ArrowLeft size={18} />
+ <ArrowLeft size={16} />
+ <span>Fila Inbox</span>
  </button>
 
  <div className="w-10 h-10 bg-slate-600 text-foreground rounded-full flex items-center justify-center font-bold text-sm shrink-0 overflow-hidden">
@@ -1009,7 +1074,7 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
 
  <a 
  href={`tel:${activeChat.telefone}`}
- className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-muted-foreground bg-white/[0.02] hover:bg-accent border border-border rounded-xl transition-all"
+ className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-muted-foreground bg-muted/60 hover:bg-accent border border-border rounded-xl transition-all"
  title="Ligar via Ramal SIP"
  >
  <Phone size={13} className="text-muted-foreground" />
@@ -1022,7 +1087,7 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl border transition-all ${
  isSgpDrawerOpen 
  ? 'bg-blue-500/10 border-blue-300 text-blue-400' 
- : 'bg-card hover:bg-white/[0.02] border-border text-muted-foreground'
+ : 'bg-card hover:bg-muted/60 border-border text-muted-foreground'
  }`}
  title="Painel 360 do Assinante no ERP SGP"
  >
@@ -1071,14 +1136,14 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  
  {/* Alerta de Início do Chamado & Protocolo */}
  <div className="flex justify-center my-2">
- <div className="bg-white/[0.02] border border-border rounded-full px-3 py-1 text-[11px] text-muted-foreground flex items-center gap-1.5 font-mono">
+ <div className="bg-muted/60 border border-border rounded-full px-3 py-1 text-[11px] text-muted-foreground flex items-center gap-1.5 font-mono">
  <Clock size={11} />
- <span>Atendimento iniciado às {activeChat.mensagens[0]?.enviada_em} • Protocolo {activeChat.protocolo}</span>
+ <span>Atendimento iniciado às {(activeChat.mensagens && activeChat.mensagens[0]?.enviada_em) || '--:--'} • Protocolo {activeChat.protocolo}</span>
  </div>
  </div>
 
  {/* Mensagens */}
- {activeChat.mensagens.map((msg) => {
+ {(activeChat.mensagens || []).map((msg) => {
  const isMe = msg.autor_tipo === 'operador';
  const isClient = msg.autor_tipo === 'cliente';
  const isAi = msg.autor_tipo === 'ia';
@@ -1189,28 +1254,28 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  <div className="grid grid-cols-2 gap-2 text-xs">
  <div className="p-2 bg-card rounded-xl border border-border">
  <span className="text-[10px] text-muted-foreground block">Sinal ONU</span>
- <span className="font-bold text-emerald-400 font-mono text-xs">{activeChat.status_conexao.sinal_onu}</span>
+ <span className="font-bold text-emerald-400 font-mono text-xs">{activeChat.status_conexao?.sinal_onu || '-19.4 dBm'}</span>
  </div>
  <div className="p-2 bg-card rounded-xl border border-border">
  <span className="text-[10px] text-muted-foreground block">Uptime</span>
- <span className="font-bold text-card-foreground font-mono text-xs">{activeChat.status_conexao.uptime}</span>
+ <span className="font-bold text-card-foreground font-mono text-xs">{activeChat.status_conexao?.uptime || '15d 2h'}</span>
  </div>
  </div>
 
  <div className="text-[11px] text-muted-foreground font-mono space-y-1 pt-1 border-t border-border/60">
  <div className="flex justify-between">
  <span>IP Público:</span>
- <span className="text-foreground font-bold">{activeChat.status_conexao.ip}</span>
+ <span className="text-foreground font-bold">{activeChat.status_conexao?.ip || '177.45.2.19'}</span>
  </div>
  <div className="flex justify-between">
  <span>Concentrador:</span>
- <span className="text-foreground font-bold">{activeChat.status_conexao.concentrador}</span>
+ <span className="text-foreground font-bold">{activeChat.status_conexao?.concentrador || 'MikroTik-Core-01'}</span>
  </div>
  </div>
 
  <button 
  onClick={handleKickRadius}
- className="w-full py-1.5 bg-card hover:bg-white/[0.02] border border-border text-muted-foreground text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 "
+ className="w-full py-1.5 bg-card hover:bg-muted/60 border border-border text-muted-foreground text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 "
  >
  <RefreshCw size={12} className="text-muted-foreground" />
  <span>Reautenticar Sessão (Kick)</span>
@@ -1229,11 +1294,11 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  <div className="p-2.5 bg-card/50 rounded-xl border border-border space-y-2 text-xs">
  <p className="text-muted-foreground">
  Lead demonstrou interesse em <strong className="text-fuchsia-400">Wi-Fi 6 Mesh</strong>.
- O plano atual é {activeChat.plano} (R$ {activeChat.financeiro.valor.toFixed(2)}).
+ O plano atual é {activeChat.plano} (R$ {activeChat.financeiro?.valor ? activeChat.financeiro.valor.toFixed(2) : '99.90'}).
  </p>
  <button 
  onClick={() => {
- setMessageText(`Perfeito, Fernanda! O upgrade para o Wi-Fi 6 Mesh vai adicionar R$ 49,90 na sua fatura, ficando um total de R$ ${(activeChat.financeiro.valor + 49.90).toFixed(2)}/mês. Posso gerar o aceite digital no seu aplicativo?`);
+ setMessageText(`Perfeito, Fernanda! O upgrade para o Wi-Fi 6 Mesh vai adicionar R$ 49,90 na sua fatura, ficando um total de R$ ${((activeChat.financeiro?.valor || 99.90) + 49.90).toFixed(2)}/mês. Posso gerar o aceite digital no seu aplicativo?`);
  setIsInternalNote(false);
  showToast('Oferta de Upgrade enviada para o chat!');
  }}
@@ -1253,17 +1318,17 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  <CreditCard size={13} className="text-indigo-400" /> Financeiro / Mensalidade
  </span>
  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
- activeChat.financeiro.status === 'pendente' ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400' : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+ activeChat.financeiro?.status === 'pendente' ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400' : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
  }`}>
- {activeChat.financeiro.status === 'pendente' ? 'A Vencer' : 'Pago'}
+ {activeChat.financeiro?.status === 'pendente' ? 'A Vencer' : 'Pago'}
  </span>
  </div>
 
  <div className="p-2.5 bg-card rounded-xl border border-border flex justify-between items-center">
  <div>
- <span className="text-[10px] text-muted-foreground block">Vencimento {activeChat.financeiro.vencimento}</span>
+ <span className="text-[10px] text-muted-foreground block">Vencimento {activeChat.financeiro?.vencimento || '2026-09-10'}</span>
  <span className="text-base font-extrabold text-foreground font-mono">
- R$ {activeChat.financeiro.valor.toFixed(2)}
+ R$ {activeChat.financeiro?.valor ? activeChat.financeiro.valor.toFixed(2) : '99.90'}
  </span>
  </div>
  <Tooltip content="Gera o código PIX e anexa na conversa a critério do operador" position="top">
@@ -1326,7 +1391,7 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  <MapPin size={12} className="text-blue-400" /> Endereço & Rota
  </span>
  {activeChat.cep && (
- <span className="text-[10px] font-mono text-muted-foreground bg-white/[0.02] px-1.5 py-0.5 rounded">
+ <span className="text-[10px] font-mono text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded">
  {activeChat.cep}
  </span>
  )}
@@ -1384,7 +1449,7 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  <div className="pt-1 flex gap-2">
  <button
  onClick={() => window.open('/admin/crm', '_blank')}
- className="flex-1 py-1.5 bg-white/[0.02] hover:bg-accent border border-border rounded-lg font-semibold text-muted-foreground flex items-center justify-center gap-1 transition-all"
+ className="flex-1 py-1.5 bg-muted/60 hover:bg-accent border border-border rounded-lg font-semibold text-muted-foreground flex items-center justify-center gap-1 transition-all"
  >
  <ExternalLink size={12} />
  <span>Abrir Kanban SGP</span>
@@ -1426,7 +1491,7 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  <div className="flex flex-wrap items-center justify-between gap-2">
  
  {/* Alternar Mensagem Pública vs Nota Interna */}
- <div className="flex rounded-xl bg-white/[0.02] p-0.5 text-xs font-semibold">
+ <div className="flex rounded-xl bg-muted/60 p-0.5 text-xs font-semibold">
  <button
  onClick={() => setIsInternalNote(false)}
  className={`px-3 py-1.5 text-[11px] rounded-lg transition-all flex items-center gap-1.5 ${
@@ -1471,7 +1536,7 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  <button 
  key={macro.id || macro.atalho}
  onClick={() => applyMacro(macro)}
- className="px-2.5 py-1 bg-white/[0.02] hover:bg-blue-500/10 hover:text-blue-400 text-muted-foreground rounded-lg font-mono font-bold text-[11px] whitespace-nowrap transition-colors"
+ className="px-2.5 py-1 bg-muted/60 hover:bg-blue-500/10 hover:text-blue-400 text-muted-foreground rounded-lg font-mono font-bold text-[11px] whitespace-nowrap transition-colors"
  title={macro.titulo || macro.atalho}
  >
  {macro.atalho}
@@ -1530,16 +1595,24 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  </div>
  ) : (
  /* Estado Vazio */
- <div className="flex-1 flex flex-col items-center justify-center bg-background text-muted-foreground p-8 text-center">
+ <div className={`flex-1 flex flex-col items-center justify-center bg-background text-muted-foreground p-8 text-center ${activeChatId ? "flex" : "hidden md:flex"}`}>
  <div className="w-16 h-16 bg-card rounded-2xl flex items-center justify-center mb-4 border border-border ">
  <MessageCircle size={28} className="text-muted-foreground" />
  </div>
  <h3 className="font-outfit text-lg text-card-foreground font-bold mb-1">
  Nenhum Atendimento Selecionado
  </h3>
- <p className="text-xs text-muted-foreground max-w-sm">
+ <p className="text-xs text-muted-foreground max-w-sm mb-4">
  Escolha uma conversa na fila ao lado para iniciar o atendimento integrado ao SGP e Asterisk.
  </p>
+ {chats.length > 0 && (
+ <button
+ onClick={() => setActiveChatId(chats[0].id)}
+ className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+ >
+ Abrir Chamado #{chats[0].id} ({chats[0].nome_cliente})
+ </button>
+ )}
  </div>
  )}
 
@@ -1653,7 +1726,7 @@ RESOLUCAO: [resumo da solução dada em 1 ou 2 frases]`
  <div className="mt-6 flex gap-3">
  <button 
  onClick={() => setIsTabulating(false)}
- className="flex-1 py-2.5 bg-white/[0.02] hover:bg-accent text-muted-foreground font-bold rounded-xl transition-colors"
+ className="flex-1 py-2.5 bg-muted/60 hover:bg-accent text-muted-foreground font-bold rounded-xl transition-colors"
  >
  Voltar ao Chat
  </button>

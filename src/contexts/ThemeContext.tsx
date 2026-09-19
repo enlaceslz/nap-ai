@@ -48,17 +48,17 @@ function getSystemTheme(): ActiveTheme {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
- // Modo configurado pelo usuário: 'dark' (mais adequado), 'light' ou 'system'
+ // Modo configurado pelo usuário: 'light' (padrão corporativo), 'dark' ou 'system'
  const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
  try {
  const saved = localStorage.getItem('nap_theme');
  if (saved === 'light' || saved === 'dark' || saved === 'system') {
  return saved as ThemeMode;
  }
- // Padrão do sistema DJD Admin: Escuro NOC (Obsidian) - O Mais Adequado
- return 'dark';
+ // Padrão do sistema: Claro Corporativo (Daylight)
+ return 'light';
  } catch {
- return 'dark';
+ return 'light';
  }
  });
 
