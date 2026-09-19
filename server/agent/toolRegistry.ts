@@ -210,7 +210,7 @@ class ToolRegistry {
         acao: `TOOL_EXECUTION_ERROR_${toolName.toUpperCase()}`,
         detalhes: `Falha na execução da ferramenta '${toolName}': ${err.message}`,
         severidade: 'critico',
-        status: 'erro'
+        status: 'falha'
       });
 
       return {

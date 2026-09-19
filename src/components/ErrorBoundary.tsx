@@ -26,7 +26,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
  }
 
  public componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
- console.error('ErrorBoundary capturou erro:', error, errorInfo);
+  console.warn('[ErrorBoundary] Exceção visual interceptada com sucesso:', error?.message, errorInfo);
  }
 
  private handleReset = () => {

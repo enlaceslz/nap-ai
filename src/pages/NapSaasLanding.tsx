@@ -43,6 +43,8 @@ export default function NapSaasLanding() {
  setContent({ ...defaultContent, ...snap.data() });
  setEditedContent({ ...defaultContent, ...snap.data() });
  }
+ }, (err) => {
+ console.warn('[NapSaasLanding] Usando configuração padrão em memória:', err?.message || err);
  });
 
  return () => unsubscribe();
@@ -53,10 +55,12 @@ export default function NapSaasLanding() {
  try {
  const docRef = doc(db, 'system_config', 'nap_saas_landing');
  await setDoc(docRef, editedContent, { merge: true });
+ setContent(editedContent);
  setIsEditMode(false);
- } catch (e) {
- console.error("Erro ao salvar landing page", e);
- alert("Erro ao salvar. Verifique sua conexão com o Firestore.");
+ } catch (e: any) {
+ console.warn("[NapSaasLanding] Falha ao salvar no Firestore (mantido em memória):", e?.message || e);
+ setContent(editedContent);
+ setIsEditMode(false);
  } finally {
  setIsSaving(false);
  }

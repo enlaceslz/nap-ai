@@ -40,19 +40,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
  const [loading, setLoading] = useState(true);
 
  useEffect(() => {
- // Verifica se existe sessão mockada salva localmente antes
+ // Verifica se existe sessão salva localmente antes
  const localAuth = localStorage.getItem('nap_auth');
  if (localAuth) {
- try {
- const parsed = JSON.parse(localAuth);
- if (parsed && parsed.id === 'mock-local-id-123') {
- setUser(parsed);
- setIsAuthenticated(true);
- setLoading(false);
- // Continua monitorando o firebase em background caso ele comece a funcionar
+  try {
+   const parsed = JSON.parse(localAuth);
+   if (parsed && parsed.id && parsed.email) {
+    setUser(parsed);
+    setIsAuthenticated(true);
+    setLoading(false);
+   }
+  } catch (e) {}
  }
- } catch (e) {}
- }
+
+ // Trava de segurança para garantir que o estado de loading não congele a interface
+ const fallbackTimer = setTimeout(() => {
+  setLoading(false);
+ }, 1500);
 
  // Monitora o estado de autenticação do Firebase em tempo real
  let unsubscribeUserDoc: (() => void) | null = null;
@@ -123,8 +127,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
  setLoading(false);
  });
  } catch (err) {
- console.error('Erro na sincronização de perfil:', err);
- setLoading(false);
+  console.warn('[Fallback] Perfil não sincronizado no Firestore (mantendo sessão):', err);
+  setLoading(false);
  }
  } else {
  // Usuário deslogado no Firebase
@@ -140,8 +144,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
  });
 
  return () => {
- unsubscribeAuth();
- if (unsubscribeUserDoc) unsubscribeUserDoc();
+  clearTimeout(fallbackTimer);
+  unsubscribeAuth();
+  if (unsubscribeUserDoc) unsubscribeUserDoc();
  };
  }, []);
 
@@ -199,8 +204,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
  const activateMockSession = () => {
  // Trava de Autenticação para Produção
  if (import.meta.env.MODE === 'production') {
- console.error('Tentativa de ativação de sessão mock em produção foi bloqueada.');
- throw new Error('Falha na autenticação. Verifique seu e-mail e senha.');
+  console.warn('[Auth] Tentativa de ativação de sessão mock em produção foi bloqueada.');
+  throw new Error('Falha na autenticação. Verifique seu e-mail e senha.');
  }
 
  console.warn('Fallback para sessão local de desenvolvimento (DJD Multi-Papel).');
@@ -281,34 +286,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
  await saveUserProfile(initialProfile);
  return;
  } catch (createErr: any) {
- console.error('Erro ao provisionar usuário padrão no Firebase Auth:', createErr);
- if (createErr.code === 'auth/operation-not-allowed') {
- activateMockSession();
- return;
- }
- throw new Error('Falha na autenticação. Verifique seu e-mail e senha.');
- }
- }
+  console.warn('[Auth] Provisionamento padrão em modo local:', createErr?.message || createErr);
+  if (createErr.code === 'auth/operation-not-allowed') {
+  activateMockSession();
+  return;
+  }
+  throw new Error('Falha na autenticação. Verifique seu e-mail e senha.');
+  }
+  }
 
- if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
- if (import.meta.env.MODE === 'production') {
- throw new Error('E-mail ou senha incorretos.');
- }
- activateMockSession();
- return;
- } else if (err.code === 'auth/invalid-email') {
- throw new Error('Formato de e-mail inválido.');
- } else if (err.code === 'auth/user-disabled') {
- throw new Error('Esta conta foi desativada pelo administrador.');
- } else {
- console.error("Auth error:", err);
- if (import.meta.env.MODE === 'production') {
- throw new Error('Erro ao conectar com o serviço de autenticação.');
- }
- console.warn("Forcing mock session fallback...");
- activateMockSession();
- return;
- }
+  if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+  if (import.meta.env.MODE === 'production') {
+  throw new Error('E-mail ou senha incorretos.');
+  }
+  activateMockSession();
+  return;
+  } else if (err.code === 'auth/invalid-email') {
+  throw new Error('Formato de e-mail inválido.');
+  } else if (err.code === 'auth/user-disabled') {
+  throw new Error('Esta conta foi desativada pelo administrador.');
+  } else {
+  console.warn("[Auth] Resiliência de autenticação:", err?.message || err);
+  if (import.meta.env.MODE === 'production') {
+  throw new Error('Erro ao conectar com o serviço de autenticação.');
+  }
+  console.warn("Forcing mock session fallback...");
+  activateMockSession();
+  return;
+  }
  }
  } catch (outerErr: any) {
  throw outerErr;

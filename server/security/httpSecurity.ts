@@ -137,8 +137,21 @@ export function configureHelmet() {
         scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://unpkg.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-        imgSrc: ["'self'", "data:", "blob:", "https://*.tile.openstreetmap.org", "https://*.cartocdn.com", "https://server.arcgisonline.com"],
-        connectSrc: ["'self'", "wss:", "ws:", "https://generativelanguage.googleapis.com", "https://*.firebaseio.com", "https://identitytoolkit.googleapis.com", "https://*.run.app"],
+        imgSrc: ["'self'", "data:", "blob:", "https://images.unsplash.com", "https://*.googleusercontent.com", "https://*.gstatic.com", "https://*.tile.openstreetmap.org", "https://*.cartocdn.com", "https://server.arcgisonline.com"],
+        connectSrc: [
+          "'self'", 
+          "wss:", 
+          "ws:", 
+          "https://*.googleapis.com", 
+          "https://firestore.googleapis.com", 
+          "https://identitytoolkit.googleapis.com", 
+          "https://securetoken.googleapis.com", 
+          "https://generativelanguage.googleapis.com", 
+          "https://*.firebaseio.com", 
+          "https://*.firebaseapp.com",
+          "https://*.firebasestorage.app",
+          "https://*.run.app"
+        ],
         frameAncestors: ["'self'", "https://*.google.com", "https://*.google.dev", "https://*.run.app", "https://ai.studio", "https://aistudio.google.com"],
         objectSrc: ["'none'"]
       }

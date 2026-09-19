@@ -16,6 +16,7 @@ import OperatorStatusControl from './OperatorStatusControl';
 import OperatorPwaControls from './OperatorPwaControls';
 import SyncStatusMonitor from './SyncStatusMonitor';
 import ThemeToggle from './ThemeToggle';
+import ErrorBoundary from './ErrorBoundary';
 import { useGeolocationTracker } from '../hooks/useGeolocationTracker';
 import { useConfig } from '../contexts/ConfigContext';
 
@@ -404,7 +405,9 @@ export default function Layout() {
 
  {/* Conteúdo Dinâmico das Rotas */}
  <main className="flex-1 overflow-hidden relative flex flex-col bg-background">
- <Outlet />
+  <ErrorBoundary fallbackTitle="Falha na visualização do módulo">
+   <Outlet />
+  </ErrorBoundary>
  </main>
  </div>
  </div>
