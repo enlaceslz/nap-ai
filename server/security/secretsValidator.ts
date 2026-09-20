@@ -193,9 +193,9 @@ export function validateSecrets(options?: {
   if (asteriskEnabled) {
     modulosAtivos.push('Asterisk 20+ NBI');
     const asteriskSpecs: SecretSpec[] = [
-      { chave: 'ASTERISK_SECRET_ARI', descricao: 'Senha Asterisk REST Interface (ARI)', minLen: 12 },
-      { chave: 'ASTERISK_SECRET_AMI', descricao: 'Senha Asterisk Manager Interface (AMI)', minLen: 12 },
-      { chave: 'ASTERISK_RAMAL_SECRET', descricao: 'Senha do Ramal WebRTC/PJSIP', minLen: 12 },
+      { chave: 'ASTERISK_SECRET_ARI', descricao: 'Senha Asterisk REST Interface (ARI)', minLen: 12, aliases: ['ASTERISK_ARI_PASSWORD', 'ARI_PASS'] },
+      { chave: 'ASTERISK_AMI_PASSWORD', descricao: 'Senha Asterisk Manager Interface (AMI)', minLen: 16, aliases: ['ASTERISK_SECRET_AMI', 'AMI_PASS'] },
+      { chave: 'ASTERISK_RAMAL_SECRET', descricao: 'Senha do Ramal WebRTC/PJSIP', minLen: 12, aliases: ['RAMAL_SECRET'] },
       { chave: 'ASTERISK_HOST', descricao: 'Endereço do Asterisk (127.0.0.1)' }
     ];
 

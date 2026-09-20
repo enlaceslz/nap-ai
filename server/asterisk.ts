@@ -3,6 +3,7 @@ import { db } from "../src/db/index.js";
 import { clientes } from "../src/db/schema.js";
 import { eq } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
+import { assertRealService } from "./security/mockGuard.js";
 
 const ARI_URL = process.env.ARI_URL || process.env.ASTERISK_ARI_URL || `http://${process.env.ASTERISK_HOST || '127.0.0.1'}:${process.env.ASTERISK_PORT_ARI || '8088'}`;
 const ARI_USER = process.env.ARI_USER || process.env.ASTERISK_USER_ARI || 'nap_admin';
@@ -22,7 +23,11 @@ async function playAudioOnAsterisk(channel: any, text: string) {
 }
 
 export async function connectARI() {
+  const isEnabled = process.env.ASTERISK_ENABLED === 'true' || process.env.VOIP_ENABLED === 'true';
   if (!ARI_PASS) {
+    if (isEnabled) {
+      assertRealService('Asterisk ARI', 'ASTERISK_SECRET_ARI não configurado no servidor.');
+    }
     console.warn('[Asterisk] ASTERISK_SECRET_ARI não configurado. ARI desabilitado neste ambiente.');
     return;
   }

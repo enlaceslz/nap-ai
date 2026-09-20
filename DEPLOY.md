@@ -108,6 +108,13 @@ VITE_FIREBASE_API_KEY=sua_chave_firebase
    # Copie seu certificado c6_mtls_prod.crt para /opt/nap/certs/ com permissão 600
    
    npm install
+
+   # Renderizar configurações seguras do Asterisk (validação estrita de senhas >= 16 chars)
+   bash asterisk-config/render-configs.sh /etc/asterisk
+
+   # Executar migrações versionadas do banco de dados (Drizzle Migrations)
+   npm run db:migrate
+
    npm run build
    ```
    *(O comando build via esbuild empacotará o frontend e gerará o `dist/server.cjs`)*

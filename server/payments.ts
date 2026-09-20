@@ -5,6 +5,7 @@ import {
 } from "../src/db/schema.js";
 import { eq, sql } from "drizzle-orm";
 import { Customer360Store } from "./customer360_service.js";
+import { assertRealService } from "./security/mockGuard.js";
 
 export function setupPaymentRoutes(app: any) {
   const store = Customer360Store.getInstance();
@@ -406,9 +407,10 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // Simulação de Eventos e Teste de Carga de Webhook (Para Testes do Operador)
+  // Simulação de Eventos e Teste de Carga de Webhook (Para Testes do Operador em DEV)
   app.post("/api/customer360/simulate/payment", async (req: any, res: any) => {
     try {
+      assertRealService('C6 Bank Pagamentos', 'Simulação manual de webhook Pix é terminantemente proibida em produção.');
       const txid = req.body.txid || 'E123456789';
       const valor = req.body.valor !== undefined ? req.body.valor : (req.body.amount !== undefined ? req.body.amount : 100.00);
       const result = await store.processBankPaymentWebhook({
@@ -419,7 +421,8 @@ export function setupPaymentRoutes(app: any) {
       });
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const statusCode = err.statusCode || (err.name === 'ServiceUnavailableError' ? 503 : 500);
+      res.status(statusCode).json({ error: err.message });
     }
   });
 }

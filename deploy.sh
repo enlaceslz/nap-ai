@@ -63,6 +63,7 @@ if [ ! -f "$ENV_FILE" ]; then
     sed -i "s/WEBHOOK_SECRET=CHANGE_ME_IN_PRODUCTION/WEBHOOK_SECRET=${WH_SEC}/g" "$ENV_FILE"
     sed -i "s/ASTERISK_SECRET_ARI=CHANGE_ME_IN_PRODUCTION/ASTERISK_SECRET_ARI=${ARI_SEC}/g" "$ENV_FILE"
     sed -i "s/ASTERISK_SECRET_AMI=CHANGE_ME_IN_PRODUCTION/ASTERISK_SECRET_AMI=${AMI_SEC}/g" "$ENV_FILE"
+    sed -i "s/ASTERISK_AMI_PASSWORD=CHANGE_ME_IN_PRODUCTION/ASTERISK_AMI_PASSWORD=${AMI_SEC}/g" "$ENV_FILE"
     sed -i "s/ASTERISK_RAMAL_SECRET=CHANGE_ME_IN_PRODUCTION/ASTERISK_RAMAL_SECRET=${RAMAL_SEC}/g" "$ENV_FILE"
     sed -i "s|ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000|g" "$ENV_FILE"
     
@@ -119,13 +120,23 @@ for i in {1..30}; do
   fi
 done
 
+echo "Validando integridade dos containers essenciais (db, redis, mongo)..."
+for container in nap_postgres nap_redis nap_mongo; do
+  if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" != "true" ]; then
+    echo "[ERRO FATAL] Container '$container' não está em execução!" >&2
+    docker compose ps
+    exit 1
+  fi
+done
+echo "Todos os containers de infraestrutura estão em execução."
+
 # 7. Renderização Segura das Configurações do Asterisk
 echo "[5/8] Renderizando configurações seguras do Asterisk..."
 if [ -f "$DIR/asterisk-config/render-configs.sh" ]; then
   bash "$DIR/asterisk-config/render-configs.sh" /etc/asterisk || bash "$DIR/asterisk-config/render-configs.sh" "$DIR/asterisk-config"
 fi
 
-# 8. Instalação de Node.js e Build da Aplicação com npm ci
+# 8. Instalação de Node.js e Build da Aplicação
 echo "[6/8] Instalando dependências e compilando aplicação..."
 if ! command -v node &> /dev/null || [ "$(node -v | cut -d'.' -f1 | tr -d 'v')" -lt 20 ]; then
   echo "Instalando Node.js v22 LTS..."
@@ -133,16 +144,19 @@ if ! command -v node &> /dev/null || [ "$(node -v | cut -d'.' -f1 | tr -d 'v')" 
   apt-get install -y -qq nodejs
 fi
 
-# Uso rigoroso de npm ci para reprodutibilidade estrita
+# Instalação completa para viabilizar build (vite, esbuild) e migrador (tsx)
 if [ -f "$DIR/package-lock.json" ]; then
-  npm ci --omit=dev
+  npm ci
 else
-  npm install --omit=dev
+  npm install
 fi
 
-# Executa migrações do schema no banco de dados
-echo "Aplicando schema do banco de dados (Drizzle ORM)..."
-npm run db:push || echo "[AVISO] db:push executado ou schema já sincronizado."
+# Executa migrações versionadas do schema no banco de dados (Drizzle Migrations)
+echo "Aplicando migrações versionadas no banco de dados (Drizzle Migrations)..."
+npm run db:migrate || {
+  echo "[ERRO FATAL] Falha na execução das migrações do PostgreSQL! Deploy abortado." >&2
+  exit 1
+}
 
 echo "Gerando bundle de produção..."
 npm run build
@@ -199,11 +213,13 @@ ufw allow 7547/tcp comment 'GenieACS CWMP'
 ufw --force enable
 
 # 10. Healthcheck HTTP de Validação Final
-echo "[8/8] Executando Healthcheck HTTP final..."
+echo "[8/8] Executando Healthcheck HTTP e validação dos serviços..."
 for i in {1..20}; do
+  HEALTH_BODY=$(curl -s http://127.0.0.1:3000/api/health || true)
   HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health || true)
   if [ "$HTTP_STATUS" = "200" ]; then
-    echo "Healthcheck HTTP 200 OK! A aplicação está ativa e respondendo perfeitamente."
+    echo "Healthcheck HTTP 200 OK!"
+    echo "Status dos serviços: $HEALTH_BODY"
     break
   fi
   sleep 1
@@ -215,7 +231,7 @@ for i in {1..20}; do
 done
 
 echo "========================================================="
-echo "   Deploy do NAP finalizado com ÊXITO E HOMOLOGADO!      "
+echo "   Deploy do NAP finalizado com ÊXITO!                   "
 echo "   Backend: PM2 (nap-backend) na porta 3000              "
 echo "   Proxy Reverso: Nginx na porta 80/443                  "
 echo "   Banco: PostgreSQL 16 (Container nap_postgres)         "

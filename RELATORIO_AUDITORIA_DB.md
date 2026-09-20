@@ -61,5 +61,18 @@
 2. **FASE 2 - Normalização Financeira e de Datas:** Tratamento e cast explícito de `faturas.valor` (para Numeric) e `faturas.vencimento` (para Date).
 3. **FASE 3 - Performance e Segurança (Índices e Constraints):** Aplicação dos índices em `faturas.vencimento` (essencial para a Régua CRON) e `mensagens.conversa_id`.
 
+## K. Status de Implementação das Correções (Setembro 2026 - Concluído ✅)
+
+Todas as correções planejadas foram implementadas no `src/db/schema.ts`, testadas e migradas:
+1. **Foreign Keys Corrigidas:** Todas as chaves estrangeiras que utilizavam `serial()` foram migradas para `integer().references(...)`.
+2. **Tipagem Financeira:** Valores monetários na tabela `faturas` padronizados para `numeric('valor', { precision: 15, scale: 2 })`.
+3. **Datas e Timestamps:** Normalizados para `date('vencimento')` e `timestamp` com timezone onde aplicável.
+4. **Índices Estratégicos:** Criados índices em `clientes (documento, telefone, whatsapp, status, erpOrigem+erpId)`, `contratos (clienteId, numeroContrato)`, `faturas (clienteId, contratoId, status, vencimento, txid)` e `mensagens (conversaId)`.
+5. **Auditoria LGPD e Relacional:** Tabelas de auditoria padronizadas com referências consistentes e encadeamento SHA-256 em `logs_auditoria`.
+6. **Unique Constraints & Idempotência:** Chaves únicas declaradas em `faturas.txid`, `transactionId`, `idempotencyKey` e `webhooks_recebidos`.
+7. **Soft Delete LGPD:** Campo `deletedAt` adicionado às tabelas principais de assinantes e conversas para evitar perda acidental de dados.
+8. **Migrações Versionadas:** Adicionado `src/db/migrate.ts` e migrações versionadas Drizzle (`npm run db:migrate`), substituindo o uso de `db:push` em produção.
+
 ---
 *Assinado:* **Nap Copilot - SecureCoder Agent**
+

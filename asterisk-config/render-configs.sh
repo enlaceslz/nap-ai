@@ -51,10 +51,10 @@ if [ -z "$ARI_SECRET" ] || is_proibida "$ARI_SECRET"; then
 fi
 
 # 2. AMI Secret
-AMI_SECRET="${ASTERISK_SECRET_AMI:-}"
-if [ -z "$AMI_SECRET" ] || is_proibida "$AMI_SECRET"; then
+AMI_SECRET="${ASTERISK_AMI_PASSWORD:-${ASTERISK_SECRET_AMI:-}}"
+if [ -z "$AMI_SECRET" ] || is_proibida "$AMI_SECRET" || ( [ "${NODE_ENV:-development}" = "production" ] && [ "${#AMI_SECRET}" -lt 16 ] ); then
   if [ "${NODE_ENV:-development}" = "production" ]; then
-    echo "[ERRO FATAL] ASTERISK_SECRET_AMI não definido ou utiliza valor inseguro/proibido em produção!" >&2
+    echo "[ERRO FATAL] ASTERISK_AMI_PASSWORD (ou ASTERISK_SECRET_AMI) não definido, possui menos de 16 caracteres ou utiliza valor inseguro/proibido em produção!" >&2
     exit 1
   else
     AMI_SECRET="$(openssl rand -hex 16)"

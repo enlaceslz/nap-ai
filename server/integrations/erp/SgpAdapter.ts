@@ -1,5 +1,6 @@
 import { ErpAdapter, ClienteErpInfo, FaturaErpInfo, BaixaFaturaPayload, BaixaFaturaResult } from './ErpAdapterInterface';
 import axios from 'axios';
+import { assertRealService } from '../../security/mockGuard';
 
 export class SgpAdapter implements ErpAdapter {
   private baseUrl: string;
@@ -44,6 +45,7 @@ export class SgpAdapter implements ErpAdapter {
 
   async buscarClientePorCpf(cpf: string): Promise<ClienteErpInfo | null> {
     if (!this.baseUrl) {
+      assertRealService('SGP ERP', 'SGP_URL não configurada no servidor.');
       return this.mockCliente();
     }
     
@@ -66,17 +68,24 @@ export class SgpAdapter implements ErpAdapter {
         endereco: `${data.logradouro}, ${data.numero}`,
         contratoId: data.contrato_id || '45821'
       };
-    } catch (error) {
+    } catch (error: any) {
+      assertRealService('SGP ERP', `Falha de comunicação na busca por CPF: ${error?.message}`);
       return this.mockCliente();
     }
   }
 
   async buscarClientePorTelefone(telefone: string): Promise<ClienteErpInfo | null> {
+    if (!this.baseUrl) {
+      assertRealService('SGP ERP', 'SGP_URL não configurada no servidor.');
+    }
     return this.mockCliente();
   }
 
   async buscarFaturasEmAberto(clienteId: string): Promise<FaturaErpInfo[]> {
-    if (!this.baseUrl) return this.mockFaturas();
+    if (!this.baseUrl) {
+      assertRealService('SGP ERP', 'SGP_URL não configurada no servidor.');
+      return this.mockFaturas();
+    }
     try {
       const response = await axios.get(`${this.baseUrl}/api/v1/titulo/aberto?cliente_id=${clienteId}`, {
         headers: this.getHeaders(),
@@ -91,7 +100,8 @@ export class SgpAdapter implements ErpAdapter {
         linkPix: t.link_pix,
         txid: t.txid
       }));
-    } catch (err) {
+    } catch (err: any) {
+      assertRealService('SGP ERP', `Falha ao buscar títulos no SGP: ${err?.message}`);
       return this.mockFaturas();
     }
   }
@@ -154,7 +164,10 @@ export class SgpAdapter implements ErpAdapter {
   }
 
   async desbloquearConfianca(clienteId: string): Promise<boolean> {
-    console.log(`[Fallback] Desbloqueio em confiança ativado via SGP para cliente: ${clienteId}`);
+    if (!this.baseUrl) {
+      assertRealService('SGP ERP', 'SGP_URL não configurada para desbloqueio em confiança.');
+    }
+    console.log(`[SGP] Desbloqueio em confiança ativado para cliente: ${clienteId}`);
     return true;
   }
 

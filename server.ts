@@ -7,7 +7,7 @@ import { exec } from "child_process";
 import cors from "cors";
 import { GoogleGenAI } from "@google/genai";
 import { validateSecrets } from "./server/security/secretsValidator";
-import { configureHelmet, configureCors, createRateLimiter, globalErrorHandler, appendAuditLog, getAuditChain } from "./server/security/httpSecurity";
+import { configureHelmet, configureCors, createRateLimiter, globalErrorHandler, appendAuditLog, getAuditChain, initAuditPersistence } from "./server/security/httpSecurity";
 import { authMiddleware } from "./server/auth/rbacMiddleware";
 
 // Validação de segurança de inicialização
@@ -20,7 +20,20 @@ try {
   }
 }
 
-import { db } from "./src/db/index";
+import { db, assertDatabaseReady, pool } from "./src/db/index";
+
+// Inicialização de prontidão do banco e restauração da cadeia de auditoria
+(async () => {
+  try {
+    await assertDatabaseReady();
+    await initAuditPersistence();
+  } catch (err: any) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[STARTUP FATAL] Falha crítica na inicialização do PostgreSQL/Auditoria:', err.message);
+      process.exit(1);
+    }
+  }
+})();
 import { users, atendimentos, clientes, faturas } from "./src/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { conversas, mensagens } from "./src/db/schema";
@@ -545,16 +558,49 @@ const usuariosProvedor: any[] = [
 
 // --- API Routes ---
 
-// Healthcheck Oficial
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
+// Healthcheck Oficial - Verificação Real de Prontidão dos Serviços
+app.get("/api/health", async (req, res) => {
+  let dbHealthy = false;
+  let dbLatencyMs = 0;
+  try {
+    if (pool && process.env.DATABASE_URL) {
+      const start = Date.now();
+      await pool.query('SELECT 1');
+      dbLatencyMs = Date.now() - start;
+      dbHealthy = true;
+    } else if (process.env.NODE_ENV !== 'production') {
+      dbHealthy = true;
+    }
+  } catch (err) {
+    dbHealthy = false;
+  }
+
+  const asteriskInfo = getAsteriskStatus();
+  const isAsteriskEnabled = process.env.ASTERISK_ENABLED === 'true' || process.env.VOIP_ENABLED === 'true';
+  const asteriskStatus = !isAsteriskEnabled ? "desabilitado" : (asteriskInfo.conectado ? "conectado" : "offline");
+
+  const isGenieacsEnabled = process.env.GENIEACS_ENABLED === 'true' || process.env.TR069_ENABLED === 'true';
+  const genieacsStatus = !isGenieacsEnabled ? "desabilitado" : (process.env.GENIEACS_URL ? "configurado" : "pendente");
+
+  const isZabbixEnabled = process.env.ZABBIX_ENABLED === 'true' || process.env.NOC_ENABLED === 'true';
+  const zabbixStatus = !isZabbixEnabled ? "desabilitado" : (process.env.ZABBIX_URL ? "configurado" : "pendente");
+
+  const isSgpEnabled = process.env.SGP_ENABLED === 'true' || process.env.ERP_ENABLED === 'true';
+  const sgpStatus = !isSgpEnabled ? "desabilitado" : (process.env.SGP_URL ? "configurado" : "pendente");
+
+  const isHealthy = process.env.NODE_ENV === 'production' ? dbHealthy : true;
+  const httpCode = isHealthy ? 200 : 503;
+
+  res.status(httpCode).json({
+    status: isHealthy ? "ok" : "degraded",
+    environment: process.env.NODE_ENV || 'development',
     versao: "NAP 2026.09 LTS",
     servicos: {
-      asterisk: "conectado",
-      genieacs: "conectado",
-      zabbix: "conectado",
-      sgp: "conectado"
+      database: dbHealthy ? (dbLatencyMs > 0 ? `conectado (${dbLatencyMs}ms)` : "conectado") : "offline",
+      asterisk: asteriskStatus,
+      genieacs: genieacsStatus,
+      zabbix: zabbixStatus,
+      sgp: sgpStatus
     },
     timestamp: new Date().toISOString()
   });

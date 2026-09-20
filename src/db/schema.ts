@@ -228,11 +228,15 @@ export const ordens_servico = pgTable('ordens_servico', {
  */
 export const logs_auditoria = pgTable('logs_auditoria', {
   id: serial('id').primaryKey(),
+  userId: varchar('user_id', { length: 100 }),
   usuario: varchar('usuario', { length: 150 }).notNull(),
   usuarioEmail: varchar('usuario_email', { length: 255 }),
   usuarioRole: varchar('usuario_role', { length: 50 }),
+  requestId: varchar('request_id', { length: 100 }), // correlationId
   modulo: varchar('modulo', { length: 100 }).notNull(),
   acao: varchar('acao', { length: 100 }).notNull(),
+  recurso: varchar('recurso', { length: 150 }),
+  resultado: varchar('resultado', { length: 50 }).default('sucesso'), // 'sucesso', 'falha', 'bloqueado'
   detalhes: text('detalhes').notNull(),
   categoria: varchar('categoria', { length: 50 }).default('operacional'),
   severidade: varchar('severidade', { length: 20 }).default('info'), // 'info', 'atencao', 'critico'
@@ -246,7 +250,8 @@ export const logs_auditoria = pgTable('logs_auditoria', {
   return {
     moduloIdx: index('idx_auditoria_modulo').on(table.modulo),
     acaoIdx: index('idx_auditoria_acao').on(table.acao),
-    createdAtIdx: index('idx_auditoria_created_at').on(table.createdAt)
+    createdAtIdx: index('idx_auditoria_created_at').on(table.createdAt),
+    requestIdIdx: index('idx_auditoria_request_id').on(table.requestId)
   };
 });
 

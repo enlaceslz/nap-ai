@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "nap-ai",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx dev.js",
@@ -11,7 +11,9 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push"
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:push": "drizzle-kit push",
+    "test": "node --import tsx --test test/**/*.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

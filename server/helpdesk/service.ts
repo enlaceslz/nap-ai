@@ -3,6 +3,7 @@ import { helpdesk_tickets, work_orders, work_order_tasks, work_order_evidence, h
 import { eq, desc } from 'drizzle-orm';
 import { ZammadAdapter } from './zammadAdapter';
 import { NapTicket, NapWorkOrder } from './domain';
+import { assertRealService } from '../security/mockGuard';
 
 export class HelpDeskService {
   private adapter: ZammadAdapter;
@@ -62,7 +63,8 @@ export class HelpDeskService {
       const [ticket] = await db.insert(helpdesk_tickets).values(newTicket as any).returning();
       await this.auditLog('ticket', String(ticket.id), 'create', actorId, null, JSON.stringify(ticket));
       return ticket;
-    } catch(e) {
+    } catch(e: any) {
+      assertRealService('Helpdesk Zammad/PostgreSQL', `Falha ao persistir ticket: ${e?.message}`);
       console.log("[Fallback] Utilizando dados em memória para criação de Ticket (PostgreSQL ausente)");
       const memTicket = { ...newTicket, id: Date.now() };
       this.memoryTickets.unshift(memTicket);
@@ -102,7 +104,8 @@ export class HelpDeskService {
         .returning();
       await this.auditLog('ticket', String(id), 'close', actorId, ticket.status, 'resolvido');
       return updated;
-    } catch(e) {
+    } catch(e: any) {
+      assertRealService('Helpdesk Zammad/PostgreSQL', `Falha ao encerrar ticket: ${e?.message}`);
       console.log("[Fallback] Utilizando memória para encerramento de Ticket (PostgreSQL ausente)");
       const memTicket = this.memoryTickets.find(t => t.id === id);
       if(memTicket) {

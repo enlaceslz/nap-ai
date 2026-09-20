@@ -29,14 +29,15 @@ export default function Ajuda() {
     { module: 'Help Desk Central (Zammad Engine)', status: 'done', desc: 'Orquestração unificada de chamados com SLA, matriz de transição e vinculação de assinantes', date: 'Homologado' },
     { module: 'IPAM & Nautobot Source of Truth', status: 'done', desc: 'Alocação de prefixos IPv4/IPv6, binding com ERP e provisionamento automatizado de sub-redes', date: 'Homologado' },
     { module: 'WABA & Inbox Unificado', status: 'done', desc: 'Integração Oficial WhatsApp Cloud API, Triagem IA Gemini e Handoff com Kanban SGP', date: 'Homologado' },
-    { module: 'Cérebro IA (MaIA) & 9router Gateway', status: 'done', desc: 'Google Gemini 2.5 Flash com failover automático corporativo e chamadas dinâmicas de ferramentas', date: 'Homologado' },
+    { module: 'Cérebro IA (MaIA) & Policy Engine', status: 'done', desc: 'Google Gemini com governança estrita de execução de ferramentas, RBAC, Zod e confirmação humana para ações de risco', date: 'Homologado' },
     { module: 'CRM Kanban & Ficha 360', status: 'done', desc: 'Sincronização 360 de clientes, promessas de pagamento, PIX dinâmico e desbloqueio em confiança', date: 'Homologado' },
     { module: 'Multi-ERP Hub (SGP, IXC, Hubsoft)', status: 'done', desc: 'Adaptadores modulares para leitura de faturas, contratos, extratos e baixa contábil', date: 'Homologado' },
     { module: 'GenieACS & TR-069 CWMP', status: 'done', desc: 'Telemetria de CPEs, diagnóstico óptico de ONU, alteração de Wi-Fi e reboot remoto', date: 'Homologado' },
     { module: 'Régua de Cobrança & Campanhas ISP', status: 'done', desc: 'Automação de notificações de vencimento D-3, D0, D+3, D+7 via WABA e push notification', date: 'Homologado' },
     { module: 'Portal do Cliente PWA & Webphone WebRTC', status: 'done', desc: 'Autoatendimento mobile-first, 2ª via Pix, teste de conexão e chamadas de voz via Asterisk WSS', date: 'Homologado' },
     { module: 'Técnico de Campo PWA & Geolocalização', status: 'done', desc: 'Gestão de Ordens de Serviço na rua, fotos de instalação, teste de sinal e GPS no Radar do NOC', date: 'Homologado' },
-    { module: 'Auditoria LGPD & Hierarquia de Usuários', status: 'done', desc: 'Controle de acesso em 4 níveis (Admin, Operador, N1, N2), logs imutáveis e Soft Deletes', date: 'Homologado' }
+    { module: 'Trilha de Auditoria Criptográfica & LGPD', status: 'done', desc: 'Controle de acesso em 4 níveis, encadeamento contínuo de hash SHA-256 append-only no PostgreSQL e outbox resiliente', date: 'Homologado' },
+    { module: 'Segurança de Produção & Mock Guard', status: 'done', desc: 'Bloqueio estrito de mocks em produção (Fail-Fast 503), validação condicional de segredos e migrações versionadas Drizzle', date: 'Homologado' }
   ];
 
   const officialPorts = [
@@ -335,7 +336,7 @@ export default function Ajuda() {
                     chmod +x deploy.sh &amp;&amp; sudo ./deploy.sh
                   </code>
                   <p className="text-[11px] text-muted-foreground">
-                    Configura PostgreSQL, instala Node.js 22 LTS, compila a aplicação via esbuild, registra serviço PM2 e cria regras UFW.
+                    Configura PostgreSQL, executa migrações versionadas (Drizzle), valida matriz de segredos, instala Node.js 22 LTS, compila via esbuild, registra serviço PM2 e valida healthcheck real de todos os subsistemas.
                   </p>
                 </div>
 
