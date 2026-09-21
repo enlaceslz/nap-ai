@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, randomInt } from 'crypto';
 
 export interface WorkOrder {
   id: string;
@@ -61,7 +61,7 @@ export class FieldService {
   public createOS(data: Partial<WorkOrder>): WorkOrder {
     const newOs: WorkOrder = {
       id: randomUUID(),
-      osNumber: `OS-000${Math.floor(Math.random() * 900) + 100}`,
+      osNumber: `OS-000${randomInt(100, 999)}`,
       priority: data.priority || 'normal',
       status: 'pending',
       problem: data.problem || 'Atividade não especificada',

@@ -1,52 +1,32 @@
 <!doctype html>
 <html lang="pt-BR">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NAP WACRM</title>
-    <meta property="og:title" content="NAP WACRM" />
-    <meta name="description" content="Núcleo de Atendimento ao Provedor - Plataforma Omnichannel para ISPs com IA Híbrida." />
-    <meta property="og:description" content="Núcleo de Atendimento ao Provedor - Plataforma Omnichannel para ISPs com IA Híbrida." />
-    <meta name="theme-color" content="#0a50ff" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Portal DJD" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    
     <script>
-      // Suprime avisos benignos de websocket/HMR do cliente Vite e fallbacks no ambiente em sandbox
+      // Suprime avisos benignos de websocket/HMR do cliente Vite no ambiente sandboxed do AI Studio
       (function() {
         var _err = console.error;
         var _warn = console.warn;
         var _info = console.info;
         var _log = console.log;
         var _debug = console.debug;
-        var isBenignMsg = function(arg) {
+        var isBenign = function(arg) {
           if (!arg) return false;
           if (typeof arg === 'string') {
-            if (arg.indexOf('[vite]') !== -1 || arg.indexOf('Failed to fetch') !== -1 || arg.indexOf('websocket') !== -1) {
-              return true;
-            }
+            if (/\[vite\]|vite|websocket|Failed to fetch/i.test(arg)) return true;
           }
           if (typeof arg === 'object') {
             try {
-              var s = (arg.message || '') + ' ' + (arg.stack || '') + ' ' + String(arg);
-              if (s.indexOf('[vite]') !== -1 || s.indexOf('Failed to fetch') !== -1 || s.indexOf('websocket') !== -1) {
-                return true;
-              }
+              var s = (arg.message || '') + ' ' + (arg.stack || '') + ' ' + (arg.name || '') + ' ' + (arg.type || '') + ' ' + String(arg);
+              if (/\[vite\]|vite|websocket|Failed to fetch/i.test(s)) return true;
+              if (arg.target && String(arg.target).indexOf('WebSocket') !== -1) return true;
+              if (arg instanceof Event && (arg.type === 'error' || arg.type === 'close')) return true;
             } catch (e) {}
           }
           return false;
         };
         var shouldSuppress = function(args) {
           for (var i = 0; i < args.length; i++) {
-            if (isBenignMsg(args[i])) return true;
+            if (isBenign(args[i])) return true;
           }
           return false;
         };
@@ -72,28 +52,50 @@
             return _debug.apply(console, arguments);
           };
         }
+        var prevOnError = window.onerror;
+        window.onerror = function(msg, url, line, col, error) {
+          if (isBenign(msg) || isBenign(url) || isBenign(error)) {
+            return true;
+          }
+          if (prevOnError) return prevOnError.apply(this, arguments);
+        };
         window.addEventListener('error', function(e) {
-          if (e && (
-            (e.message && (e.message.indexOf('[vite]') !== -1 || e.message.indexOf('Failed to fetch') !== -1 || e.message.indexOf('websocket') !== -1)) ||
-            (e.filename && e.filename.indexOf('@vite/client') !== -1)
-          )) {
+          if (!e) return;
+          if (isBenign(e.message) || isBenign(e.filename) || isBenign(e.error) || (e.filename && e.filename.indexOf('@vite') !== -1)) {
             e.preventDefault();
-            e.stopPropagation();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            if (e.stopPropagation) e.stopPropagation();
+            return true;
           }
         }, true);
         window.addEventListener('unhandledrejection', function(e) {
-          if (e && e.reason) {
-            try {
-              var r = String(e.reason.message || e.reason);
-              if (r.indexOf('[vite]') !== -1 || r.indexOf('Failed to fetch') !== -1) {
-                e.preventDefault();
-                e.stopPropagation();
-              }
-            } catch (err) {}
+          if (!e) return;
+          if (isBenign(e.reason)) {
+            e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            if (e.stopPropagation) e.stopPropagation();
+            return true;
           }
         }, true);
       })();
     </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NAP WACRM</title>
+    <meta property="og:title" content="NAP WACRM" />
+    <meta name="description" content="Núcleo de Atendimento ao Provedor - Plataforma Omnichannel para ISPs com IA Híbrida." />
+    <meta property="og:description" content="Núcleo de Atendimento ao Provedor - Plataforma Omnichannel para ISPs com IA Híbrida." />
+    <meta name="theme-color" content="#0a50ff" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Portal DJD" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script>
       (function() {
         try {

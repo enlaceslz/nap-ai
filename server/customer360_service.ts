@@ -4,6 +4,7 @@ import {
   nap_payment_transactions, nap_customer_events, nap_integrations 
 } from "../src/db/schema.js";
 import { eq, sql } from "drizzle-orm";
+import crypto from "crypto";
 import { ErpFactory } from "./integrations/erp/ErpFactory.js";
 import type { 
   NapCustomer360, NapInvoice, NapPaymentTransaction, 
@@ -447,7 +448,7 @@ export class Customer360Store {
   public addCustomerEvent(event: Omit<NapCustomerEvent, 'id'>): NapCustomerEvent {
     const fullEvent: NapCustomerEvent = {
       ...event,
-      id: `EVT_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`
+      id: `EVT_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`
     };
     this.events.unshift(fullEvent);
     const customer = this.customers.get(event.customerId);

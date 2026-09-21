@@ -1,5 +1,7 @@
 import express from 'express';
 import { ZabbixService } from './zabbixService';
+import { isMockAllowed } from '../security/mockGuard';
+import crypto from 'crypto';
 
 export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: any) => {
   const router = express.Router();
@@ -86,16 +88,25 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
   });
 
     router.get('/traffic', (req, res) => {
-    // Generate realistic BNG/Uplink mock traffic for the NOC graph
     const range = req.query.range || '24h';
+    if (!isMockAllowed()) {
+      return res.status(503).json({
+        success: false,
+        status: "unavailable",
+        reason: "real_data_source_unavailable",
+        range,
+        points: []
+      });
+    }
+
     const points = [];
     const now = Date.now();
     
-    // Simulate 24 data points
+    // Simulate 24 data points (apenas em dev/preview)
     for (let i = 24; i >= 0; i--) {
       const time = new Date(now - i * 60 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const inGbps = 8 + Math.random() * 6; // Range 8-14 Gbps
-      const outGbps = 2 + Math.random() * 3; // Range 2-5 Gbps
+      const inGbps = 8 + (crypto.randomInt(0, 600) / 100); // Range 8-14 Gbps
+      const outGbps = 2 + (crypto.randomInt(0, 300) / 100); // Range 2-5 Gbps
       points.push({ time, in: inGbps.toFixed(2), out: outGbps.toFixed(2) });
     }
     

@@ -1,4 +1,6 @@
 import { OltDriver } from './driverInterface';
+import { assertRealService, isMockAllowed } from '../security/mockGuard';
+import crypto from 'crypto';
 import {
   OltDevice,
   OltSystemInfo,
@@ -244,7 +246,11 @@ export class ZteOltDriver implements OltDriver {
   }
 
   public async authorizeOnu(data: AuthorizeOnuPayload): Promise<{ success: boolean; onu: OnuDevice; raw_output?: string }> {
-    const onuId = data.onu_id || Math.floor(Math.random() * 50) + 10;
+    if (!isMockAllowed() && !this.connected) {
+      assertRealService('OLT_ZTE', 'OLT física não conectada');
+    }
+
+    const onuId = data.onu_id || crypto.randomInt(10, 50);
     const onu: OnuDevice = {
       id: `onu-zte-${Date.now()}`,
       olt_id: this.olt.id,
@@ -253,7 +259,7 @@ export class ZteOltDriver implements OltDriver {
       pon_identifier: data.pon_identifier,
       onu_id: onuId,
       serial: data.serial,
-      mac: `74:a7:8e:${Math.floor(Math.random() * 89 + 10)}:${Math.floor(Math.random() * 89 + 10)}:${Math.floor(Math.random() * 89 + 10)}`,
+      mac: `74:a7:8e:${crypto.randomBytes(3).toString('hex').match(/../g)?.join(':') || '10:20:30'}`,
       nome: data.nome,
       cliente_id: data.cliente_id,
       cliente_nome: data.cliente_nome,
@@ -271,7 +277,7 @@ export class ZteOltDriver implements OltDriver {
       vlan: data.vlan,
       profile_line: data.profile_line,
       profile_service: data.profile_service,
-      ip_address: `100.64.${Math.floor(Math.random() * 200 + 10)}.${Math.floor(Math.random() * 250 + 2)}`,
+      ip_address: `100.64.${crypto.randomInt(10, 200)}.${crypto.randomInt(2, 250)}`,
       ultimo_online: new Date().toISOString(),
       criado_em: new Date().toISOString()
     };
@@ -325,9 +331,13 @@ ZTE(config-onu-if)# exit
   }
 
   public async getOpticalInfo(onuId: string): Promise<OpticalTelemetry> {
-    const rx = -19.2 - Math.random() * 1.5;
-    const tx = 2.1 + (Math.random() * 0.4 - 0.2);
-    const distancia = 1350 + Math.floor(Math.random() * 80);
+    if (!isMockAllowed() && !this.connected) {
+      assertRealService('OLT_ZTE', 'OLT física não conectada para medição óptica');
+    }
+
+    const rx = -19.4;
+    const tx = 2.1;
+    const distancia = 1350;
 
     const historico = [
       { timestamp: '10:00', rx: -19.1, tx: 2.2 },

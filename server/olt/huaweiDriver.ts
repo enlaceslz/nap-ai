@@ -1,4 +1,6 @@
 import { OltDriver } from './driverInterface';
+import { assertRealService, isMockAllowed } from '../security/mockGuard';
+import crypto from 'crypto';
 import {
   OltDevice,
   OltSystemInfo,
@@ -214,7 +216,11 @@ export class HuaweiOltDriver implements OltDriver {
   }
 
   public async authorizeOnu(data: AuthorizeOnuPayload): Promise<{ success: boolean; onu: OnuDevice; raw_output?: string }> {
-    const onuId = data.onu_id || Math.floor(Math.random() * 60) + 5;
+    if (!isMockAllowed() && !this.connected) {
+      assertRealService('OLT_HUAWEI', 'OLT física não conectada');
+    }
+
+    const onuId = data.onu_id || crypto.randomInt(5, 60);
     const onu: OnuDevice = {
       id: `onu-hw-${Date.now()}`,
       olt_id: this.olt.id,
@@ -223,7 +229,7 @@ export class HuaweiOltDriver implements OltDriver {
       pon_identifier: data.pon_identifier,
       onu_id: onuId,
       serial: data.serial,
-      mac: `48:57:02:${Math.floor(Math.random() * 89 + 10)}:${Math.floor(Math.random() * 89 + 10)}:${Math.floor(Math.random() * 89 + 10)}`,
+      mac: `48:57:02:${crypto.randomBytes(3).toString('hex').match(/../g)?.join(':') || '10:20:30'}`,
       nome: data.nome,
       cliente_id: data.cliente_id,
       cliente_nome: data.cliente_nome,
@@ -241,7 +247,7 @@ export class HuaweiOltDriver implements OltDriver {
       vlan: data.vlan,
       profile_line: data.profile_line,
       profile_service: data.profile_service,
-      ip_address: `100.64.${Math.floor(Math.random() * 200 + 10)}.${Math.floor(Math.random() * 250 + 2)}`,
+      ip_address: `100.64.${crypto.randomInt(10, 200)}.${crypto.randomInt(2, 250)}`,
       ultimo_online: new Date().toISOString(),
       criado_em: new Date().toISOString()
     };
@@ -292,9 +298,13 @@ Configuration has been saved successfully.
   }
 
   public async getOpticalInfo(onuId: string): Promise<OpticalTelemetry> {
-    const rx = -18.7 - Math.random() * 1.2;
-    const tx = 2.4 + (Math.random() * 0.3 - 0.15);
-    const distancia = 950 + Math.floor(Math.random() * 50);
+    if (!isMockAllowed() && !this.connected) {
+      assertRealService('OLT_HUAWEI', 'OLT física não conectada para medição óptica');
+    }
+
+    const rx = -18.7;
+    const tx = 2.4;
+    const distancia = 950;
 
     const historico = [
       { timestamp: '10:00', rx: -18.6, tx: 2.4 },

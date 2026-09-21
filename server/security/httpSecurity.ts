@@ -84,7 +84,9 @@ export function configureCors(
 }
 
 
-// Rate Limiter em memória por IP
+// TECHNICAL DEBT: Migrar rate limiting em memória para Redis distribuído (ioredis / node-redis)
+// Em produção com múltiplos workers ou instâncias escaladas horizontalmente, o Map em memória
+// não sincroniza entre processos. Para este ciclo, o controle por IP atende a instância dedicada.
 interface RateLimitBucket {
   count: number;
   resetAt: number;
@@ -122,14 +124,41 @@ export function createRateLimiter(options: { windowMs: number; max: number; mess
 }
 
 /**
- * Configura headers de segurança HTTP via Helmet
- * Compatível com renderização em iFrame do Google AI Studio e Web Preview.
+ * Retorna as opções do Helmet com separação estrita entre Produção e Preview/Dev
  */
-export function configureHelmet() {
-  const isProd = process.env.NODE_ENV === 'production';
-  
-  return helmet({
-    // Permite que o preview seja embutido sem restrições de frame no iFrame do Google AI Studio e Web Preview
+export function getHelmetOptions(isProduction = process.env.NODE_ENV === 'production'): Parameters<typeof helmet>[0] {
+  if (isProduction) {
+    return {
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+          fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+          imgSrc: ["'self'", "data:", "blob:", "https://*.tile.openstreetmap.org"],
+          connectSrc: ["'self'", "ws:", "wss:", "https:"],
+          mediaSrc: ["'self'", "blob:"],
+          objectSrc: ["'none'"],
+          baseUri: ["'self'"],
+          formAction: ["'self'"],
+          frameAncestors: ["'self'"]
+        }
+      },
+      hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true
+      },
+      xFrameOptions: { action: 'sameorigin' },
+      noSniff: true,
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      crossOriginOpenerPolicy: { policy: 'same-origin' },
+      crossOriginResourcePolicy: { policy: 'same-origin' }
+    };
+  }
+
+  // Preview / Development: permite iframe do Google AI Studio e políticas relaxadas
+  return {
     xFrameOptions: false,
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
@@ -138,18 +167,29 @@ export function configureHelmet() {
     hsts: false,
     noSniff: true,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
-  });
+  };
+}
+
+/**
+ * Configura headers de segurança HTTP via Helmet
+ * Em produção: aplica CSP estrito, HSTS, SAMEORIGIN, noSniff e COOP/CORP.
+ * Em desenvolvimento/preview: flexibiliza para permitir renderização em iFrame.
+ */
+export function configureHelmet(isProduction?: boolean) {
+  const isProd = isProduction !== undefined ? isProduction : process.env.NODE_ENV === 'production';
+  return helmet(getHelmetOptions(isProd));
 }
 
 /**
  * Global Error Handler padronizado
- * REGRA CRÍTICA: Não retornar err.message diretamente para o usuário em produção.
+ * REGRA CRÍTICA: Em produção, nunca vazar stack trace, erro de banco de dados,
+ * senhas, tokens, chaves de API, connection strings ou caminhos do sistema de arquivos.
  * Resposta: { success: false, error: "Erro interno", requestId: "..." }
  */
 export function globalErrorHandler(err: any, req: Request, res: Response, next: NextFunction) {
-  const requestId = crypto.randomUUID ? crypto.randomUUID() : `req_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+  const requestId = crypto.randomUUID ? crypto.randomUUID() : `req_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
   
-  // Log detalhado interno apenas para os operadores do servidor
+  // Log detalhado interno apenas para os operadores do servidor (nunca vazando para o cliente)
   console.error(`[ERROR_HANDLER] [RequestID: ${requestId}] [${req.method} ${req.originalUrl}]`, err);
 
   const isProduction = process.env.NODE_ENV === 'production';
@@ -165,7 +205,7 @@ export function globalErrorHandler(err: any, req: Request, res: Response, next: 
         acao: 'ERRO_INTERNO',
         recurso: req.originalUrl,
         resultado: 'falha',
-        detalhes: `Exceção não tratada capturada pelo errorHandler: ${err.message || 'Erro desconhecido'}`,
+        detalhes: `Exceção capturada pelo errorHandler: ${err.message || 'Erro desconhecido'}`,
         severidade: 'critico',
         status: 'falha',
         ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress,
@@ -176,11 +216,27 @@ export function globalErrorHandler(err: any, req: Request, res: Response, next: 
     }
   }
 
-  res.status(statusCode).json({
-    success: false,
-    error: isProduction && statusCode >= 500 ? 'Erro interno no processamento da solicitação.' : (err.message || 'Erro interno'),
+  // Em produção: NUNCA vazar stack, detalhes do banco, tokens, senhas ou paths de arquivos
+  if (isProduction) {
+    const rawMsg = String(err.message || '');
+    const isSensitive = /password|senha|token|secret|postgres|database|drizzle|select\s|insert\s|update\s|delete\s|\/home\/|\/opt\/|\/etc\/|connect\s/i.test(rawMsg);
+    const clientMessage = (statusCode >= 500 || isSensitive)
+      ? 'Erro interno'
+      : rawMsg;
+
+    return res.status(statusCode).json({
+      error: clientMessage,
+      requestId,
+      code: err.code || (statusCode >= 500 ? 'INTERNAL_SERVER_ERROR' : 'BAD_REQUEST')
+    });
+  }
+
+  // Em desenvolvimento / testes
+  return res.status(statusCode).json({
+    error: err.message || 'Erro interno',
     requestId,
-    code: err.code || 'INTERNAL_SERVER_ERROR'
+    code: err.code || 'INTERNAL_SERVER_ERROR',
+    stack: err.stack
   });
 }
 
@@ -275,16 +331,37 @@ export async function initAuditPersistence(): Promise<void> {
 }
 
 /**
- * Persistência assíncrona com enfileiramento resiliente
+ * Persistência assíncrona com enfileiramento resiliente e serialização por lock no PostgreSQL
  */
 async function persistLogToPostgres(log: AppendOnlyAuditLog): Promise<void> {
+  const pool = await getDbPool();
+  if (!pool || !process.env.DATABASE_URL) {
+    return;
+  }
+
+  let client: any = null;
   try {
-    const pool = await getDbPool();
-    if (!pool || !process.env.DATABASE_URL) {
-      return;
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Advisory transaction lock exclusivo para a cadeia de hash de auditoria (evita concorrência)
+    await client.query('SELECT pg_advisory_xact_lock(42424242)');
+
+    // Recupera o previousHash real gravado imediatamente antes no banco
+    const prevRes = await client.query('SELECT entry_hash FROM logs_auditoria ORDER BY id DESC LIMIT 1');
+    const realPreviousHash = prevRes.rows.length > 0 && prevRes.rows[0].entry_hash
+      ? prevRes.rows[0].entry_hash
+      : '0'.repeat(64);
+
+    let effectivePreviousHash = log.previousHash;
+    let effectiveEntryHash = log.entryHash;
+
+    if (effectivePreviousHash !== realPreviousHash) {
+      effectivePreviousHash = realPreviousHash;
+      const rawString = `${log.id}|${log.timestamp}|${log.usuario}|${log.modulo}|${log.acao}|${log.detalhes}|${effectivePreviousHash}`;
+      effectiveEntryHash = crypto.createHash('sha256').update(rawString).digest('hex');
     }
 
-    await pool.query(
+    await client.query(
       `INSERT INTO logs_auditoria 
         (user_id, usuario, usuario_email, usuario_role, request_id, modulo, acao, recurso, resultado, detalhes, categoria, severidade, ip, user_agent, status, previous_hash, entry_hash, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
@@ -304,16 +381,26 @@ async function persistLogToPostgres(log: AppendOnlyAuditLog): Promise<void> {
         log.ip || null,
         log.userAgent || null,
         log.status,
-        log.previousHash,
-        log.entryHash,
+        effectivePreviousHash,
+        effectiveEntryHash,
         new Date(log.timestamp)
       ]
     );
+
+    await client.query('COMMIT');
+    lastHash = effectiveEntryHash;
   } catch (err: any) {
+    if (client) {
+      await client.query('ROLLBACK').catch(() => {});
+    }
     if (auditOutbox.length < 5000) {
       auditOutbox.push(log);
     }
-    console.warn(`[AUDIT OUTBOX] Falha ao persistir log no PostgreSQL. Enfileirado no buffer (pendentes: ${auditOutbox.length}). Detalhe: ${err.message}`);
+    console.error(`[AUDIT_PERSISTENCE_FAILURE] Falha ao persistir log no PostgreSQL. Enfileirado no buffer (pendentes: ${auditOutbox.length}). Detalhe: ${err.message}`);
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 }
 
@@ -330,31 +417,7 @@ export async function flushAuditOutbox(): Promise<void> {
 
     while (auditOutbox.length > 0) {
       const item = auditOutbox[0];
-      await pool.query(
-        `INSERT INTO logs_auditoria 
-          (user_id, usuario, usuario_email, usuario_role, request_id, modulo, acao, recurso, resultado, detalhes, categoria, severidade, ip, user_agent, status, previous_hash, entry_hash, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
-        [
-          item.userId || null,
-          item.usuario,
-          item.usuarioEmail || null,
-          item.usuarioRole || null,
-          item.requestId || null,
-          item.modulo,
-          item.acao,
-          item.recurso || null,
-          item.resultado || item.status,
-          item.detalhes,
-          item.categoria || 'operacional',
-          item.severidade || 'info',
-          item.ip || null,
-          item.userAgent || null,
-          item.status,
-          item.previousHash,
-          item.entryHash,
-          new Date(item.timestamp)
-        ]
-      );
+      await persistLogToPostgres(item);
       auditOutbox.shift();
     }
   } catch (err: any) {
@@ -377,7 +440,7 @@ if (typeof setInterval !== 'undefined') {
 }
 
 export function appendAuditLog(entry: Omit<AppendOnlyAuditLog, 'id' | 'timestamp' | 'previousHash' | 'entryHash'>): AppendOnlyAuditLog {
-  const id = `aud_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+  const id = `aud_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
   const timestamp = new Date().toISOString();
   const previousHash = lastHash;
 
@@ -398,8 +461,10 @@ export function appendAuditLog(entry: Omit<AppendOnlyAuditLog, 'id' | 'timestamp
     auditChain.shift();
   }
 
-  // Persiste no PostgreSQL assincronamente
-  persistLogToPostgres(logEntry).catch(() => {});
+  // Persiste no PostgreSQL assincronamente com controle de integridade
+  persistLogToPostgres(logEntry).catch((err) => {
+    console.error(`[AUDIT_PERSISTENCE_FAILURE] ${err.message}`);
+  });
 
   return logEntry;
 }

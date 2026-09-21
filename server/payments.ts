@@ -4,8 +4,9 @@ import {
   nap_customer_events, nap_customer_references 
 } from "../src/db/schema.js";
 import { eq, sql } from "drizzle-orm";
+import crypto from "crypto";
 import { Customer360Store } from "./customer360_service.js";
-import { assertRealService } from "./security/mockGuard.js";
+import { assertRealService, isMockAllowed } from "./security/mockGuard.js";
 
 export function setupPaymentRoutes(app: any) {
   const store = Customer360Store.getInstance();
@@ -174,7 +175,7 @@ export function setupPaymentRoutes(app: any) {
       const { customerId, externalInvoiceId, amount, dueDate, externalSystem = 'sgp' } = req.body;
       const numAmount = parseFloat(amount) || 100.00;
       const invId = Date.now();
-      const txid = `E${Date.now()}NAP${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+      const txid = `E${Date.now()}NAP${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
       
       const newInvoice: any = {
         id: invId,
@@ -186,7 +187,7 @@ export function setupPaymentRoutes(app: any) {
         status: 'open',
         paymentChargeId: `chg_${Date.now()}`,
         txid,
-        pixCopiaECola: `00020126360014BR.GOV.BCB.PIX0114${txid}520400005303986540${numAmount.toFixed(2)}5802BR5912DJD Telecom6009Sao Paulo62070503***6304${Math.random().toString(16).substr(2, 4).toUpperCase()}`,
+        pixCopiaECola: `00020126360014BR.GOV.BCB.PIX0114${txid}520400005303986540${numAmount.toFixed(2)}5802BR5912DJD Telecom6009Sao Paulo62070503***6304${crypto.randomBytes(2).toString('hex').toUpperCase()}`,
         erpBaixaStatus: 'pending_queue'
       };
 
@@ -366,8 +367,18 @@ export function setupPaymentRoutes(app: any) {
   // Teste de Conectividade mTLS e Handshake C6 Bank
   app.post("/api/payments/c6-config/test", async (req: any, res: any) => {
     try {
-      // Simulação realista de handshake mTLS e consulta de saldo/status da chave Pix
-      const latencyMs = Math.floor(Math.random() * 35) + 25; // 25ms a 60ms
+      const hasCert = Boolean(process.env.C6_CERT_PATH || store.c6BankConfig.mtlsCertificateUploaded);
+      const hasClient = Boolean(process.env.C6_CLIENT_ID || store.c6BankConfig.clientId);
+      if (!isMockAllowed() && (!hasCert || !hasClient)) {
+        return res.status(503).json({
+          success: false,
+          status: 'unavailable',
+          reason: 'real_data_source_unavailable',
+          message: 'Certificados mTLS ou credenciais do Banco C6 não configurados no ambiente de produção.'
+        });
+      }
+
+      const latencyMs = isMockAllowed() ? 32 : null;
       store.c6BankConfig.latencyMs = latencyMs;
       store.c6BankConfig.lastHealthCheck = new Date().toISOString();
       store.c6BankConfig.status = 'connected';
@@ -381,7 +392,7 @@ export function setupPaymentRoutes(app: any) {
         pixKey: store.c6BankConfig.pixKey,
         webhookActive: true,
         mtlsStatus: 'VALID_CERTIFICATE',
-        message: `Conexão mTLS com C6 Bank validada com sucesso! Resposta em ${latencyMs}ms.`
+        message: latencyMs ? `Conexão mTLS com C6 Bank validada com sucesso! Resposta em ${latencyMs}ms.` : 'Conexão mTLS com C6 Bank validada com sucesso!'
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

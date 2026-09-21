@@ -1,5 +1,6 @@
 import { ErpAdapter, ClienteErpInfo, FaturaErpInfo, BaixaFaturaPayload, BaixaFaturaResult } from './ErpAdapterInterface';
 import axios from 'axios';
+import crypto from 'crypto';
 import { assertRealService } from '../../security/mockGuard';
 
 export class SgpAdapter implements ErpAdapter {
@@ -128,7 +129,7 @@ export class SgpAdapter implements ErpAdapter {
       return {
         success: true,
         message: `Baixa realizada com sucesso no SGP para a fatura ${payload.external_invoice_id}.`,
-        receiptId: `SGP_REC_${Math.floor(100000 + Math.random() * 900000)}`
+        receiptId: `SGP_REC_${crypto.randomInt(100000, 999999)}`
       };
     }
 

@@ -1,5 +1,6 @@
 import { ErpAdapter, ClienteErpInfo, FaturaErpInfo, BaixaFaturaPayload, BaixaFaturaResult } from './ErpAdapterInterface';
 import axios from 'axios';
+import crypto from 'crypto';
 
 export class HubSoftAdapter implements ErpAdapter {
   private baseUrl: string;
@@ -76,7 +77,7 @@ export class HubSoftAdapter implements ErpAdapter {
     return {
       success: true,
       message: `Baixa confirmada no HubSoft via API de pagamentos.`,
-      receiptId: `HUB_REC_${Math.floor(100000 + Math.random() * 900000)}`
+      receiptId: `HUB_REC_${crypto.randomInt(100000, 999999)}`
     };
   }
 

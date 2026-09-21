@@ -130,10 +130,60 @@ for container in nap_postgres nap_redis nap_mongo; do
 done
 echo "Todos os containers de infraestrutura estão em execução."
 
-# 7. Renderização Segura das Configurações do Asterisk
-echo "[5/8] Renderizando configurações seguras do Asterisk..."
+# 7. Renderização Segura das Configurações do Asterisk & Validação Runtime Real
+echo "[5/8] Renderizando configurações seguras do Asterisk e validando runtime..."
 if [ -f "$DIR/asterisk-config/render-configs.sh" ]; then
   bash "$DIR/asterisk-config/render-configs.sh" /etc/asterisk || bash "$DIR/asterisk-config/render-configs.sh" "$DIR/asterisk-config"
+fi
+
+# Validação Real de Runtime do Asterisk (se instalado no host ou container)
+if command -v asterisk &> /dev/null; then
+  echo "Asterisk detectado no host. Reiniciando e aguardando runtime..."
+  systemctl restart asterisk 2>/dev/null || asterisk -rx "core restart gracefully" 2>/dev/null || true
+  
+  # Aguarda disponibilidade do processo Asterisk
+  ASTERISK_READY=false
+  for a_try in {1..15}; do
+    if asterisk -rx "core show version" &>/dev/null; then
+      ASTERISK_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$ASTERISK_READY" = "true" ]; then
+    echo "Asterisk em execução. Executando validações obrigatórias de runtime:"
+    
+    echo -n "  - Validando Core Version: "
+    asterisk -rx "core show version" || { echo "[FALHA]"; exit 1; }
+
+    echo -n "  - Validando ARI Users: "
+    asterisk -rx "ari show users" || { echo "[FALHA]"; exit 1; }
+
+    echo -n "  - Validando AMI/Manager Users: "
+    asterisk -rx "manager show users" || { echo "[FALHA]"; exit 1; }
+
+    echo -n "  - Validando PJSIP Transports: "
+    asterisk -rx "pjsip show transports" || { echo "[FALHA]"; exit 1; }
+
+    echo -n "  - Validando PJSIP Endpoints: "
+    asterisk -rx "pjsip show endpoints" || { echo "[FALHA]"; exit 1; }
+
+    echo "[ASTERISK RUNTIME] Todas as 5 validações de runtime do Asterisk foram APROVADAS."
+  else
+    echo "[ERRO FATAL] Asterisk está instalado mas falhou ao responder aos comandos CLI em 15s." >&2
+    exit 1
+  fi
+elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "asterisk"; then
+  echo "Container Asterisk detectado. Executando validações de runtime no container..."
+  docker exec nap_asterisk asterisk -rx "core show version" || exit 1
+  docker exec nap_asterisk asterisk -rx "ari show users" || exit 1
+  docker exec nap_asterisk asterisk -rx "manager show users" || exit 1
+  docker exec nap_asterisk asterisk -rx "pjsip show transports" || exit 1
+  docker exec nap_asterisk asterisk -rx "pjsip show endpoints" || exit 1
+  echo "[ASTERISK RUNTIME] Validações de runtime no container Asterisk APROVADAS."
+else
+  echo "[AVISO] Asterisk não encontrado localmente (ambiente sem telefonia nativa ativa neste nó)."
 fi
 
 # 8. Instalação de Node.js e Build da Aplicação
@@ -231,7 +281,8 @@ for i in {1..20}; do
 done
 
 echo "========================================================="
-echo "   Deploy do NAP finalizado com ÊXITO!                   "
+echo "   DEPLOY CONCLUÍDO COM SUCESSO                          "
+echo "   HEALTHCHECK OK (HTTP 200)                             "
 echo "   Backend: PM2 (nap-backend) na porta 3000              "
 echo "   Proxy Reverso: Nginx na porta 80/443                  "
 echo "   Banco: PostgreSQL 16 (Container nap_postgres)         "

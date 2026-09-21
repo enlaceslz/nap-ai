@@ -1,5 +1,6 @@
 import { agentToolRegistry } from "./agent/toolRegistry.js";
 import { processGeminiAgentRun } from "./gemini.js";
+import { isMockAllowed } from "./security/mockGuard.js";
 
 export let systemConfig: any = {
   erpAtivo: "sgp",
@@ -258,7 +259,7 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
         tool: agentResult.toolExecutada,
         tool_dados: agentResult.toolDados,
         tempo_ms: Math.max(tempoTotal, 180),
-        tokens: 185 + Math.floor(Math.random() * 80),
+        tokens: Math.max(50, Math.ceil(((agentResult.resposta || '').length + (req.body.prompt || '').length) / 4)),
         modelo: "gemini-flash-latest",
         provedor: agentResult.toolExecutada === 'FAILOVER_9ROUTER' 
           ? "9router Gateway (Failover Automático)" 
@@ -702,36 +703,38 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
 
     const pings: Record<string, any> = {};
 
+    const mocksAllowed = isMockAllowed();
+
     ERP_CATALOGO_HOMOLOGADO.forEach(erp => {
       const cfg = erpConfigs[erp.id] || {};
-      const ref = baseLatencias[erp.id] || { base: 35, jitter: 10 };
-      const variacao = Math.floor((Math.random() * ref.jitter * 2) - ref.jitter);
-      const latencia = Math.max(12, ref.base + variacao);
-      
       const urlBase = (cfg.urlBase || "").toLowerCase();
-      const isOffline = urlBase.includes("offline") || urlBase.includes("invalido");
+      const isConfigured = Boolean(cfg.urlBase || cfg.token || cfg.appToken);
+      const isOffline = !isConfigured || urlBase.includes("offline") || urlBase.includes("invalido");
 
-      let qualidade: 'excelente' | 'estavel' | 'lento' | 'offline' = 'excelente';
-      if (isOffline) {
-        qualidade = 'offline';
-      } else if (latencia < 60) {
+      let latencia: number | null = null;
+      let qualidade: 'excelente' | 'estavel' | 'lento' | 'offline' = 'offline';
+      let jitterMs: number | null = null;
+
+      if (!isOffline) {
+        latencia = mocksAllowed ? (baseLatencias[erp.id]?.base || 35) : null;
+        jitterMs = mocksAllowed ? 2 : null;
         qualidade = 'excelente';
-      } else if (latencia < 150) {
-        qualidade = 'estavel';
-      } else {
-        qualidade = 'lento';
+      } else if (mocksAllowed) {
+        // Modo sandbox/preview com latência determinística
+        latencia = baseLatencias[erp.id]?.base || 35;
+        qualidade = 'excelente';
       }
 
       pings[erp.id] = {
         erpId: erp.id,
         nome: erp.nome,
         sigla: erp.sigla,
-        online: !isOffline,
-        latenciaMs: isOffline ? null : latencia,
+        online: mocksAllowed ? true : !isOffline,
+        latenciaMs: latencia,
         qualidade,
-        jitterMs: isOffline ? null : Math.abs(variacao),
-        perdaPacotes: isOffline ? 100 : 0,
-        endpoint: cfg.urlBase || erp.campos.find(c => c.key === 'urlBase')?.placeholder || "https://api.provedor.com.br",
+        jitterMs,
+        perdaPacotes: (!mocksAllowed && isOffline) ? 100 : 0,
+        endpoint: cfg.urlBase || erp.campos.find(c => c.key === 'urlBase')?.placeholder || (mocksAllowed ? "https://api.provedor.com.br" : null),
         protocolo: erp.protocolo,
         ativo: (systemConfig as any).erpAtivo === erp.id,
         timestamp: agora
@@ -759,8 +762,8 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
     const isOffline = urlBase.includes("offline") || urlBase.includes("invalido");
 
     const tempoInicio = Date.now();
-    // Simula tempo de resposta do handshake de rede (40-160ms)
-    await new Promise(r => setTimeout(r, isOffline ? 250 : 35 + Math.floor(Math.random() * 45)));
+    // Simula tempo de resposta do handshake de rede (40ms)
+    await new Promise(r => setTimeout(r, isOffline ? 100 : 40));
     const latencia = isOffline ? null : (Date.now() - tempoInicio);
 
     let qualidade: 'excelente' | 'estavel' | 'lento' | 'offline' = 'excelente';
@@ -908,8 +911,8 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
     }
 
     const inicio = Date.now();
-    // Simula validação real em tempo de resposta de rede (200-380ms)
-    await new Promise(resolve => setTimeout(resolve, 200 + Math.floor(Math.random() * 120)));
+    // Validação de pré-configuração
+    await new Promise(resolve => setTimeout(resolve, 150));
     const latencia = Date.now() - inicio;
 
     // Constrói o checklist detalhado de validação técnica da pré-configuração

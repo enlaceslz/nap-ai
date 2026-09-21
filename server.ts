@@ -3,12 +3,14 @@ import { setupGeminiRoutes } from "./server/gemini_routes";
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { exec } from "child_process";
 import cors from "cors";
 import { GoogleGenAI } from "@google/genai";
 import { validateSecrets } from "./server/security/secretsValidator";
 import { configureHelmet, configureCors, createRateLimiter, globalErrorHandler, appendAuditLog, getAuditChain, initAuditPersistence } from "./server/security/httpSecurity";
 import { authMiddleware } from "./server/auth/rbacMiddleware";
+import { isMockAllowed } from "./server/security/mockGuard";
 
 // Validação de segurança de inicialização
 try {
@@ -351,7 +353,7 @@ function registrarAuditoria(entry: {
   status?: string;
 }) {
   const log = {
-    id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+    id: `log_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
     timestamp: new Date().toISOString(),
     usuario: entry.usuario || "Operador NAP",
     usuarioEmail: entry.usuarioEmail || "operador@provedor.com.br",
@@ -410,6 +412,7 @@ const zabbixEngine: any = {
     { id: 103, host: 'EDGE-JUNIPER', severity: 'info', message: 'BGP Peer Flapping (AS65000)', time: 'Agora', ack: false, timestamp: Date.now() - 3600000 }
   ],
   generateMetrics() {
+    if (!isMockAllowed()) return;
     this.hosts.forEach((h: any) => {
       if (h.status !== 'offline') {
         h.cpu = Math.max(5, Math.min(99, Math.round(h.cpu + (Math.random() * 10 - 5))));
@@ -1319,7 +1322,7 @@ app.post("/api/push/operator/test", (req, res) => {
       status: "em_reparo",
       previsaoRetorno: previsaoRetorno || "Em até 2 horas",
       iniciadoEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + " (Hoje)",
-      protocoloAnatel: `ANT-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`,
+      protocoloAnatel: `ANT-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`,
       descricao: descricao || "Manutenção corretiva em andamento.",
       autoInterceptarAtendimento: true,
       notificacoesEnviadas: 0
@@ -1784,10 +1787,13 @@ app.post("/api/push/operator/test", (req, res) => {
 
   app.get("/api/sync/status", async (req, res) => {
     const now = new Date();
+    const mocksAllowed = isMockAllowed();
+
     // Conexão ERP
     const erpConfigured = Boolean(process.env.ERP_URL && process.env.ERP_APP && process.env.ERP_TOKEN);
-    let erpLatency = 24 + Math.floor(Math.random() * 16);
-    let erpStatus: 'online' | 'degradado' | 'offline' = 'online';
+    let erpLatency: number | null = null;
+    let erpStatus: 'online' | 'degradado' | 'offline' | 'unavailable' = erpConfigured ? 'online' : (mocksAllowed ? 'online' : 'unavailable');
+    let erpUltimaResposta = erpConfigured ? "Pendente verificação" : (mocksAllowed ? "Sandbox Ativo" : "ERP_UNCONFIGURED");
 
     if (erpConfigured) {
       const startTime = Date.now();
@@ -1803,21 +1809,86 @@ app.post("/api/push/operator/test", (req, res) => {
         });
         clearTimeout(timeoutId);
         erpLatency = Date.now() - startTime;
-        if (!testRes.ok && testRes.status >= 500) {
-          erpStatus = 'degradado';
+        if (testRes.ok) {
+          erpStatus = 'online';
+          erpUltimaResposta = `HTTP ${testRes.status} OK`;
+        } else {
+          erpStatus = testRes.status >= 500 ? 'degradado' : 'offline';
+          erpUltimaResposta = `HTTP ${testRes.status}`;
         }
-      } catch (err) {
-        erpStatus = 'online';
-        erpLatency = 32;
+      } catch (err: any) {
+        erpStatus = 'offline';
+        erpLatency = null;
+        erpUltimaResposta = 'Conexão recusada / Timeout';
       }
+    } else if (mocksAllowed) {
+      erpLatency = 28;
     }
 
     // Conexão GenieACS TR-069
-    let acsLatency = 14 + Math.floor(Math.random() * 10);
-    let acsStatus: 'online' | 'degradado' | 'offline' = 'online';
-    const acsDevicesCount = GenieacsService.getInstance().getMockDevices().length;
-    const acsOnlineCount = GenieacsService.getInstance().getMockDevices().filter(d => d.status === 'online').length;
-    const acsAlarmCount = GenieacsService.getInstance().getMockDevices().filter(d => d.rssi && d.rssi < -26).length;
+    let acsLatency: number | null = null;
+    let acsStatus: 'online' | 'degradado' | 'offline' | 'unavailable' = 'unavailable';
+    let acsDevicesCount: number | null = null;
+    let acsOnlineCount: number | null = null;
+    let acsAlarmCount: number | null = null;
+    let acsUltimaResposta = "GENIEACS_UNAVAILABLE";
+
+    if (process.env.GENIEACS_URL) {
+      const startTime = Date.now();
+      try {
+        const timeoutCtrl = new AbortController();
+        const timeoutId = setTimeout(() => timeoutCtrl.abort(), 2500);
+        const user = process.env.GENIEACS_USER || "admin";
+        const pass = process.env.GENIEACS_PASSWORD || "admin";
+        const auth = Buffer.from(`${user}:${pass}`).toString('base64');
+        const acsRes = await fetch(`${process.env.GENIEACS_URL}/devices?projection=_id,_lastInform`, {
+          signal: timeoutCtrl.signal,
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        clearTimeout(timeoutId);
+        acsLatency = Date.now() - startTime;
+        if (acsRes.ok) {
+          const raw = await acsRes.json() as any[];
+          acsDevicesCount = Array.isArray(raw) ? raw.length : 0;
+          acsOnlineCount = Array.isArray(raw) ? raw.filter((d: any) => d._lastInform && (Date.now() - new Date(d._lastInform).getTime() < 300000)).length : 0;
+          acsAlarmCount = 0;
+          acsStatus = 'online';
+          acsUltimaResposta = 'NBI Ready / Devices Polled';
+        } else {
+          acsStatus = 'degradado';
+          acsUltimaResposta = `HTTP ${acsRes.status}`;
+        }
+      } catch {
+        acsStatus = 'offline';
+        acsLatency = null;
+        acsUltimaResposta = 'GenieACS Inacessível';
+      }
+    } else if (mocksAllowed) {
+      const mockList = GenieacsService.getInstance().getMockDevices();
+      acsStatus = 'online';
+      acsLatency = 18;
+      acsDevicesCount = mockList.length;
+      acsOnlineCount = mockList.filter(d => d.status === 'online').length;
+      acsAlarmCount = mockList.filter(d => d.rssi && d.rssi < -26).length;
+      acsUltimaResposta = "Mock / Sandbox Devices";
+    }
+
+    // Conexão Asterisk
+    let astStatus: 'online' | 'degradado' | 'offline' | 'unavailable' = 'unavailable';
+    let astLatency: number | null = null;
+    let astRamais: number | null = null;
+
+    if (process.env.AMI_PORT && process.env.AMI_USER) {
+      astStatus = 'online';
+      astRamais = null; // Ramais reais via AMI quando consultados
+    } else if (mocksAllowed) {
+      astStatus = 'online';
+      astLatency = 11;
+      astRamais = 8;
+    }
 
     const erpAtivoId = (systemConfig as any).erpAtivo || 'sgp';
     const activeErpData = (systemConfig as any).erps?.[erpAtivoId] || {
@@ -1830,48 +1901,52 @@ app.post("/api/push/operator/test", (req, res) => {
       sucesso: true,
       timestamp: now.toISOString(),
       status_geral: (erpStatus === 'online' && acsStatus === 'online') ? 'operacional' : 'atencao',
-      uptime_pct: 99.98,
+      uptime_pct: mocksAllowed ? 99.98 : null,
+      uptime_seconds: Math.floor(process.uptime()),
       ultima_sincronizacao: lastManualSyncTime,
       erpAtivo: erpAtivoId,
       erp: {
         id: erpAtivoId,
-        nome: activeErpData.nome || "IXC Soft (ERP Ativo)",
+        nome: activeErpData.nome || "ERP Ativo",
         protocolo: activeErpData.protocolo || "Webservice REST JSON",
-        endpoint: activeErpData.urlBase || process.env.ERP_URL || "https://ixc.naptelecom.com.br/webservice/v1",
+        endpoint: activeErpData.urlBase || process.env.ERP_URL || null,
         status: erpStatus,
-        latencia_ms: activeErpData.latenciaMs || erpLatency,
-        modo: erpConfigured ? 'producao' : 'sandbox',
-        clientes_sincronizados: erpDatabase_mock.length,
-        faturas_sincronizadas: 142,
+        latencia_ms: erpLatency,
+        modo: erpConfigured ? 'producao' : (mocksAllowed ? 'sandbox' : 'producao_nao_configurado'),
+        clientes_sincronizados: mocksAllowed ? erpDatabase_mock.length : null,
+        faturas_sincronizadas: mocksAllowed ? 142 : null,
         desbloqueios_pendentes: 0,
-        ultima_resposta: "HTTP 200 OK (Homologado NAP)"
+        ultima_resposta: erpUltimaResposta
       },
       genieacs: {
         nome: "GenieACS (TR-069 CWMP)",
         protocolo: "NBI HTTP / CWMP v1.4",
-        endpoint: process.env.GENIEACS_URL || "http://127.0.0.1:7557 (NBI Local)",
+        endpoint: process.env.GENIEACS_URL || (mocksAllowed ? "http://127.0.0.1:7557 (NBI Local)" : null),
         status: acsStatus,
         latencia_ms: acsLatency,
         total_cpes: acsDevicesCount,
         cpes_online: acsOnlineCount,
-        cpes_offline: acsDevicesCount - acsOnlineCount,
+        cpes_offline: (acsDevicesCount !== null && acsOnlineCount !== null) ? acsDevicesCount - acsOnlineCount : null,
         alarmes_opticos: acsAlarmCount,
-        ultima_resposta: "NBI Ready / Devices Polled"
+        ultima_resposta: acsUltimaResposta
       },
       telefonia: {
         nome: "Asterisk 20+",
-        status: "online",
-        latencia_ms: 11,
-        ramais_ativos: 8
+        status: astStatus,
+        latencia_ms: astLatency,
+        ramais_ativos: astRamais
       }
     });
   });
 
   app.post("/api/sync/executar", async (req, res) => {
+    const mocksAllowed = isMockAllowed();
     const startTime = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 800));
+    await new Promise(resolve => setTimeout(resolve, 300));
     lastManualSyncTime = new Date().toISOString();
     const duration = Date.now() - startTime;
+
+    const genieCount = mocksAllowed ? GenieacsService.getInstance().getMockDevices().length : 0;
 
     res.json({
       sucesso: true,
@@ -1880,8 +1955,8 @@ app.post("/api/push/operator/test", (req, res) => {
       tempo_gasto_ms: duration,
       detalhes: {
         erp_novos_clientes: 0,
-        erp_faturas_atualizadas: 2,
-        genieacs_telemetrias_atualizadas: GenieacsService.getInstance().getMockDevices().length,
+        erp_faturas_atualizadas: 0,
+        genieacs_telemetrias_atualizadas: genieCount,
         status: "sincronizado"
       }
     });

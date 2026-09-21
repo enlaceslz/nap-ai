@@ -1,5 +1,6 @@
 import { ErpAdapter, ClienteErpInfo, FaturaErpInfo, BaixaFaturaPayload, BaixaFaturaResult } from './ErpAdapterInterface';
 import axios from 'axios';
+import crypto from 'crypto';
 
 export class IxcAdapter implements ErpAdapter {
   private baseUrl: string;
@@ -89,7 +90,7 @@ export class IxcAdapter implements ErpAdapter {
     return {
       success: true,
       message: `Baixa processada no IXC Soft com sucesso via Webhook bancário.`,
-      receiptId: `IXC_REC_${Math.floor(100000 + Math.random() * 900000)}`
+      receiptId: `IXC_REC_${crypto.randomInt(100000, 999999)}`
     };
   }
 

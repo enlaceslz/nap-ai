@@ -1,5 +1,6 @@
 import express from 'express';
 import { GenieacsService } from './genieacsService';
+import { isMockAllowed } from '../security/mockGuard';
 import fetch from 'node-fetch'; // if available, or assume global fetch
 
 export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }: any) => {
@@ -57,7 +58,17 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
 
   router.get("/health", async (req, res) => {
     const isCustomConfigured = Boolean(process.env.GENIEACS_URL);
-    let latenciaMs = 12 + Math.floor(Math.random() * 12);
+    if (!isCustomConfigured && !isMockAllowed()) {
+      return res.status(503).json({
+        success: false,
+        status: "unavailable",
+        reason: "real_data_source_unavailable",
+        latenciaMs: null,
+        modo: "producao_desconectado"
+      });
+    }
+
+    let latenciaMs: number | null = isMockAllowed() ? 15 : null;
     try {
       if (isCustomConfigured) {
         const start = Date.now();
@@ -66,7 +77,7 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
       }
       res.json({ success: true, status: "conectado", latenciaMs, modo: isCustomConfigured ? "Nativo API" : "Mock Loopback" });
     } catch (err: any) {
-      res.json({ success: false, status: "desconectado", erro: err.message, latenciaMs: 0 });
+      res.json({ success: false, status: "desconectado", erro: err.message, latenciaMs: null });
     }
   });
 
@@ -77,6 +88,14 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
         const formatted = (rawDevices as any[]).map(mapGenieAcsDeviceToAppFormat);
         res.json({ success: true, devices: formatted });
       } else {
+        if (!isMockAllowed()) {
+          return res.status(503).json({
+            success: false,
+            status: "unavailable",
+            reason: "real_data_source_unavailable",
+            devices: []
+          });
+        }
         res.json({ success: true, devices: genieService.getMockDevices() });
       }
     } catch (err: any) {
@@ -188,6 +207,13 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
           }
         });
       } else {
+        if (!isMockAllowed()) {
+          return res.status(503).json({
+            success: false,
+            status: "unavailable",
+            reason: "real_data_source_unavailable"
+          });
+        }
         const device = genieService.getMockDevices().find(d => d._id === id || d.serialNumber === id);
         if (!device) return res.status(404).json({ error: "CPE não encontrado" });
         res.json({

@@ -528,9 +528,11 @@ export class GisService {
         const ctoLng = ctoFeature.geometry.coordinates[0];
         const ctoLat = ctoFeature.geometry.coordinates[1];
         
-        // Espalha as ONTs perto da CTO
-        const onuLng = ctoLng + (Math.random() * 0.003 - 0.0015);
-        const onuLat = ctoLat + (Math.random() * 0.003 - 0.0015);
+        // Espalha as ONTs perto da CTO de forma determinística
+        const angle = (idx * 137.5 * Math.PI) / 180;
+        const radius = 0.0005 + ((idx % 5) * 0.0003);
+        const onuLng = ctoLng + Math.cos(angle) * radius;
+        const onuLat = ctoLat + Math.sin(angle) * radius;
 
         // Atualiza Ocupação da CTO
         ctoFeature.properties.occupied = (ctoFeature.properties.occupied || 0) + 1;

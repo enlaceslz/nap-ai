@@ -3,6 +3,7 @@ import { mcpIpamTools } from "./ipamTools";
 import { AiPolicyEngine, RiskLevel, TOOL_POLICIES } from "./policyEngine";
 import { AuthenticatedUser } from "../auth/types";
 import { appendAuditLog } from "../security/httpSecurity";
+import crypto from "crypto";
 
 /**
  * Token interno e privado para impedir qualquer chamada direta a tool.execute()
@@ -471,7 +472,7 @@ agentToolRegistry.register({
   },
   execute: async ({ prompt }) => {
     const dados = {
-      os_numero: "OS-" + Math.floor(Math.random() * 90000 + 10000),
+      os_numero: "OS-" + crypto.randomInt(10000, 99999),
       tecnico_alocado: "Carlos (Viatura 04)",
       distancia_tecnico: "3.2 km",
       previsao_chegada: "Hoje entre 14:00 e 16:00",

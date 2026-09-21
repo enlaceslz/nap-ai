@@ -1,3 +1,5 @@
+import { randomInt } from 'crypto';
+
 export interface ZabbixHost {
   id: number;
   name: string;
@@ -90,7 +92,7 @@ export class ZabbixService {
     if (!host) return null;
 
     const newProblem: ZabbixProblem = {
-      id: Math.floor(Math.random() * 10000) + 1000,
+      id: randomInt(1000, 99999),
       host: host.name,
       severity,
       message,

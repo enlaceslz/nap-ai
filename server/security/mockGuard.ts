@@ -54,7 +54,21 @@ export function assertRealService(serviceName: string, detail?: string): void {
 
 /**
  * Verifica se o ambiente autoriza o uso de simulação / mock
+ * Somente permitido em: development, test, preview.
+ * NUNCA em: production.
  */
-export function areMocksAllowed(): boolean {
-  return process.env.NODE_ENV !== 'production';
+export function isMockAllowed(): boolean {
+  const env = (process.env.NODE_ENV || 'development').toLowerCase();
+  if (env === 'production') {
+    return false;
+  }
+  return ['development', 'test', 'preview'].includes(env) || env === '';
+}
+
+export const areMocksAllowed = isMockAllowed;
+
+export function assertNoMockAllowed(serviceName: string): void {
+  if (!isMockAllowed()) {
+    throw new Error(`[MOCK GUARD BLOCKED] Mock data is disabled in production for service: ${serviceName}`);
+  }
 }

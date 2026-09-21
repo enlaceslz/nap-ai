@@ -1,3 +1,5 @@
+import { isMockAllowed } from '../security/mockGuard';
+
 export interface GenieAcsDevice {
   _id: string;
   serialNumber: string;
@@ -102,6 +104,9 @@ export class GenieacsService {
   }
 
   public getMockDevices(): GenieAcsDevice[] {
+    if (!isMockAllowed()) {
+      throw new Error("Mock data is disabled in production");
+    }
     return this.mockDevices;
   }
 }
