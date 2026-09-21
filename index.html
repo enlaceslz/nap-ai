@@ -4,6 +4,51 @@
     <script>
       // Suprime avisos benignos de websocket/HMR do cliente Vite no ambiente sandboxed do AI Studio
       (function() {
+        if (typeof window !== 'undefined' && window.WebSocket) {
+          var RealWebSocket = window.WebSocket;
+          window.WebSocket = function(url, protocols) {
+            var urlStr = String(url || '');
+            var protoStr = String(protocols || '');
+            if (
+              urlStr.indexOf('vite-hmr') !== -1 ||
+              urlStr.indexOf('token=') !== -1 ||
+              urlStr.indexOf(':24678') !== -1 ||
+              urlStr.indexOf(':5173') !== -1 ||
+              protoStr.indexOf('vite-hmr') !== -1 ||
+              protoStr.indexOf('vite-ping') !== -1
+            ) {
+              var target = new EventTarget();
+              target.readyState = 1; // WebSocket.OPEN
+              target.OPEN = 1;
+              target.CONNECTING = 0;
+              target.CLOSING = 2;
+              target.CLOSED = 3;
+              target.url = urlStr;
+              target.protocol = 'vite-hmr';
+              target.send = function() {};
+              target.close = function() {
+                target.readyState = 3;
+                var ev = new Event('close');
+                target.dispatchEvent(ev);
+                if (typeof target.onclose === 'function') target.onclose(ev);
+              };
+              setTimeout(function() {
+                target.readyState = 1;
+                var ev = new Event('open');
+                target.dispatchEvent(ev);
+                if (typeof target.onopen === 'function') target.onopen(ev);
+              }, 10);
+              return target;
+            }
+            return new RealWebSocket(url, protocols);
+          };
+          window.WebSocket.prototype = RealWebSocket.prototype;
+          window.WebSocket.CONNECTING = 0;
+          window.WebSocket.OPEN = 1;
+          window.WebSocket.CLOSING = 2;
+          window.WebSocket.CLOSED = 3;
+        }
+
         var _err = console.error;
         var _warn = console.warn;
         var _info = console.info;

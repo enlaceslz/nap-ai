@@ -71,70 +71,14 @@ import { setupPaymentRoutes } from "./server/payments";
 import { GenieacsService } from "./server/genieacs/genieacsService";
 import { authRouter } from "./server/auth/authRoutes";
 import { requireRole, requireAuth } from "./server/auth/rbacMiddleware";
+import { devMockWabaChats, devMockWabaMessages } from "./test/fixtures/wabaMocks";
+import { devMockErpDatabase } from "./test/fixtures/erpMocks";
+import { devMockUsuariosProvedor } from "./test/fixtures/userMocks";
 
 const app = express();
 const PORT = 3000;
 
   connectARI();
-
-let mockWabaChats: any[] = [
-  {
-    id: 1,
-    canal: "whatsapp",
-    contatoId: 9982,
-    nomeCliente: "Maria Oliveira",
-    telefone: "(11) 98765-4321",
-    status: "aberta",
-    fila: "Suporte Técnico N1",
-    prioridade: 1,
-    updatedAt: new Date()
-  },
-  {
-    id: 2,
-    canal: "whatsapp",
-    contatoId: 9985,
-    nomeCliente: "Carlos Eduardo Silva",
-    telefone: "(11) 97654-3210",
-    status: "aberta",
-    fila: "Financeiro & Cobrança",
-    prioridade: 2,
-    updatedAt: new Date()
-  },
-  {
-    id: 3,
-    canal: "webchat",
-    contatoId: 9990,
-    nomeCliente: "Fernanda Costa",
-    telefone: "(11) 96543-2109",
-    status: "aberta",
-    fila: "Vendas & Upgrades",
-    prioridade: 3,
-    updatedAt: new Date()
-  },
-  {
-    id: 4,
-    canal: "whatsapp",
-    contatoId: 9999,
-    nomeCliente: "João Cliente (Teste IA)",
-    telefone: "(11) 91111-2222",
-    status: "triagem_ia",
-    fila: "Triagem IA",
-    prioridade: 1,
-    updatedAt: new Date()
-  }
-];
-
-let mockWabaMessages: any[] = [
-  { id: 1, conversaId: 1, remetente: "cliente", conteudo: "Olá, bom dia! Notei uma pequena oscilação na velocidade da internet aqui em casa.", status: "lido", createdAt: new Date(Date.now() - 3600000) },
-  { id: 2, conversaId: 1, remetente: "ia", conteudo: "Olá, Maria! Verifiquei sua ONU no sistema SGP: o sinal óptico está em -19.4 dBm (excelente) e a sessão PPPoE está ativa há 15 dias. Como posso te auxiliar no diagnóstico?", status: "lido", createdAt: new Date(Date.now() - 3500000) },
-  { id: 3, conversaId: 1, remetente: "operador", autorTipo: "operador", tipo: "nota_interna", conteudo: "Cliente ligou ontem com o mesmo sintoma. Roteador dela é Wi-Fi 5 dual-band no canal 36.", status: "entregue", createdAt: new Date(Date.now() - 3400000) },
-  { id: 4, conversaId: 1, remetente: "cliente", conteudo: "Estou usando o Wi-Fi no quarto do fundo. Poderia verificar se o roteador precisa ser reiniciado?", status: "entregue", createdAt: new Date(Date.now() - 3300000) },
-  { id: 5, conversaId: 2, remetente: "cliente", conteudo: "Bom dia! Gostaria de pagar minha mensalidade via PIX, pode me mandar a chave copia e cola?", status: "lido", createdAt: new Date(Date.now() - 2500000) },
-  { id: 6, conversaId: 2, remetente: "ia", conteudo: "Com certeza, Carlos! Estou localizando sua fatura com vencimento em 05/09.", status: "lido", createdAt: new Date(Date.now() - 2400000) },
-  { id: 7, conversaId: 3, remetente: "cliente", conteudo: "Olá, gostaria de saber se é possível fazer o upgrade para o roteador Wi-Fi 6 Mesh.", status: "lido", createdAt: new Date(Date.now() - 1500000) },
-  { id: 8, conversaId: 3, remetente: "ia", conteudo: "Olá Fernanda! Claro que sim. Como você já é assinante do plano 1GB Gamer, a troca para o roteador Wi-Fi 6 Mesh tem custo de apenas R$ 49,90 na próxima fatura.", status: "entregue", createdAt: new Date(Date.now() - 1400000) },
-  { id: 10, conversaId: 4, remetente: "ia", conteudo: "Olá João! Sou o MaIA do DJD Telecom. Identifiquei seu contrato, como posso ajudar hoje?", status: "entregue", createdAt: new Date(Date.now() - 500000) }
-];
 
 // Credenciais Nativas Pré-configuradas do Sistema (Padrão Factory / Ambiente VPS)
 const ERP_URL = process.env.ERP_URL || process.env.SGP_URL || "";
@@ -404,170 +348,8 @@ function registrarAuditoria(entry: {
   return log;
 }
 
-// --- Zabbix Engine ---
-const zabbixEngine: any = {
-  config: {
-    url: ZABBIX_URL,
-    token: ZABBIX_TOKEN
-  },
-  hosts: [
-    { id: 1001, name: 'OLT-HUAWEI-01 (Centro)', ip: '10.0.0.10', cpu: 45, ram: 60, temp: 42, uptime: '45d 12h', status: 'online' },
-    { id: 1002, name: 'OLT-ZTE-02 (Norte)', ip: '10.0.0.11', cpu: 78, ram: 55, temp: 64, uptime: '12d 03h', status: 'online' },
-    { id: 1003, name: 'OLT-DATACOM-03 (Sul)', ip: '10.0.0.12', cpu: 20, ram: 30, temp: 38, uptime: '110d 09h', status: 'online' },
-    { id: 1004, name: 'CORE-MIKROTIK-CCR', ip: '10.0.0.1', cpu: 80, ram: 40, temp: 45, uptime: '200d 14h', status: 'warning' },
-    { id: 1005, name: 'EDGE-JUNIPER', ip: '172.16.0.1', cpu: 30, ram: 30, temp: 35, uptime: '30d 01h', status: 'online' }
-  ],
-  problems: [
-    { id: 101, host: 'OLT-HUAWEI-01 (Centro)', severity: 'critical', message: 'PON 0/1/3 LOS (Loss of Signal)', time: 'Agora', ack: false, timestamp: Date.now() - 600000 },
-    { id: 103, host: 'EDGE-JUNIPER', severity: 'info', message: 'BGP Peer Flapping (AS65000)', time: 'Agora', ack: false, timestamp: Date.now() - 3600000 }
-  ],
-  generateMetrics() {
-    if (!isMockAllowed()) return;
-    this.hosts.forEach((h: any) => {
-      if (h.status !== 'offline') {
-        h.cpu = Math.max(5, Math.min(99, Math.round(h.cpu + (Math.random() * 10 - 5))));
-        h.temp = Math.max(30, Math.min(80, Math.round(h.temp + (Math.random() * 4 - 2))));
-        h.ram = Math.max(20, Math.min(95, Math.round(h.ram + (Math.random() * 2 - 1))));
-      }
-    });
-  }
-};
-
 // --- Push Notifications History ---
 const pushNotificationsHistory: any[] = [];
-
-// --- Mock ERP Database ---
-const erpDatabase_mock: any[] = [
-  { id: 1, nome: "Carlos Eduardo Silva", cpf: "123.456.789-00", plano: "Fibra 500MB", status: "ativo", onu_mac: "48:57:02:11:22:33" },
-  { id: 2, nome: "Ana Beatriz Santos", cpf: "234.567.890-11", plano: "Fibra 700MB Gamer", status: "ativo", onu_mac: "48:57:02:44:55:66" },
-  { id: 3, nome: "Roberto Albuquerque", cpf: "345.678.901-22", plano: "Fibra 300MB", status: "bloqueado", onu_mac: "48:57:02:77:88:99" },
-  { id: 4, nome: "Juliana Mendes", cpf: "456.789.012-33", plano: "Fibra 1GB Turbo", status: "ativo", onu_mac: "48:57:02:AA:BB:CC" },
-  { id: 5, nome: "Marcos Vinicius", cpf: "567.890.123-44", plano: "Fibra 500MB", status: "ativo", onu_mac: "48:57:02:DD:EE:FF" }
-];
-
-// --- Mock Usuários do Provedor (Hierarquia e Permissões) ---
-const usuariosProvedor: any[] = [
-  {
-    id: 1,
-    nome: "André Pereira",
-    email: "andreljp@gmail.com",
-    username: "andre.admin",
-    cargo: "admin",
-    nivel_hierarquia: 1,
-    cargo_label: "Diretor Geral / SuperAdmin",
-    ramal: "1000",
-    status: "online",
-    status_label: "Disponível",
-    filas: ["Diretoria", "NOC N3", "Acesso Total"],
-    telefone: "(11) 98888-0001",
-    geolocalizacao: {
-      ativo: true,
-      lat: -23.55052,
-      lng: -46.633308,
-      precisao_metros: 5,
-      endereco_estimado: "Sede Central - Av. Paulista, 1000",
-      velocidade_kmh: 0,
-      bateria_percentual: 98,
-      atualizado_em: "Agora"
-    },
-    pwa: {
-      instalado: true,
-      dispositivo: "Desktop / Chrome",
-      push_ativo: true,
-      ultimo_acesso: "Agora"
-    }
-  },
-  {
-    id: 2,
-    nome: "Camila Rocha",
-    email: "camila.operadora@naptelecom.com.br",
-    username: "camila.atendimento",
-    cargo: "operador",
-    nivel_hierarquia: 2,
-    cargo_label: "Operadora de Atendimento & Suporte",
-    ramal: "2001",
-    status: "online",
-    status_label: "Em Atendimento",
-    filas: ["Suporte N1", "Financeiro / Faturas", "WhatsApp WABA"],
-    telefone: "(11) 97777-1002",
-    geolocalizacao: {
-      ativo: false,
-      lat: -23.55320,
-      lng: -46.63540,
-      precisao_metros: 10,
-      endereco_estimado: "Central de Atendimento",
-      velocidade_kmh: 0,
-      bateria_percentual: 85,
-      atualizado_em: "Há 10 min"
-    },
-    pwa: {
-      instalado: true,
-      dispositivo: "Mobile / iOS",
-      push_ativo: true,
-      ultimo_acesso: "Agora"
-    }
-  },
-  {
-    id: 3,
-    nome: "Lucas Ferreira",
-    email: "lucas.campo@naptelecom.com.br",
-    username: "lucas.tecnico",
-    cargo: "tecnico_campo",
-    nivel_hierarquia: 3,
-    cargo_label: "Técnico de Instalação & Reparo",
-    veiculo: "Fiorino Branca #04",
-    status: "em_rota",
-    status_label: "Em Deslocamento",
-    filas: ["Instalação Fibra", "Reparo Óptico"],
-    telefone: "(11) 96666-2003",
-    geolocalizacao: {
-      ativo: true,
-      lat: -23.54890,
-      lng: -46.63890,
-      precisao_metros: 8,
-      endereco_estimado: "Rua Augusta, 450 - Consolação",
-      velocidade_kmh: 38,
-      bateria_percentual: 72,
-      atualizado_em: "Há 2 min"
-    },
-    pwa: {
-      instalado: true,
-      dispositivo: "Android / PWA Campo",
-      push_ativo: true,
-      ultimo_acesso: "Há 2 min"
-    }
-  },
-  {
-    id: 4,
-    nome: "Rodrigo Matos",
-    email: "rodrigo.noc@naptelecom.com.br",
-    username: "rodrigo.noc",
-    cargo: "tecnico_noc",
-    nivel_hierarquia: 3,
-    cargo_label: "Especialista NOC N2",
-    veiculo: "Unidade Móvel NOC #01",
-    status: "no_cliente",
-    status_label: "Atendimento no Cliente",
-    filas: ["BGP / OLTs", "Rompimentos de Fibra"],
-    telefone: "(11) 95555-3004",
-    geolocalizacao: {
-      ativo: true,
-      lat: -23.56010,
-      lng: -46.64520,
-      precisao_metros: 6,
-      endereco_estimado: "Alameda Santos, 1200 - Jardins",
-      velocidade_kmh: 0,
-      bateria_percentual: 88,
-      atualizado_em: "Há 5 min"
-    },
-    pwa: {
-      instalado: true,
-      dispositivo: "Android / PWA Campo",
-      push_ativo: true,
-      ultimo_acesso: "Há 5 min"
-    }
-  }
-];
 
 // --- API Routes ---
 
@@ -620,24 +402,69 @@ app.get("/api/health", async (req, res) => {
 });
 
 // Lista de Usuários e Resumo de Hierarquia
-app.get("/api/usuarios", (req, res) => {
+app.get("/api/usuarios", async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      const dbUsers = await db.select({
+        id: users.id,
+        nome: users.nome,
+        email: users.email,
+        cargo: users.cargo,
+        ativo: users.ativo,
+        ramal: users.ramal,
+        createdAt: users.createdAt
+      }).from(users);
+      return res.json({
+        sucesso: true,
+        total: dbUsers.length,
+        usuarios: dbUsers,
+        resumo_hierarquia: {
+          admin: dbUsers.filter(u => u.cargo === 'ADMIN' || u.cargo === 'admin').length,
+          operador: dbUsers.filter(u => u.cargo === 'OPERADOR' || u.cargo === 'operador').length,
+          tecnico: dbUsers.filter(u => u.cargo?.includes('TECNICO') || u.cargo?.includes('tecnico')).length,
+          com_geolocalizacao: 0,
+          pwa_ativo: 0
+        }
+      });
+    } catch (e: any) {
+      return res.status(503).json({
+        sucesso: false,
+        status: "unavailable",
+        error: "Banco de dados indisponível em produção.",
+        total: 0,
+        usuarios: []
+      });
+    }
+  }
+
   res.json({
     sucesso: true,
-    total: usuariosProvedor.length,
-    usuarios: usuariosProvedor,
+    total: devMockUsuariosProvedor.length,
+    usuarios: devMockUsuariosProvedor,
     resumo_hierarquia: {
-      admin: usuariosProvedor.filter(u => u.cargo === 'admin').length,
-      operador: usuariosProvedor.filter(u => u.cargo === 'operador').length,
-      tecnico: usuariosProvedor.filter(u => u.cargo === 'tecnico_campo' || u.cargo === 'tecnico_noc').length,
-      com_geolocalizacao: usuariosProvedor.filter(u => u.geolocalizacao?.ativo).length,
-      pwa_ativo: usuariosProvedor.filter(u => u.pwa?.push_ativo).length
+      admin: devMockUsuariosProvedor.filter(u => u.cargo === 'admin').length,
+      operador: devMockUsuariosProvedor.filter(u => u.cargo === 'operador').length,
+      tecnico: devMockUsuariosProvedor.filter(u => u.cargo === 'tecnico_campo' || u.cargo === 'tecnico_noc').length,
+      com_geolocalizacao: devMockUsuariosProvedor.filter(u => u.geolocalizacao?.ativo).length,
+      pwa_ativo: devMockUsuariosProvedor.filter(u => u.pwa?.push_ativo).length
     }
   });
 });
 
 // Mapa de Técnicos em Campo (GIS e Ordens de Serviço)
 app.get("/api/tecnicos/mapa", (req, res) => {
-  const tecnicos = usuariosProvedor.filter(u => u.cargo === 'tecnico_campo' || u.cargo === 'tecnico_noc');
+  if (process.env.NODE_ENV === 'production') {
+    return res.json({
+      sucesso: true,
+      total_tecnicos_campo: 0,
+      tecnicos_em_deslocamento: 0,
+      tecnicos_em_atendimento: 0,
+      tecnicos: [],
+      ordens_servico: []
+    });
+  }
+
+  const tecnicos = devMockUsuariosProvedor.filter(u => u.cargo === 'tecnico_campo' || u.cargo === 'tecnico_noc');
   res.json({
     sucesso: true,
     total_tecnicos_campo: tecnicos.length,
@@ -893,8 +720,8 @@ app.post("/api/push/operator/test", (req, res) => {
       };
 
       if (systemConfig.zabbix) {
-        zabbixEngine.config.url = systemConfig.zabbix.urlJsonRpc;
-        zabbixEngine.config.token = systemConfig.zabbix.apiToken;
+        process.env.ZABBIX_URL = systemConfig.zabbix.urlJsonRpc;
+        process.env.ZABBIX_TOKEN = systemConfig.zabbix.apiToken;
       }
 
       registrarAuditoria({
@@ -2283,7 +2110,7 @@ app.post("/api/push/operator/test", (req, res) => {
         status: erpStatus,
         latencia_ms: erpLatency,
         modo: erpConfigured ? 'producao' : (mocksAllowed ? 'sandbox' : 'producao_nao_configurado'),
-        clientes_sincronizados: mocksAllowed ? erpDatabase_mock.length : null,
+        clientes_sincronizados: mocksAllowed ? devMockErpDatabase.length : null,
         faturas_sincronizadas: mocksAllowed ? 142 : null,
         desbloqueios_pendentes: 0,
         ultima_resposta: erpUltimaResposta
@@ -2345,7 +2172,7 @@ setupPortalRoutes(app);
 setupGenieacsRoutes(app, { registrarAuditoria });
 setupCommunicationsRoutes(app, { registrarAuditoria });
 setupFieldRoutes(app, { registrarAuditoria });
-setupWabaRoutes(app, mockWabaChats, mockWabaMessages);
+setupWabaRoutes(app, isMockAllowed() ? devMockWabaChats : [], isMockAllowed() ? devMockWabaMessages : []);
 app.use("/api/gis", gisRoutes);
 app.use("/api/ai", aiRoutes);
 
@@ -2372,12 +2199,36 @@ app.use("/api/ai", aiRoutes);
     });
   });
 
+  // Bloqueio Absoluto do Setup Wizard em Produção:
+  // Em NODE_ENV=production, qualquer rota /api/setup/* é terminantemente proibida com HTTP 403 Forbidden.
+  app.use("/api/setup", (req, res, next) => {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(403).json({
+        error: "Setup Wizard permanentemente desabilitado em ambiente de produção (NODE_ENV=production).",
+        code: "SETUP_FORBIDDEN_IN_PRODUCTION",
+        status: "locked"
+      });
+    }
+    next();
+  });
+
   // Helper de elegibilidade e segurança do Setup Wizard
   async function checkSetupEligibility() {
     const isProd = process.env.NODE_ENV === "production";
+    const isBootstrap = process.env.NODE_ENV === "bootstrap";
     const setupEnabled = process.env.SETUP_ENABLED === "true";
-    const allowOverride = process.env.SETUP_ALLOW_OVERRIDE === "true";
-    
+
+    // Regra Inviolável 1: Em produção, o Setup Wizard é terminantemente bloqueado sob qualquer hipótese.
+    if (isProd) {
+      return {
+        allowed: false,
+        reason: "Setup Wizard permanentemente desabilitado em ambiente de produção (NODE_ENV=production).",
+        isProd: true,
+        hasAdmin: false,
+        dbAvailable: false
+      };
+    }
+
     let hasAdmin = false;
     let dbAvailable = false;
 
@@ -2390,23 +2241,23 @@ app.use("/api/ai", aiRoutes);
       dbAvailable = false;
     }
 
-    // Regra 1: Em produção, SETUP_ENABLED deve ser explicitamente true
-    if (isProd && !setupEnabled) {
+    // Regra 2: Provisionamento só é permitido se SETUP_ENABLED=true no modo bootstrap ou desenvolvimento
+    if (!setupEnabled && !isBootstrap) {
       return {
         allowed: false,
-        reason: "Setup Wizard bloqueado em ambiente de produção (SETUP_ENABLED != true).",
-        isProd,
+        reason: "Setup Wizard desabilitado (SETUP_ENABLED != true e NODE_ENV != bootstrap).",
+        isProd: false,
         hasAdmin,
         dbAvailable
       };
     }
 
-    // Regra 2: Em produção com banco já provisionado com admin e sem permissão explícita de override
-    if (isProd && hasAdmin && !allowOverride) {
+    // Regra 3: Se já possui administrador provisionado no banco, bloqueia novas execuções
+    if (hasAdmin) {
       return {
         allowed: false,
-        reason: "Instância de produção já provisionada com administrador ativo. Reconfiguração bloqueada sem SETUP_ALLOW_OVERRIDE=true.",
-        isProd,
+        reason: "Instância já provisionada com administrador ativo no banco de dados.",
+        isProd: false,
         hasAdmin,
         dbAvailable
       };
@@ -2414,8 +2265,8 @@ app.use("/api/ai", aiRoutes);
 
     return {
       allowed: true,
-      reason: "Setup Wizard autorizado para provisionamento.",
-      isProd,
+      reason: "Setup Wizard autorizado para provisionamento em modo bootstrap/desenvolvimento.",
+      isProd: false,
       hasAdmin,
       dbAvailable
     };
@@ -2460,7 +2311,7 @@ app.use("/api/ai", aiRoutes);
       return res.status(403).json({ error: eligibility.reason });
     }
 
-    const { adminEmail, adminPassword, sgpUrl, sgpApp, sgpToken, geminiApiKey, amiUser, amiPassword } = req.body;
+    const { adminEmail, adminPassword, sgpUrl, sgpApp, geminiApiKey, amiUser } = req.body;
     
     if (!adminEmail || !adminPassword) {
       return res.status(400).json({ error: "Email e senha do administrador são obrigatórios" });
@@ -2489,19 +2340,22 @@ app.use("/api/ai", aiRoutes);
         }
       });
 
-      // 3. Gravar .env — REGRA CRÍTICA: NUNCA adicionar ADMIN_PASSWORD ao .env
-      const envContent = `\
-GEMINI_API_KEY="${geminiApiKey || ''}"\
-SGP_URL="${sgpUrl || ''}"\
-SGP_APP="${sgpApp || ''}"\
-SGP_TOKEN="${sgpToken || ''}"\
-AMI_USER="${amiUser || ''}"\
-AMI_PASSWORD="${amiPassword || ''}"\
-DATABASE_URL="${process.env.DATABASE_URL || ''}"\
-GENIEACS_URL="${process.env.GENIEACS_URL || 'http://127.0.0.1:7557'}"\
-ADMIN_EMAIL="${adminEmail}"\
-SETUP_ENABLED="false"\
-`;
+      // 3. Gravar .env — REGRA CRÍTICA: NUNCA adicionar ADMIN_PASSWORD nem senhas em texto puro ao .env
+      // O usuário administrador e seu hash bcrypt são armazenados exclusivamente no PostgreSQL
+      const safeEnvLines = [
+        `# Configurações do Provedor NAP (Provisionado em modo Bootstrap)`,
+        `NODE_ENV="${process.env.NODE_ENV === 'bootstrap' ? 'production' : (process.env.NODE_ENV || 'development')}"`,
+        `SGP_URL="${sgpUrl || ''}"`,
+        `SGP_APP="${sgpApp || ''}"`,
+        `AMI_USER="${amiUser || ''}"`,
+        `GENIEACS_URL="${process.env.GENIEACS_URL || 'http://127.0.0.1:7557'}"`,
+        `ADMIN_EMAIL="${adminEmail}"`,
+        `SETUP_ENABLED="false"`
+      ];
+      if (geminiApiKey) {
+        safeEnvLines.push(`GEMINI_API_KEY="${geminiApiKey}"`);
+      }
+      const envContent = safeEnvLines.join("\n") + "\n";
 
       fs.writeFileSync(path.join(process.cwd(), ".env"), envContent, { mode: 0o600 });
       console.log("[SETUP] Configurações gravadas com sucesso. Senha do administrador armazenada estritamente como hash no PostgreSQL.");
@@ -2543,7 +2397,7 @@ SETUP_ENABLED="false"\
       try {
         const { createServer: createViteServer } = await import("vite");
         const vite = await createViteServer({
-          server: { middlewareMode: true, hmr: false },
+          server: { middlewareMode: true },
           appType: "spa",
         });
         app.use(vite.middlewares);

@@ -427,6 +427,73 @@ export async function flushAuditOutbox(): Promise<void> {
   }
 }
 
+/**
+ * Sanitiza dados sensíveis (senhas, tokens, secrets, chaves privadas, etc.)
+ * antes de registrar em trilhas de auditoria, hashes ou persistência no PostgreSQL.
+ */
+export function sanitizeAuditPayload(data: any): any {
+  if (data === null || data === undefined) {
+    return data;
+  }
+
+  if (typeof data === 'string') {
+    const trimmed = data.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return JSON.stringify(sanitizeAuditPayload(parsed));
+      } catch {
+        // Segue para sanitização via regex
+      }
+    }
+
+    let sanitized = data;
+    sanitized = sanitized.replace(/(bearer\s+)[a-zA-Z0-9_\-\.]{10,}/gi, '$1[REDACTED_TOKEN]');
+    sanitized = sanitized.replace(/(password|senha|secret|token|apikey|api_key|gemini_api_key|admin_password|ami_password|sgp_token|jwt_secret)\s*[:=]\s*["']?[^"'\s,;]+["']?/gi, '$1=[REDACTED]');
+    sanitized = sanitized.replace(/(\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53})/g, '[REDACTED_BCRYPT_HASH]');
+    return sanitized;
+  }
+
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeAuditPayload(item));
+  }
+
+  if (typeof data === 'object') {
+    const sensitiveKeyPatterns = [
+      /password/i,
+      /senha/i,
+      /secret/i,
+      /token/i,
+      /apikey/i,
+      /api_key/i,
+      /auth/i,
+      /bearer/i,
+      /credential/i,
+      /private_key/i,
+      /privatekey/i,
+      /hash/i,
+      /cvv/i
+    ];
+
+    const result: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data)) {
+      const isSensitive = sensitiveKeyPatterns.some(pattern => pattern.test(key));
+      if (isSensitive) {
+        result[key] = '[REDACTED_SENSITIVE_DATA]';
+      } else if (typeof value === 'object' && value !== null) {
+        result[key] = sanitizeAuditPayload(value);
+      } else if (typeof value === 'string') {
+        result[key] = sanitizeAuditPayload(value);
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
+  }
+
+  return data;
+}
+
 // Timer de background para tentar descarregar o buffer a cada 10 segundos se houver itens
 if (typeof setInterval !== 'undefined') {
   const auditTimer = setInterval(() => {
@@ -444,12 +511,22 @@ export function appendAuditLog(entry: Omit<AppendOnlyAuditLog, 'id' | 'timestamp
   const timestamp = new Date().toISOString();
   const previousHash = lastHash;
 
-  const rawString = `${id}|${timestamp}|${entry.usuario}|${entry.modulo}|${entry.acao}|${entry.detalhes}|${previousHash}`;
+  // Sanitização rigorosa contra vazamento de segredos antes do cálculo do hash e persistência
+  const sanitizedDetalhes = typeof entry.detalhes === 'string'
+    ? sanitizeAuditPayload(entry.detalhes)
+    : (entry.detalhes ? JSON.stringify(sanitizeAuditPayload(entry.detalhes)) : '');
+
+  const sanitizedEntry = {
+    ...entry,
+    detalhes: sanitizedDetalhes
+  };
+
+  const rawString = `${id}|${timestamp}|${sanitizedEntry.usuario}|${sanitizedEntry.modulo}|${sanitizedEntry.acao}|${sanitizedEntry.detalhes}|${previousHash}`;
   const entryHash = crypto.createHash('sha256').update(rawString).digest('hex');
   lastHash = entryHash;
 
   const logEntry: AppendOnlyAuditLog = {
-    ...entry,
+    ...sanitizedEntry,
     id,
     timestamp,
     previousHash,
@@ -533,11 +610,21 @@ export async function recordMandatoryAuditLog(
   const timestamp = new Date().toISOString();
   const previousHash = lastHash;
 
-  const rawString = `${id}|${timestamp}|${entry.usuario}|${entry.modulo}|${entry.acao}|${entry.detalhes}|${previousHash}`;
+  // Sanitização rigorosa de segredos antes do cálculo criptográfico
+  const sanitizedDetalhes = typeof entry.detalhes === 'string'
+    ? sanitizeAuditPayload(entry.detalhes)
+    : (entry.detalhes ? JSON.stringify(sanitizeAuditPayload(entry.detalhes)) : '');
+
+  const sanitizedEntry = {
+    ...entry,
+    detalhes: sanitizedDetalhes
+  };
+
+  const rawString = `${id}|${timestamp}|${sanitizedEntry.usuario}|${sanitizedEntry.modulo}|${sanitizedEntry.acao}|${sanitizedEntry.detalhes}|${previousHash}`;
   const entryHash = crypto.createHash('sha256').update(rawString).digest('hex');
 
   const logEntry: AppendOnlyAuditLog = {
-    ...entry,
+    ...sanitizedEntry,
     id,
     timestamp,
     previousHash,

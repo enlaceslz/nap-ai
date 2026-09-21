@@ -4,7 +4,7 @@ import { users } from '../../src/db/schema';
 import { eq } from 'drizzle-orm';
 import { generateAuthToken, requireAuth } from './rbacMiddleware';
 import { verifyPassword, hashPassword } from './passwordUtils';
-import { appendAuditLog } from '../security/httpSecurity';
+import { appendAuditLog, recordMandatoryAuditLog } from '../security/httpSecurity';
 import { UserRole, ROLE_PERMISSIONS } from './types';
 
 export const authRouter = Router();
@@ -37,15 +37,17 @@ authRouter.post('/login', async (req: Request, res: Response) => {
 
     if (dbUser) {
       if (!dbUser.ativo) {
-        appendAuditLog({
+        await recordMandatoryAuditLog({
           usuario: normalizedEmail,
           modulo: 'AUTENTICACAO',
           acao: 'LOGIN_BLOQUEADO',
           detalhes: 'Tentativa de login de usuário desativado.',
-          severidade: 'atencao',
+          categoria: 'seguranca',
+          severidade: 'critico',
           ip,
-          status: 'falha'
-        });
+          userAgent,
+          status: 'bloqueado'
+        }).catch(() => {});
         return res.status(403).json({ error: 'Usuário desativado pelo administrador.' });
       }
 
@@ -58,6 +60,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
           detalhes: 'Senha incorreta para usuário existente.',
           severidade: 'atencao',
           ip,
+          userAgent,
           status: 'falha'
         });
         return res.status(401).json({ error: 'Credenciais inválidas.' });
@@ -71,17 +74,22 @@ authRouter.post('/login', async (req: Request, res: Response) => {
         role
       });
 
-      appendAuditLog({
+      await recordMandatoryAuditLog({
         usuario: dbUser.email,
         usuarioEmail: dbUser.email,
         usuarioRole: role,
         modulo: 'AUTENTICACAO',
         acao: 'LOGIN_SUCESSO',
         detalhes: `Login realizado com sucesso via PostgreSQL. Cargo: ${role}`,
-        severidade: 'info',
+        categoria: 'autenticacao',
+        severidade: 'critico',
         ip,
         userAgent,
         status: 'sucesso'
+      }).catch(err => {
+        if (process.env.NODE_ENV === 'production') {
+          throw err;
+        }
       });
 
       return res.json({
@@ -148,18 +156,19 @@ authRouter.get('/me', requireAuth, (req: Request, res: Response) => {
 });
 
 // Logout
-authRouter.post('/logout', (req: Request, res: Response) => {
+authRouter.post('/logout', async (req: Request, res: Response) => {
   if (req.user) {
-    appendAuditLog({
+    await recordMandatoryAuditLog({
       usuario: req.user.email,
       usuarioRole: req.user.role,
       modulo: 'AUTENTICACAO',
       acao: 'LOGOUT',
       detalhes: 'Sessão encerrada pelo usuário.',
+      categoria: 'autenticacao',
       severidade: 'info',
       ip: req.user.ip || '127.0.0.1',
       status: 'sucesso'
-    });
+    }).catch(() => {});
   }
   return res.json({ success: true, message: 'Logout realizado com sucesso.' });
 });
