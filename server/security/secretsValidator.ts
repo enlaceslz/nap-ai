@@ -244,7 +244,8 @@ export function validateSecrets(options?: {
     modulosAtivos.push('GenieACS TR-069');
     const acsSpecs: SecretSpec[] = [
       { chave: 'GENIEACS_URL', descricao: 'URL da API NBI do GenieACS' },
-      { chave: 'GENIEACS_AUTH', descricao: 'Credenciais de autenticação NBI GenieACS', aliases: ['GENIEACS_PASSWORD'] }
+      { chave: 'GENIEACS_AUTH', descricao: 'Credenciais de autenticação NBI GenieACS', aliases: ['GENIEACS_PASSWORD'] },
+      { chave: 'GENIEACS_UI_JWT_SECRET', descricao: 'Secret JWT da interface web do GenieACS (porta 3005)', minLen: 32 }
     ];
 
     for (const spec of acsSpecs) {

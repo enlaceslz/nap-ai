@@ -106,7 +106,14 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
   router.post("/devices/:id/reboot", async (req, res) => {
     const { id } = req.params;
     try {
-      if (process.env.GENIEACS_URL) {
+      if (!process.env.GENIEACS_URL) {
+        if (!isMockAllowed()) {
+          return res.status(503).json({
+            success: false,
+            error: "GenieACS não configurado ou inacessível em ambiente de produção (GENIEACS_URL ausente)."
+          });
+        }
+      } else {
         await callGenieAcs(`/devices/${encodeURIComponent(id)}/tasks?connection_request`, {
           method: 'POST',
           body: JSON.stringify({ name: 'reboot' })
@@ -133,7 +140,14 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
   router.post("/devices/:id/factory-reset", async (req, res) => {
     const { id } = req.params;
     try {
-      if (process.env.GENIEACS_URL) {
+      if (!process.env.GENIEACS_URL) {
+        if (!isMockAllowed()) {
+          return res.status(503).json({
+            success: false,
+            error: "GenieACS não configurado ou inacessível em ambiente de produção (GENIEACS_URL ausente)."
+          });
+        }
+      } else {
         await callGenieAcs(`/devices/${encodeURIComponent(id)}/tasks?connection_request`, {
           method: 'POST',
           body: JSON.stringify({ name: 'factoryReset' })
@@ -161,7 +175,14 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
     const { id } = req.params;
     const { ssid, wifiPassword, wifiChannel } = req.body;
     try {
-      if (process.env.GENIEACS_URL) {
+      if (!process.env.GENIEACS_URL) {
+        if (!isMockAllowed()) {
+          return res.status(503).json({
+            success: false,
+            error: "GenieACS não configurado ou inacessível em ambiente de produção (GENIEACS_URL ausente)."
+          });
+        }
+      } else {
         const parameterValues = [];
         if (ssid) parameterValues.push(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.SSID", ssid, "xsd:string"]);
         if (wifiPassword) parameterValues.push(["InternetGatewayDevice.LANDevice.1.WLANConfiguration.1.KeyPassphrase", wifiPassword, "xsd:string"]);

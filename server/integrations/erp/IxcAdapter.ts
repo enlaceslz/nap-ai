@@ -25,9 +25,9 @@ export class IxcAdapter implements ErpAdapter {
   }
 
   async ping(): Promise<boolean> {
-    if (!this.baseUrl) {
-      console.log(`[Fallback] IXC ERP Ping (Modo Memória)`);
-      return true;
+    if (!this.baseUrl || !this.token) {
+      console.log(`[IXC] Ping falhou: baseUrl ou token ausentes.`);
+      return false;
     }
     try {
       const res = await axios.get(`${this.baseUrl}/webservice/v1/status`, {
@@ -35,8 +35,9 @@ export class IxcAdapter implements ErpAdapter {
         timeout: 3000
       });
       return res.status === 200;
-    } catch {
-      return true;
+    } catch (err: any) {
+      console.warn(`[IXC] Ping offline (${this.baseUrl}):`, err?.message);
+      return false;
     }
   }
 

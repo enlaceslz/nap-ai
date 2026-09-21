@@ -1,9 +1,10 @@
 import client from 'ari-client';
+import net from 'net';
 import { db } from "../src/db/index.js";
 import { clientes } from "../src/db/schema.js";
 import { eq } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
-import { assertRealService } from "./security/mockGuard.js";
+import { assertRealService, isMockAllowed } from "./security/mockGuard.js";
 
 const ARI_URL = process.env.ARI_URL || process.env.ASTERISK_ARI_URL || `http://${process.env.ASTERISK_HOST || '127.0.0.1'}:${process.env.ASTERISK_PORT_ARI || '8088'}`;
 const ARI_USER = process.env.ARI_USER || process.env.ASTERISK_USER_ARI || 'nap_admin';
@@ -91,9 +92,16 @@ export async function connectARI() {
 
     ariInstance.start('ura_maia'); 
     isConnected = true;
-  } catch (error) {
-    console.warn('[Asterisk] Falha ao conectar no ARI. Fallback para simulação em memória da URA Cognitiva Ativada.');
-    isConnected = true; // Mantém engine operacional localmente
+  } catch (error: any) {
+    if (!isMockAllowed()) {
+      isConnected = false;
+      chamadasAtivas = [];
+      console.warn(`[Asterisk] Falha ao conectar no ARI em produção: ${error.message}. Status definido como offline/indisponível.`);
+      return;
+    }
+    // Fallback apenas em ambiente de desenvolvimento / preview
+    console.warn('[Asterisk] [Modo Dev] Falha ao conectar no ARI. Utilizando chamadas simuladas apenas em ambiente local.');
+    isConnected = false;
     chamadasAtivas = [
       { id: "SIP-0012A", caller: "5511987654321", did: "08005910000", status: "Up", duration: 142, queue: "Suporte N1", agent: "Roberto Oliveira" },
       { id: "SIP-0016E", caller: "5521999998888", did: "08005910000", status: "Up", duration: 12, queue: "URA Lia", agent: "Lia (Voice Agent)" }
@@ -102,12 +110,17 @@ export async function connectARI() {
 }
 
 export function getChamadas() {
+  if (!isMockAllowed() && !isConnected) {
+    return [];
+  }
   return chamadasAtivas;
 }
 
 export function getAsteriskStatus() {
+  const isProd = process.env.NODE_ENV === 'production';
   return {
     conectado: isConnected,
+    status: isConnected ? 'online' : (process.env.ASTERISK_ENABLED === 'true' ? 'unavailable' : 'offline'),
     ariUrl: ARI_URL,
     ariUser: ARI_USER,
     amiPort: Number(process.env.ASTERISK_PORT_AMI || 5038),
@@ -116,7 +129,55 @@ export function getAsteriskStatus() {
     ramalPadrao: process.env.ASTERISK_RAMAL_PADRAO || '2001',
     contexto: 'from-internal',
     stasisApp: 'ura_maia',
-    chamadasAtivas: chamadasAtivas.length,
+    chamadasAtivas: isConnected ? chamadasAtivas.length : (isProd ? 0 : chamadasAtivas.length),
     codecs: ['opus', 'alaw', 'ulaw', 'g729']
   };
 }
+
+/**
+ * Validação ativa de runtime para o Asterisk 20+
+ * Efetua probe TCP nas portas AMI e ARI para confirmar responsividade real.
+ */
+export async function checkAsteriskRuntimeHealth(): Promise<{
+  responsive: boolean;
+  amiPortOpen: boolean;
+  ariPortOpen: boolean;
+  error?: string;
+}> {
+  const host = process.env.ASTERISK_HOST || '127.0.0.1';
+  const amiPort = Number(process.env.ASTERISK_PORT_AMI || 5038);
+  const ariPort = Number(process.env.ASTERISK_PORT_ARI || 8088);
+
+  const testPort = (port: number): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      socket.setTimeout(1000);
+      socket.once('connect', () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.once('timeout', () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.once('error', () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.connect(port, host);
+    });
+  };
+
+  const [amiPortOpen, ariPortOpen] = await Promise.all([
+    testPort(amiPort),
+    testPort(ariPort)
+  ]);
+
+  return {
+    responsive: amiPortOpen || ariPortOpen,
+    amiPortOpen,
+    ariPortOpen,
+    error: (!amiPortOpen && !ariPortOpen) ? `Portas Asterisk AMI (${amiPort}) e ARI (${ariPort}) não respondem em ${host}` : undefined
+  };
+}
+

@@ -29,8 +29,8 @@ export class SgpAdapter implements ErpAdapter {
 
   async ping(): Promise<boolean> {
     if (!this.baseUrl || !this.appToken) {
-      console.log(`[Fallback] SGP ERP Ping (Credenciais ausentes - modo memória ativo)`);
-      return true;
+      console.log(`[SGP] Ping falhou: baseUrl ou appToken ausentes.`);
+      return false;
     }
     try {
       const response = await axios.get(`${this.baseUrl}/api/v1/cliente/status`, {
@@ -38,9 +38,9 @@ export class SgpAdapter implements ErpAdapter {
         timeout: 3000
       });
       return response.status === 200;
-    } catch (error) {
-      console.warn(`[Fallback SGP] Ping offline, utilizando modo memória resiliente`);
-      return true;
+    } catch (error: any) {
+      console.warn(`[SGP] Ping offline (${this.baseUrl}):`, error?.message);
+      return false;
     }
   }
 

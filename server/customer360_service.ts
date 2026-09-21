@@ -6,6 +6,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { ErpFactory } from "./integrations/erp/ErpFactory.js";
+import { isMockAllowed } from "./security/mockGuard.js";
 import type { 
   NapCustomer360, NapInvoice, NapPaymentTransaction, 
   NapCustomerEvent, DomainAuthorityRule, C6BankConfig
@@ -82,7 +83,9 @@ export class Customer360Store {
   ];
 
   private constructor() {
-    this.seedInitialData();
+    if (isMockAllowed()) {
+      this.seedInitialData();
+    }
   }
 
   public static getInstance(): Customer360Store {
@@ -443,6 +446,171 @@ export class Customer360Store {
       );
     }
     return list;
+  }
+
+  /**
+   * Sincronização e conciliação de cliente vindo do ERP externo (SGP, IXC, HubSoft).
+   * - Consulta o ERP via adaptador;
+   * - Persiste ou atualiza no PostgreSQL (tabela clientes / nap_customers);
+   * - Concilia e atualiza o estado em memória do Customer 360;
+   * - Sincroniza faturas abertas e atualiza totalPending.
+   */
+  public async syncCustomerFromErp(documentoOuCpf: string, erpProvider: string = 'sgp'): Promise<NapCustomer360 | null> {
+    const cleanDoc = documentoOuCpf.replace(/\D/g, '');
+    const adapter = ErpFactory.getAdapter(erpProvider);
+
+    const erpCliente = await adapter.buscarClientePorCpf(cleanDoc || documentoOuCpf);
+    if (!erpCliente) {
+      return null;
+    }
+
+    let dbCustomerId: number | null = null;
+    if (process.env.DATABASE_URL) {
+      try {
+        const existing = await db.select().from(nap_customers).where(eq(nap_customers.documento, erpCliente.documento)).limit(1);
+        if (existing.length > 0) {
+          dbCustomerId = existing[0].id;
+          await db.update(nap_customers).set({
+            nome: erpCliente.nome,
+            telefone: erpCliente.telefone,
+            plano: erpCliente.plano,
+            status: erpCliente.status === 'ativo' ? 'ativo' : 'bloqueado',
+            endereco: erpCliente.endereco,
+            erpId: erpCliente.id,
+            erpOrigem: adapter.getName().toLowerCase(),
+            ultimaSincronizacao: new Date(),
+            updatedAt: new Date()
+          }).where(eq(nap_customers.id, dbCustomerId));
+        } else {
+          const inserted = await db.insert(nap_customers).values({
+            nome: erpCliente.nome,
+            documento: erpCliente.documento,
+            telefone: erpCliente.telefone,
+            plano: erpCliente.plano,
+            status: erpCliente.status === 'ativo' ? 'ativo' : 'bloqueado',
+            endereco: erpCliente.endereco,
+            erpId: erpCliente.id,
+            erpOrigem: adapter.getName().toLowerCase(),
+            ultimaSincronizacao: new Date()
+          }).returning({ id: nap_customers.id });
+          if (inserted.length > 0) {
+            dbCustomerId = inserted[0].id;
+          }
+        }
+      } catch (dbErr: any) {
+        console.warn('[Customer360] Fallback PostgreSQL ao persistir cliente do ERP:', dbErr?.message);
+      }
+    }
+
+    const numericId = dbCustomerId || (Date.now() % 100000);
+    let existingC360: NapCustomer360 | undefined;
+    for (const c of this.customers.values()) {
+      if (c.document.replace(/\D/g, '') === cleanDoc || c.document === erpCliente.documento) {
+        existingC360 = c;
+        break;
+      }
+    }
+
+    const customerObj: NapCustomer360 = existingC360 || {
+      id: numericId,
+      napCustomerId: `cus_erp_${erpCliente.id}`,
+      name: erpCliente.nome,
+      document: erpCliente.documento,
+      phone: erpCliente.telefone,
+      whatsapp: erpCliente.telefone.replace(/\D/g, ''),
+      email: `${erpCliente.nome.toLowerCase().replace(/\s+/g, '.')}@cliente.provedor.com.br`,
+      address: erpCliente.endereco,
+      status: erpCliente.status === 'ativo' ? 'active' : 'blocked',
+      createdAt: new Date().toISOString(),
+      externalReferences: [
+        {
+          externalSystem: (adapter.getName().toLowerCase().includes('ixc') ? 'ixc' : adapter.getName().toLowerCase().includes('hub') ? 'hubsoft' : 'sgp'),
+          externalCustomerId: erpCliente.id,
+          externalContractId: erpCliente.contratoId || `CTR-${erpCliente.id}`,
+          lastSyncAt: new Date().toISOString(),
+          syncStatus: 'synced'
+        }
+      ],
+      contract: {
+        contractId: erpCliente.contratoId || `CTR-${erpCliente.id}`,
+        planName: erpCliente.plano,
+        speedDown: '500 Mega',
+        speedUp: '250 Mega',
+        installDate: new Date().toISOString().split('T')[0],
+        status: erpCliente.status === 'ativo' ? 'Ativo' : 'Bloqueado',
+        installAddress: erpCliente.endereco,
+        equipment: 'ONU Wi-Fi 6 (Comodato)',
+        monthlyPrice: 99.90
+      },
+      technical: {
+        olt: 'OLT-DEFAULT-01',
+        pon: '0/1/1',
+        onuSerial: `ONT${erpCliente.id}`,
+        onuMac: '00:11:22:33:44:55',
+        vlan: 100,
+        ipPppoe: '100.64.10.1',
+        pppoeUser: `${cleanDoc || 'cliente'}@isp`,
+        opticalPowerRx: '-19.0 dBm',
+        opticalPowerTx: '+2.0 dBm',
+        onuState: 'online',
+        uptime: '5 dias'
+      },
+      financial: {
+        invoices: [],
+        totalPending: 0,
+        totalPaid: 0,
+        defaultRisk: 'baixo'
+      },
+      support: {
+        tickets: [],
+        callsCount: 0,
+        whatsappInteractionsCount: 0,
+        lastInteractionDate: new Date().toISOString()
+      },
+      noc: {
+        availabilityPercent: 99.9,
+        activeAlerts: 0,
+        latencyMs: 3.5,
+        packetLossPercent: 0.0
+      },
+      timeline: []
+    };
+
+    customerObj.name = erpCliente.nome;
+    customerObj.phone = erpCliente.telefone;
+    customerObj.address = erpCliente.endereco;
+    customerObj.status = erpCliente.status === 'ativo' ? 'active' : 'blocked';
+    customerObj.contract.planName = erpCliente.plano;
+
+    try {
+      const faturasErp = await adapter.buscarFaturasEmAberto(erpCliente.id);
+      if (faturasErp && faturasErp.length > 0) {
+        for (const f of faturasErp) {
+          const invId = Date.now() % 100000 + Math.floor(Math.random() * 100);
+          const invoiceItem: NapInvoice = {
+            id: invId,
+            napInvoiceId: `inv_erp_${f.id}`,
+            externalInvoiceId: f.id,
+            externalSystem: adapter.getName().toLowerCase(),
+            amount: f.valor,
+            dueDate: f.vencimento,
+            status: f.status === 'pago' ? 'paid' : 'open',
+            txid: f.txid || `TXID_${f.id}`,
+            pixCopiaECola: f.linkPix || undefined
+          };
+          customerObj.financial.invoices.push(invoiceItem);
+          this.invoices.set(invId, invoiceItem);
+        }
+        customerObj.financial.totalPending = customerObj.financial.invoices
+          .filter(i => i.status === 'open')
+          .reduce((acc, i) => acc + Number(i.amount), 0);
+      }
+    } catch (fErr: any) {
+      console.warn('[Customer360] Falha ao sincronizar faturas do ERP:', fErr?.message);
+    }
+
+    this.customers.set(customerObj.id, customerObj);
+    return customerObj;
   }
 
   public addCustomerEvent(event: Omit<NapCustomerEvent, 'id'>): NapCustomerEvent {

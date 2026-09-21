@@ -480,3 +480,145 @@ export function getLastAuditHash(): string {
 export function getPendingAuditOutboxCount(): number {
   return auditOutbox.length;
 }
+
+/**
+ * Retorna o status de integridade e saúde da trilha de auditoria.
+ * Permite que dashboards de monitoramento e o Centro de Controle NOC
+ * detectem imediatamente caso o PostgreSQL esteja indisponível e eventos estejam em outbox.
+ */
+export function getAuditHealthStatus(): {
+  status: 'healthy' | 'degraded';
+  storage: 'postgresql' | 'memory_fallback';
+  chainLength: number;
+  pendingOutbox: number;
+  lastHash: string;
+  alerts: string[];
+} {
+  const isProd = process.env.NODE_ENV === 'production';
+  const hasDb = Boolean(process.env.DATABASE_URL);
+  const pending = auditOutbox.length;
+  const isDegraded = pending > 0 || (!hasDb && isProd);
+
+  const alerts: string[] = [];
+  if (pending > 0) {
+    alerts.push(`Fila de contingência contém ${pending} evento(s) aguardando sincronização com o PostgreSQL.`);
+    console.warn(`[AUDIT_DEGRADED_ALERT] Trilha de auditoria operando em modo degradado (${pending} eventos pendentes).`);
+  }
+  if (!hasDb && isProd) {
+    alerts.push('PostgreSQL não configurado em ambiente de produção (DATABASE_URL ausente).');
+  }
+
+  return {
+    status: isDegraded ? 'degraded' : 'healthy',
+    storage: hasDb ? 'postgresql' : 'memory_fallback',
+    chainLength: auditChain.length,
+    pendingOutbox: pending,
+    lastHash,
+    alerts
+  };
+}
+
+/**
+ * Registra evento de AUDITORIA OBRIGATÓRIA (operações críticas de segurança, RBAC, financeiro e setup).
+ * Em produção, se a gravação direta no PostgreSQL falhar ou o banco estiver inacessível,
+ * a operação crítica DEVE ser bloqueada (throw Error) para prevenir bypass de auditoria.
+ */
+export async function recordMandatoryAuditLog(
+  entry: Omit<AppendOnlyAuditLog, 'id' | 'timestamp' | 'previousHash' | 'entryHash'>
+): Promise<AppendOnlyAuditLog> {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const pool = await getDbPool();
+
+  const id = `aud_m_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  const timestamp = new Date().toISOString();
+  const previousHash = lastHash;
+
+  const rawString = `${id}|${timestamp}|${entry.usuario}|${entry.modulo}|${entry.acao}|${entry.detalhes}|${previousHash}`;
+  const entryHash = crypto.createHash('sha256').update(rawString).digest('hex');
+
+  const logEntry: AppendOnlyAuditLog = {
+    ...entry,
+    id,
+    timestamp,
+    previousHash,
+    entryHash
+  };
+
+  if (isProduction) {
+    if (!pool || !process.env.DATABASE_URL) {
+      console.error(`[AUDIT_CRITICAL_BLOCKED] Operação '${entry.acao}' no módulo '${entry.modulo}' bloqueada: PostgreSQL indisponível em produção.`);
+      throw new Error(`[AUDITORIA_OBRIGATORIA_FALHA] Operação '${entry.acao}' bloqueada: persistência em PostgreSQL é obrigatória em produção e o banco está inacessível.`);
+    }
+
+    let client: any = null;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(42424242)');
+
+      const prevRes = await client.query('SELECT entry_hash FROM logs_auditoria ORDER BY id DESC LIMIT 1');
+      const realPreviousHash = prevRes.rows.length > 0 && prevRes.rows[0].entry_hash
+        ? prevRes.rows[0].entry_hash
+        : '0'.repeat(64);
+
+      let effectivePreviousHash = logEntry.previousHash;
+      let effectiveEntryHash = logEntry.entryHash;
+
+      if (effectivePreviousHash !== realPreviousHash) {
+        effectivePreviousHash = realPreviousHash;
+        const newRaw = `${logEntry.id}|${logEntry.timestamp}|${logEntry.usuario}|${logEntry.modulo}|${logEntry.acao}|${logEntry.detalhes}|${effectivePreviousHash}`;
+        effectiveEntryHash = crypto.createHash('sha256').update(newRaw).digest('hex');
+      }
+
+      await client.query(
+        `INSERT INTO logs_auditoria 
+          (user_id, usuario, usuario_email, usuario_role, request_id, modulo, acao, recurso, resultado, detalhes, categoria, severidade, ip, user_agent, status, previous_hash, entry_hash, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+        [
+          logEntry.userId || null,
+          logEntry.usuario,
+          logEntry.usuarioEmail || null,
+          logEntry.usuarioRole || null,
+          logEntry.requestId || null,
+          logEntry.modulo,
+          logEntry.acao,
+          logEntry.recurso || null,
+          logEntry.resultado || logEntry.status,
+          logEntry.detalhes,
+          logEntry.categoria || 'seguranca_critica',
+          logEntry.severidade || 'critico',
+          logEntry.ip || null,
+          logEntry.userAgent || null,
+          logEntry.status,
+          effectivePreviousHash,
+          effectiveEntryHash,
+          new Date(logEntry.timestamp)
+        ]
+      );
+
+      await client.query('COMMIT');
+      lastHash = effectiveEntryHash;
+      logEntry.previousHash = effectivePreviousHash;
+      logEntry.entryHash = effectiveEntryHash;
+    } catch (err: any) {
+      if (client) {
+        await client.query('ROLLBACK').catch(() => {});
+      }
+      console.error(`[AUDIT_CRITICAL_BLOCKED] Falha de persistência síncrona de auditoria no PostgreSQL: ${err.message}`);
+      throw new Error(`[AUDITORIA_OBRIGATORIA_FALHA] Operação '${entry.acao}' abortada por impossibilidade de registrar trilha de auditoria no PostgreSQL: ${err.message}`);
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
+  }
+
+  // Em dev/testes, registra no buffer
+  lastHash = entryHash;
+  auditChain.push(Object.freeze(logEntry));
+  if (auditChain.length > 500) {
+    auditChain.shift();
+  }
+
+  return logEntry;
+}

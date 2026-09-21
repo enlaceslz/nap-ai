@@ -1,37 +1,23 @@
-import { GoogleGenAI } from '@google/genai';
-// Configuração do Gemini SDK (utilizando a nova v2.4.0)
-
 /**
  * GeminiLiveVoiceService
  * 
  * Especialista de Call Center IA:
  * Este serviço gerencia a ponte bidirecional de áudio em tempo real (WebSockets / RTP)
  * entre o motor Asterisk 20+ (via ARI External Media) e a Live API do Gemini.
- * 
- * Arquitetura de Baixa Latência:
- * 1. Asterisk recebe a chamada (StasisStart).
- * 2. O Node.js orquestra o ARI para abrir um canal de ExternalMedia (Raw PCM 16-bit 16kHz).
- * 3. Este serviço abre um WebSocket com a Gemini Live API.
- * 4. O fluxo de áudio do cliente (RTP/UDP) é empacotado e enviado ao Gemini.
- * 5. O fluxo de resposta (PCM gerado pela IA) é devolvido ao Asterisk e tocado no canal do assinante.
+ * Todas as credenciais permanecem exclusivamente no backend.
  */
 
 export class GeminiLiveVoiceService {
- private static instance: GeminiLiveVoiceService;
- private aiClient: GoogleGenAI;
+  private static instance: GeminiLiveVoiceService;
 
- private constructor() {
- this.aiClient = new GoogleGenAI({ 
- apiKey: process.env.GEMINI_API_KEY || 'MISSING_API_KEY' 
- });
- }
+  private constructor() {}
 
- public static getInstance(): GeminiLiveVoiceService {
- if (!GeminiLiveVoiceService.instance) {
- GeminiLiveVoiceService.instance = new GeminiLiveVoiceService();
- }
- return GeminiLiveVoiceService.instance;
- }
+  public static getInstance(): GeminiLiveVoiceService {
+    if (!GeminiLiveVoiceService.instance) {
+      GeminiLiveVoiceService.instance = new GeminiLiveVoiceService();
+    }
+    return GeminiLiveVoiceService.instance;
+  }
 
  /**
  * Conecta um canal Asterisk ARI (RTP Socket) a uma sessão da Gemini Live API

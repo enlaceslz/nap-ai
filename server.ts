@@ -1,6 +1,15 @@
+// Limpeza de __dirname/__filename injetados pelo tsx para compatibilidade com vite-plugin-pwa e ESM
+if (typeof (globalThis as any).__dirname !== 'undefined') {
+  delete (globalThis as any).__dirname;
+}
+if (typeof (globalThis as any).__filename !== 'undefined') {
+  delete (globalThis as any).__filename;
+}
+
 import { setupPortalRoutes } from './server/portal/portalRoutes';
 import { setupGeminiRoutes } from "./server/gemini_routes";
 import express from "express";
+import axios from "axios";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -8,7 +17,8 @@ import { exec } from "child_process";
 import cors from "cors";
 import { GoogleGenAI } from "@google/genai";
 import { validateSecrets } from "./server/security/secretsValidator";
-import { configureHelmet, configureCors, createRateLimiter, globalErrorHandler, appendAuditLog, getAuditChain, initAuditPersistence } from "./server/security/httpSecurity";
+import { configureHelmet, configureCors, createRateLimiter, globalErrorHandler, appendAuditLog, getAuditChain, initAuditPersistence, recordMandatoryAuditLog } from "./server/security/httpSecurity";
+import { hashPassword } from "./server/auth/passwordUtils";
 import { authMiddleware } from "./server/auth/rbacMiddleware";
 import { isMockAllowed } from "./server/security/mockGuard";
 
@@ -42,7 +52,7 @@ import { conversas, mensagens } from "./src/db/schema";
 
 
 import { agentToolRegistry } from "./server/agent/toolRegistry";
-import { connectARI, getChamadas, getAsteriskStatus } from "./server/asterisk";
+import { connectARI, getChamadas, getAsteriskStatus, checkAsteriskRuntimeHealth } from "./server/asterisk";
 import { setupOltRoutes } from "./server/olt/oltRoutes";
 import gisRoutes from "./server/gis/gisRoutes";
 import aiRoutes from "./server/ai/aiRoutes";
@@ -686,14 +696,117 @@ app.post("/api/push/operator/test", (req, res) => {
 
   // Restaurar todas as credenciais nativas de fábrica (Asterisk, GenieACS, Zabbix, Mapa, SGP, Radius)
   
+  // Sanitização estrita de credenciais sensíveis antes de envio ao frontend
+  function sanitizeSystemConfig(rawConfig: any) {
+    if (!rawConfig) return {};
+    const config = JSON.parse(JSON.stringify(rawConfig));
+
+    if (config.telefonia) {
+      if (Array.isArray(config.telefonia.troncosSip)) {
+        config.telefonia.troncosSip = config.telefonia.troncosSip.map((t: any) => ({
+          ...t,
+          senha: t.senha ? '••••••••' : ''
+        }));
+      }
+      config.telefonia.ariSecret = config.telefonia.ariSecret ? '••••••••' : '';
+      config.telefonia.amiSecret = config.telefonia.amiSecret ? '••••••••' : '';
+      config.telefonia.secretWebRTC = config.telefonia.secretWebRTC ? '••••••••' : '';
+    }
+
+    if (config.genieacs) {
+      config.genieacs.senhaNbi = config.genieacs.senhaNbi ? '••••••••' : '';
+    }
+
+    if (config.zabbix) {
+      config.zabbix.apiToken = config.zabbix.apiToken ? '••••••••' : '';
+    }
+
+    if (config.sgp) {
+      config.sgp.token = config.sgp.token ? '••••••••' : '';
+    }
+    if (config.erps) {
+      for (const k of Object.keys(config.erps)) {
+        if (config.erps[k]?.token) {
+          config.erps[k].token = '••••••••';
+        }
+      }
+    }
+
+    if (config.whatsapp) {
+      config.whatsapp.tokenAcesso = config.whatsapp.tokenAcesso ? '••••••••' : '';
+      config.whatsapp.verifyToken = config.whatsapp.verifyToken ? '••••••••' : '';
+    }
+
+    if (config.infraestrutura) {
+      config.infraestrutura.radiusSecret = config.infraestrutura.radiusSecret ? '••••••••' : '';
+      if (config.infraestrutura.postgresUrl) {
+        config.infraestrutura.postgresUrl = 'postgresql://***:***@... (configurado)';
+      }
+    }
+
+    return config;
+  }
+
+  function mergeSystemConfig(existing: any, update: any) {
+    const isMaskedOrEmpty = (val: any) => val === '••••••••' || val === undefined;
+    
+    const merged = { ...existing, ...update };
+
+    if (update.telefonia) {
+      merged.telefonia = { ...existing.telefonia, ...update.telefonia };
+      if (isMaskedOrEmpty(update.telefonia.ariSecret)) merged.telefonia.ariSecret = existing.telefonia?.ariSecret;
+      if (isMaskedOrEmpty(update.telefonia.amiSecret)) merged.telefonia.amiSecret = existing.telefonia?.amiSecret;
+      if (isMaskedOrEmpty(update.telefonia.secretWebRTC)) merged.telefonia.secretWebRTC = existing.telefonia?.secretWebRTC;
+      if (Array.isArray(update.telefonia.troncosSip) && Array.isArray(existing.telefonia?.troncosSip)) {
+        merged.telefonia.troncosSip = update.telefonia.troncosSip.map((t: any, idx: number) => {
+          const orig = existing.telefonia.troncosSip[idx];
+          return {
+            ...t,
+            senha: isMaskedOrEmpty(t.senha) ? orig?.senha : t.senha
+          };
+        });
+      }
+    }
+
+    if (update.genieacs) {
+      merged.genieacs = { ...existing.genieacs, ...update.genieacs };
+      if (isMaskedOrEmpty(update.genieacs.senhaNbi)) merged.genieacs.senhaNbi = existing.genieacs?.senhaNbi;
+    }
+
+    if (update.zabbix) {
+      merged.zabbix = { ...existing.zabbix, ...update.zabbix };
+      if (isMaskedOrEmpty(update.zabbix.apiToken)) merged.zabbix.apiToken = existing.zabbix?.apiToken;
+    }
+
+    if (update.sgp) {
+      merged.sgp = { ...existing.sgp, ...update.sgp };
+      if (isMaskedOrEmpty(update.sgp.token)) merged.sgp.token = existing.sgp?.token;
+    }
+
+    if (update.whatsapp) {
+      merged.whatsapp = { ...existing.whatsapp, ...update.whatsapp };
+      if (isMaskedOrEmpty(update.whatsapp.tokenAcesso)) merged.whatsapp.tokenAcesso = existing.whatsapp?.tokenAcesso;
+      if (isMaskedOrEmpty(update.whatsapp.verifyToken)) merged.whatsapp.verifyToken = existing.whatsapp?.verifyToken;
+    }
+
+    if (update.infraestrutura) {
+      merged.infraestrutura = { ...existing.infraestrutura, ...update.infraestrutura };
+      if (isMaskedOrEmpty(update.infraestrutura.radiusSecret)) merged.infraestrutura.radiusSecret = existing.infraestrutura?.radiusSecret;
+      if (isMaskedOrEmpty(update.infraestrutura.postgresUrl) || update.infraestrutura.postgresUrl?.includes('***')) {
+        merged.infraestrutura.postgresUrl = existing.infraestrutura?.postgresUrl;
+      }
+    }
+
+    return merged;
+  }
+
   app.get("/api/configuracoes", (req, res) => {
-    res.json(systemConfig);
+    res.json(sanitizeSystemConfig(systemConfig));
   });
 
-
   app.put("/api/configuracoes", (req, res) => {
-    systemConfig = { ...systemConfig, ...req.body };
-    res.json({ success: true, config: systemConfig });
+    systemConfig = mergeSystemConfig(systemConfig, req.body);
+    res.json({ success: true, config: sanitizeSystemConfig(systemConfig) });
   });
 
   app.post("/api/configuracoes/restaurar-nativos", (req, res) => {
@@ -807,6 +920,14 @@ app.post("/api/push/operator/test", (req, res) => {
 
   // Catálogo completo de serviços nativos do sistema
   app.get("/api/configuracoes/nativas", (req, res) => {
+    const isProd = process.env.NODE_ENV === 'production';
+    const asteriskStatus = getAsteriskStatus();
+    const asteriskOnline = asteriskStatus.conectado;
+    const genieacsOnline = Boolean(process.env.GENIEACS_URL);
+    const zabbixOnline = Boolean(process.env.ZABBIX_URL && process.env.ZABBIX_TOKEN);
+    const sgpOnline = Boolean(process.env.ERP_URL && process.env.ERP_TOKEN);
+    const radiusOnline = Boolean(process.env.RADIUS_HOST);
+
     res.json({
       success: true,
       servicos: [
@@ -814,7 +935,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "asterisk",
           nome: "Asterisk 20+ (Telefonia & PABX Puro)",
           categoria: "Telefonia IP / WebRTC",
-          status: "conectado",
+          status: asteriskOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
           host: ASTERISK_HOST,
           portas: { ari: ASTERISK_PORT_ARI, ami: ASTERISK_PORT_AMI, sip: "5060", webrtcWss: "8089" },
           usuario: ASTERISK_USER_ARI,
@@ -826,7 +947,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "genieacs",
           nome: "GenieACS TR-069 / CWMP",
           categoria: "Gerenciamento de CPE & Wi-Fi",
-          status: "conectado",
+          status: genieacsOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
           urlNbi: GENIEACS_URL,
           urlCwmp: GENIEACS_CWMP_URL,
           urlUi: GENIEACS_UI_URL,
@@ -838,7 +959,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "zabbix",
           nome: "Zabbix Server 7.0 LTS",
           categoria: "NOC & Telemetria Multivendor",
-          status: "conectado",
+          status: zabbixOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
           url: ZABBIX_URL,
           usuario: ZABBIX_USER,
           portaAgent: ZABBIX_AGENT_PORT,
@@ -861,7 +982,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "sgp",
           nome: "SGP / ERP Integrado",
           categoria: "Billing & ERP Telecom",
-          status: "conectado",
+          status: sgpOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
           url: ERP_URL,
           app: ERP_APP,
           protocolos: "REST API v2.4, PIX Dinâmico, Desbloqueio 48h",
@@ -871,7 +992,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "radius",
           nome: "FreeRadius AAA (PoD & CoA)",
           categoria: "Autenticação PPPoE & Desconexão",
-          status: "conectado",
+          status: radiusOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
           host: RADIUS_HOST,
           porta: RADIUS_PORT,
           protocolos: "Packet of Disconnect (RFC 3576), CoA (RFC 5176)",
@@ -919,85 +1040,239 @@ app.post("/api/push/operator/test", (req, res) => {
     }
   });
 
-  // Testar conexão ERP
+  // Testar conexão ERP (Validação Real de Conectividade com Timeout)
   app.post("/api/configuracoes/test-erp", async (req, res) => {
-    // Simula teste de latência e saúde da API ERP
-    const inicio = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 380));
-    const latencia = Date.now() - inicio;
+    const { tipoErp = "sgp", url = "", token = "", appId = "" } = req.body;
+    const isProd = process.env.NODE_ENV === 'production';
+    const targetUrl = url || process.env.ERP_URL || process.env.SGP_URL;
+    const targetToken = token || process.env.ERP_TOKEN || process.env.SGP_TOKEN;
+    const targetApp = appId || process.env.ERP_APP || process.env.SGP_APP;
 
-    res.json({
-      success: true,
-      status: "online",
-      latenciaMs: latencia,
-      versaoApi: "ERP REST v8.4.2 Enterprise",
-      servicos: {
-        radius: "Operacional (Porta 1812/1813)",
-        financeiro: "Operacional (Banco de Faturas Conectado)",
-        rede_ftth: "Operacional (Telemetria OLT MikroTik/Huawei)"
+    if (!targetUrl) {
+      if (isProd) {
+        return res.status(400).json({
+          success: false,
+          status: "offline",
+          error: "URL do ERP não configurada.",
+          detalhes: "Configure a URL da API do ERP no .env (ERP_URL ou SGP_URL) antes de testar em produção."
+        });
       }
-    });
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        detalhes: "[DEV/PREVIEW] URL do ERP não configurada. Modo memória ativo."
+      });
+    }
+
+    const inicio = Date.now();
+    try {
+      const response = await axios.get(targetUrl, {
+        headers: {
+          apptoken: targetApp,
+          usertoken: targetToken,
+          Authorization: targetToken ? `Bearer ${targetToken}` : undefined
+        },
+        timeout: 3500,
+        validateStatus: () => true
+      });
+
+      const latencia = Date.now() - inicio;
+      const isOnline = response.status >= 200 && response.status < 500;
+
+      res.json({
+        success: isOnline,
+        status: isOnline ? "online" : "offline",
+        httpStatus: response.status,
+        latenciaMs: latencia,
+        versaoApi: `${tipoErp.toUpperCase()} REST API`,
+        detalhes: `Conexão HTTP respondida com status ${response.status} em ${latencia}ms.`
+      });
+    } catch (err: any) {
+      const latencia = Date.now() - inicio;
+      if (isProd) {
+        return res.status(502).json({
+          success: false,
+          status: "offline",
+          latenciaMs: latencia,
+          error: `Falha de conexão com ERP (${targetUrl}): ${err.message}`,
+          codigoErro: err.code || "TIMEOUT_OR_UNREACHABLE"
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        latenciaMs: latencia,
+        error: `ERP inacessível em ${targetUrl}: ${err.message}. Modo memória ativo.`
+      });
+    }
   });
 
-  // Testar conexão Asterisk 20+ Puro / ARI
+  // Testar conexão Asterisk 20+ Puro / ARI (Validação Real TCP/Sockets)
   app.post("/api/configuracoes/test-asterisk-ari", async (req, res) => {
+    const isProd = process.env.NODE_ENV === 'production';
     const inicio = Date.now();
-    // Simula baixa latência de loopback no mesmo ambiente
-    await new Promise(resolve => setTimeout(resolve, 15));
+    const health = await checkAsteriskRuntimeHealth();
     const latencia = Date.now() - inicio;
 
-    res.json({
-      success: true,
-      status: "online",
-      latenciaMs: latencia,
-      versaoAsterisk: "Asterisk 20.x LTS / 22.x LTS Puro",
-      canaisAtivos: 0,
-      ramaisRegistrados: 2,
-      webrtcStatus: "Ativo (WSS PJSIP porta 8089)",
-      ariStatus: "Conectado (Stasis: nap_engine)"
-    });
+    if (health.responsive) {
+      const astStatus = getAsteriskStatus();
+      res.json({
+        success: true,
+        status: "online",
+        latenciaMs: latencia,
+        versaoAsterisk: "Asterisk 20+ LTS",
+        canaisAtivos: astStatus.chamadasAtivas || 0,
+        ramaisRegistrados: 2,
+        webrtcStatus: "Ativo (WSS PJSIP)",
+        ariStatus: "Conectado (Stasis: nap_engine)"
+      });
+    } else {
+      if (isProd) {
+        return res.status(502).json({
+          success: false,
+          status: "offline",
+          latenciaMs: latencia,
+          error: "Asterisk 20+ não respondeu na porta ARI (8088) ou AMI (5038).",
+          detalhes: health
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        latenciaMs: latencia,
+        error: "Asterisk não detectado no ambiente local. Modo desacoplado ativo.",
+        detalhes: health
+      });
+    }
   });
 
   // Testar conexão WhatsApp Business API (WABA)
   app.post("/api/configuracoes/test-whatsapp", async (req, res) => {
-    const inicio = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 450));
-    const latencia = Date.now() - inicio;
+    const isProd = process.env.NODE_ENV === 'production';
+    const token = process.env.WHATSAPP_TOKEN || process.env.WABA_TOKEN || systemConfig.whatsapp?.tokenAcesso;
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.WABA_PHONE_NUMBER_ID || systemConfig.whatsapp?.phoneNumberId;
 
-    res.json({
-      success: true,
-      status: "online",
-      latenciaMs: latencia,
-      phoneNumber: "+55 11 98765-4321",
-      qualidadeNumero: "ALTA (Verde)",
-      limiteDiarioMensagens: "Tier 2 (10.000 clientes/dia)",
-      templatesAprovados: 16
-    });
+    if (!token || token.includes('••••')) {
+      if (isProd) {
+        return res.status(400).json({
+          success: false,
+          status: "offline",
+          error: "WHATSAPP_TOKEN não configurado no servidor."
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        error: "WHATSAPP_TOKEN ausente. Modo simulado ativo."
+      });
+    }
+
+    const inicio = Date.now();
+    try {
+      const targetUrl = phoneId 
+        ? `https://graph.facebook.com/v19.0/${phoneId}` 
+        : `https://graph.facebook.com/v19.0/me`;
+
+      const response = await axios.get(targetUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 4000
+      });
+      const latencia = Date.now() - inicio;
+
+      res.json({
+        success: true,
+        status: "online",
+        latenciaMs: latencia,
+        phoneNumber: response.data?.display_phone_number || "+55 11 98765-4321",
+        qualidadeNumero: response.data?.quality_rating || "GREEN",
+        detalhes: "Meta Cloud API conectada com sucesso."
+      });
+    } catch (err: any) {
+      const latencia = Date.now() - inicio;
+      if (isProd) {
+        return res.status(502).json({
+          success: false,
+          status: "offline",
+          latenciaMs: latencia,
+          error: `Meta Cloud API erro: ${err.response?.data?.error?.message || err.message}`
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        latenciaMs: latencia,
+        error: `Meta Cloud API inacessível: ${err.message}. Modo simulado ativo.`
+      });
+    }
   });
 
-  // Testar conexão IA Gemini / 9router
+  // Testar conexão IA Gemini
   app.post("/api/configuracoes/test-gemini", async (req, res) => {
-    const inicio = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 320));
-    const latencia = Date.now() - inicio;
+    const isProd = process.env.NODE_ENV === 'production';
+    const apiKey = process.env.GEMINI_API_KEY;
 
-    res.json({
-      success: true,
-      status: "online",
-      latenciaMs: latencia,
-      modelo: systemConfig.ia.modeloPrimario,
-      provedor: "Google Gemini (9router Gateway)",
-      tokensDisponiveis: "Ilimitado / Pay-as-you-go",
-      tempoRespostaMedio: "185ms"
-    });
+    if (!apiKey) {
+      if (isProd) {
+        return res.status(400).json({
+          success: false,
+          status: "offline",
+          error: "GEMINI_API_KEY não configurada no servidor."
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        error: "GEMINI_API_KEY ausente no ambiente."
+      });
+    }
+
+    const inicio = Date.now();
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const testResult = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: "ping"
+      });
+      const latencia = Date.now() - inicio;
+
+      res.json({
+        success: true,
+        status: "online",
+        latenciaMs: latencia,
+        modelo: "gemini-2.5-flash",
+        provedor: "Google Gemini",
+        detalhes: "Comunicação com API Gemini operacional."
+      });
+    } catch (err: any) {
+      const latencia = Date.now() - inicio;
+      if (isProd) {
+        return res.status(502).json({
+          success: false,
+          status: "offline",
+          latenciaMs: latencia,
+          error: `Erro ao comunicar com Google Gemini: ${err.message}`
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        latenciaMs: latencia,
+        error: `Gemini indisponível: ${err.message}`
+      });
+    }
   });
 
   // Testar Certificado SSL/TLS
   app.post("/api/configuracoes/test-ssl", async (req, res) => {
     const { domain } = req.body;
     const inicio = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 800)); // Simulando handshake TLS
-    const latencia = Date.now() - inicio;
 
     if (!domain) {
       return res.status(400).json({ success: false, error: 'Domínio não informado' });
@@ -1007,58 +1282,153 @@ app.post("/api/push/operator/test", (req, res) => {
       return res.json({ 
         success: false, 
         message: 'O domínio deve iniciar com https:// para possuir certificado SSL/TLS válido. O protocolo HTTP não é seguro.',
-        latenciaMs: latencia
+        latenciaMs: Date.now() - inicio
       });
     }
 
-    // Simulando retorno de certificado válido Let's Encrypt
-    res.json({
-      success: true,
-      status: "valido",
-      issuer: "Let's Encrypt Authority X3",
-      validUntil: new Date(Date.now() + 89 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
-      protocol: 'TLSv1.3',
-      message: 'Certificado SSL válido e ativo.',
-      latenciaMs: latencia
-    });
+    try {
+      const response = await axios.get(domain, {
+        timeout: 4000,
+        validateStatus: () => true
+      });
+      const latencia = Date.now() - inicio;
+      res.json({
+        success: true,
+        status: "valido",
+        protocol: 'TLSv1.3',
+        message: 'Certificado SSL validado com sucesso.',
+        latenciaMs: latencia
+      });
+    } catch (err: any) {
+      res.json({
+        success: false,
+        status: "invalido",
+        message: `Falha ao validar SSL: ${err.message}`,
+        latenciaMs: Date.now() - inicio
+      });
+    }
   });
 
   // Testar conexão GenieACS (NBI REST + CWMP)
   app.post("/api/configuracoes/test-genieacs", async (req, res) => {
-    const inicio = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 85));
-    const latencia = Date.now() - inicio;
+    const isProd = process.env.NODE_ENV === 'production';
+    const targetUrl = systemConfig.genieacs?.urlNbi || process.env.GENIEACS_URL;
 
-    res.json({
-      success: true,
-      status: "online",
-      latenciaMs: latencia,
-      urlNbi: systemConfig.genieacs?.urlNbi || GENIEACS_URL,
-      urlCwmp: systemConfig.genieacs?.urlCwmp || GENIEACS_CWMP_URL,
-      dispositivosOnline: 248,
-      cwmpAtivo: true,
-      protocolo: "TR-069 CWMP / NBI JSON REST",
-      mensagem: "GenieACS conectado com sucesso via loopback local."
-    });
+    if (!targetUrl) {
+      if (isProd) {
+        return res.status(400).json({
+          success: false,
+          status: "offline",
+          error: "GENIEACS_URL não configurada."
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        mensagem: "GENIEACS_URL ausente. Modo de desenvolvimento ativo."
+      });
+    }
+
+    const inicio = Date.now();
+    try {
+      const response = await axios.get(`${targetUrl}/devices?limit=1`, {
+        timeout: 3000,
+        validateStatus: () => true
+      });
+      const latencia = Date.now() - inicio;
+      const isOnline = response.status >= 200 && response.status < 500;
+
+      res.json({
+        success: isOnline,
+        status: isOnline ? "online" : "offline",
+        latenciaMs: latencia,
+        urlNbi: targetUrl,
+        mensagem: isOnline ? "GenieACS NBI conectado com sucesso." : `Resposta HTTP ${response.status} do GenieACS.`
+      });
+    } catch (err: any) {
+      const latencia = Date.now() - inicio;
+      if (isProd) {
+        return res.status(502).json({
+          success: false,
+          status: "offline",
+          latenciaMs: latencia,
+          error: `GenieACS NBI inacessível (${targetUrl}): ${err.message}`
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        latenciaMs: latencia,
+        mensagem: `GenieACS NBI offline (${targetUrl}). Modo memória ativo.`
+      });
+    }
   });
 
   // Testar conexão Zabbix 7.0 LTS JSON-RPC API
   app.post("/api/configuracoes/test-zabbix", async (req, res) => {
-    const inicio = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 45));
-    const latencia = Date.now() - inicio;
+    const isProd = process.env.NODE_ENV === 'production';
+    const targetUrl = systemConfig.zabbix?.urlJsonRpc || process.env.ZABBIX_URL;
+    const token = systemConfig.zabbix?.apiToken || process.env.ZABBIX_TOKEN;
 
-    res.json({
-      success: true,
-      status: "online",
-      latenciaMs: latencia,
-      url: systemConfig.zabbix?.urlJsonRpc || ZABBIX_URL,
-      versao: "Zabbix Server 7.0.3 LTS Enterprise",
-      hostsMonitorados: 48,
-      itensAtivos: 1428,
-      triggersAtivas: 2,
-      mensagem: "Zabbix 7.0 LTS conectado via JSON-RPC 2.0 nativo."
-    });
+    if (!targetUrl) {
+      if (isProd) {
+        return res.status(400).json({
+          success: false,
+          status: "offline",
+          error: "ZABBIX_URL não configurada."
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        mensagem: "ZABBIX_URL ausente. Modo de desenvolvimento ativo."
+      });
+    }
+
+    const inicio = Date.now();
+    try {
+      const response = await axios.post(targetUrl, {
+        jsonrpc: "2.0",
+        method: "apiinfo.version",
+        params: [],
+        id: 1,
+        auth: token || undefined
+      }, {
+        timeout: 3500,
+        headers: { 'Content-Type': 'application/json-rpc' }
+      });
+      const latencia = Date.now() - inicio;
+      const versao = response.data?.result || "Zabbix 7.0 LTS";
+
+      res.json({
+        success: true,
+        status: "online",
+        latenciaMs: latencia,
+        url: targetUrl,
+        versao: `Zabbix Server ${versao}`,
+        mensagem: "Zabbix 7.0 LTS conectado via JSON-RPC 2.0 nativo."
+      });
+    } catch (err: any) {
+      const latencia = Date.now() - inicio;
+      if (isProd) {
+        return res.status(502).json({
+          success: false,
+          status: "offline",
+          latenciaMs: latencia,
+          error: `Zabbix API inacessível (${targetUrl}): ${err.message}`
+        });
+      }
+      return res.json({
+        success: false,
+        status: "offline",
+        fallback: isMockAllowed(),
+        latenciaMs: latencia,
+        mensagem: `Zabbix API offline (${targetUrl}). Modo memória ativo.`
+      });
+    }
   });
 
   // Testar conexão Mapa Open-Source (Leaflet / OSM / CARTO)
@@ -2002,11 +2372,79 @@ app.use("/api/ai", aiRoutes);
     });
   });
 
-  // Setup Wizard Endpoints (Protegidos contra execução em ambiente produtivo já inicializado)
-  app.post("/api/setup/install-genieacs", (req, res) => {
-    if (process.env.NODE_ENV === "production" && process.env.DATABASE_URL) {
-      return res.status(403).json({ error: "Instalação bloqueada: Instância já provisionada em produção." });
+  // Helper de elegibilidade e segurança do Setup Wizard
+  async function checkSetupEligibility() {
+    const isProd = process.env.NODE_ENV === "production";
+    const setupEnabled = process.env.SETUP_ENABLED === "true";
+    const allowOverride = process.env.SETUP_ALLOW_OVERRIDE === "true";
+    
+    let hasAdmin = false;
+    let dbAvailable = false;
+
+    try {
+      const adminCheck = await db.select({ id: users.id }).from(users).where(eq(users.cargo, "ADMIN")).limit(1);
+      hasAdmin = adminCheck.length > 0;
+      dbAvailable = true;
+    } catch {
+      hasAdmin = false;
+      dbAvailable = false;
     }
+
+    // Regra 1: Em produção, SETUP_ENABLED deve ser explicitamente true
+    if (isProd && !setupEnabled) {
+      return {
+        allowed: false,
+        reason: "Setup Wizard bloqueado em ambiente de produção (SETUP_ENABLED != true).",
+        isProd,
+        hasAdmin,
+        dbAvailable
+      };
+    }
+
+    // Regra 2: Em produção com banco já provisionado com admin e sem permissão explícita de override
+    if (isProd && hasAdmin && !allowOverride) {
+      return {
+        allowed: false,
+        reason: "Instância de produção já provisionada com administrador ativo. Reconfiguração bloqueada sem SETUP_ALLOW_OVERRIDE=true.",
+        isProd,
+        hasAdmin,
+        dbAvailable
+      };
+    }
+
+    return {
+      allowed: true,
+      reason: "Setup Wizard autorizado para provisionamento.",
+      isProd,
+      hasAdmin,
+      dbAvailable
+    };
+  }
+
+  // Endpoint de status do Setup Wizard
+  app.get("/api/setup/status", async (req, res) => {
+    try {
+      const eligibility = await checkSetupEligibility();
+      res.json({
+        setupAllowed: eligibility.allowed,
+        isProduction: eligibility.isProd,
+        hasAdminUser: eligibility.hasAdmin,
+        databaseReady: eligibility.dbAvailable,
+        status: eligibility.allowed ? (eligibility.hasAdmin ? "ready" : "setup_required") : "locked",
+        reason: eligibility.reason
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao verificar status do setup", details: err.message });
+    }
+  });
+
+  // Setup Wizard Endpoints (Protegidos contra execução em ambiente produtivo já inicializado)
+  app.post("/api/setup/install-genieacs", async (req, res) => {
+    const eligibility = await checkSetupEligibility();
+    if (!eligibility.allowed) {
+      return res.status(403).json({ error: eligibility.reason });
+    }
+
     exec("bash install_genieacs.sh", (error: any, stdout: any, stderr: any) => {
       if (error) {
         console.error(`GenieACS Install Error: ${error.message}`);
@@ -2016,18 +2454,43 @@ app.use("/api/ai", aiRoutes);
     });
   });
 
-  app.post("/api/setup/finish", (req, res) => {
-    if (process.env.NODE_ENV === "production" && process.env.DATABASE_URL) {
-      return res.status(403).json({ error: "Setup bloqueado: O ambiente já possui credenciais ativas." });
+  app.post("/api/setup/finish", async (req, res) => {
+    const eligibility = await checkSetupEligibility();
+    if (!eligibility.allowed) {
+      return res.status(403).json({ error: eligibility.reason });
     }
+
     const { adminEmail, adminPassword, sgpUrl, sgpApp, sgpToken, geminiApiKey, amiUser, amiPassword } = req.body;
     
-    // Sanitização básica
     if (!adminEmail || !adminPassword) {
       return res.status(400).json({ error: "Email e senha do administrador são obrigatórios" });
     }
 
-    const envContent = `\
+    if (adminPassword.length < 8) {
+      return res.status(400).json({ error: "A senha do administrador deve possuir no mínimo 8 caracteres." });
+    }
+
+    try {
+      // 1. Hashear senha exclusivamente com bcrypt (12 rounds)
+      const passwordHash = await hashPassword(adminPassword);
+
+      // 2. Persistir usuário administrador diretamente no PostgreSQL
+      await db.insert(users).values({
+        email: adminEmail,
+        nome: "Administrador do Sistema",
+        senha: passwordHash,
+        cargo: "ADMIN",
+        ativo: true
+      }).onConflictDoUpdate({
+        target: users.email,
+        set: {
+          senha: passwordHash,
+          updatedAt: new Date()
+        }
+      });
+
+      // 3. Gravar .env — REGRA CRÍTICA: NUNCA adicionar ADMIN_PASSWORD ao .env
+      const envContent = `\
 GEMINI_API_KEY="${geminiApiKey || ''}"\
 SGP_URL="${sgpUrl || ''}"\
 SGP_APP="${sgpApp || ''}"\
@@ -2035,16 +2498,34 @@ SGP_TOKEN="${sgpToken || ''}"\
 AMI_USER="${amiUser || ''}"\
 AMI_PASSWORD="${amiPassword || ''}"\
 DATABASE_URL="${process.env.DATABASE_URL || ''}"\
-GENIEACS_URL="http://127.0.0.1:7557"\
+GENIEACS_URL="${process.env.GENIEACS_URL || 'http://127.0.0.1:7557'}"\
 ADMIN_EMAIL="${adminEmail}"\
-ADMIN_PASSWORD="${adminPassword}"\
+SETUP_ENABLED="false"\
 `;
-    try {
+
       fs.writeFileSync(path.join(process.cwd(), ".env"), envContent, { mode: 0o600 });
-      console.log("[SETUP] Variáveis .env configuradas com sucesso.");
-      res.json({ success: true });
+      console.log("[SETUP] Configurações gravadas com sucesso. Senha do administrador armazenada estritamente como hash no PostgreSQL.");
+
+      // 4. Registro de auditoria imutável obrigatório
+      await recordMandatoryAuditLog({
+        usuario: adminEmail,
+        modulo: "Setup Wizard",
+        acao: "Provisionamento de Administrador",
+        detalhes: `Administrador ${adminEmail} configurado com hash bcrypt seguro. Setup desativado.`,
+        categoria: "seguranca",
+        severidade: "critico",
+        status: "sucesso",
+        ip: req.ip || "127.0.0.1",
+        userAgent: (req.headers["user-agent"] as string) || "Setup Wizard"
+      });
+
+      res.json({ 
+        success: true, 
+        message: "Instância configurada com sucesso. Senha armazenada de forma segura no PostgreSQL." 
+      });
     } catch (err: any) {
-      res.status(500).json({ error: "Erro ao gravar arquivo de configuração .env" });
+      console.error("[SETUP] Erro ao finalizar setup:", err);
+      res.status(500).json({ error: `Erro ao finalizar setup: ${err.message}` });
     }
   });
 
@@ -2056,20 +2537,34 @@ ADMIN_PASSWORD="${adminPassword}"\
   // Global Error Handler com sanitização e audit log automático
   app.use(globalErrorHandler);
 
-  if (!process.env.VERCEL && process.env.NODE_ENV === "production") {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Production server running on http://localhost:${PORT}`);
-    });
+  // Vite middleware para desenvolvimento ou arquivos estáticos em produção
+  async function startServer() {
+    if (process.env.NODE_ENV !== "production") {
+      try {
+        const { createServer: createViteServer } = await import("vite");
+        const vite = await createViteServer({
+          server: { middlewareMode: true, hmr: false },
+          appType: "spa",
+        });
+        app.use(vite.middlewares);
+      } catch (viteErr: any) {
+        console.error("[DEV SERVER] Erro ao carregar middleware do Vite:", viteErr);
+      }
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
+
+    if (!process.env.VERCEL) {
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`NAP Telecom Server rodando na porta ${PORT} (${process.env.NODE_ENV || "development"})`);
+      });
+    }
   }
 
+  startServer();
 
-
-
-
-
-export default app;
+  export default app;

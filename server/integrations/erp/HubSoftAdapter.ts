@@ -24,7 +24,20 @@ export class HubSoftAdapter implements ErpAdapter {
   }
 
   async ping(): Promise<boolean> {
-    return true;
+    if (!this.baseUrl || !this.apiKey) {
+      console.log(`[HubSoft] Ping falhou: baseUrl ou apiKey ausentes.`);
+      return false;
+    }
+    try {
+      const res = await axios.get(`${this.baseUrl}/api/v1/integracao/status`, {
+        headers: this.getHeaders(),
+        timeout: 3000
+      });
+      return res.status === 200;
+    } catch (err: any) {
+      console.warn(`[HubSoft] Ping offline (${this.baseUrl}):`, err?.message);
+      return false;
+    }
   }
 
   async buscarClientePorCpf(cpf: string): Promise<ClienteErpInfo | null> {
