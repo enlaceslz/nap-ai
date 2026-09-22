@@ -71,7 +71,6 @@ import { setupPaymentRoutes } from "./server/payments";
 import { GenieacsService } from "./server/genieacs/genieacsService";
 import { authRouter } from "./server/auth/authRoutes";
 import { requireRole, requireAuth } from "./server/auth/rbacMiddleware";
-import { devMockWabaChats, devMockWabaMessages } from "./test/fixtures/wabaMocks";
 import { devMockErpDatabase } from "./test/fixtures/erpMocks";
 import { devMockUsuariosProvedor } from "./test/fixtures/userMocks";
 

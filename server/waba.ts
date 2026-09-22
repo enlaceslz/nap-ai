@@ -524,8 +524,7 @@ export function setupWabaRoutes(app: any) {
                   const [newChat] = await db.insert(conversas).values({
                     telefone: senderPhone,
                     nomeCliente: contactName,
-                    fila: isSolicitacaoHumano ? 'handoff' : 'triagem_ia',
-                    status: 'aberta'
+                    fila: isSolicitacaoHumano ? 'handoff' : 'triagem_ia'
                   }).returning();
                   chat = newChat;
                 } else if (isSolicitacaoHumano) {
@@ -533,8 +532,8 @@ export function setupWabaRoutes(app: any) {
                 }
                 if (chat) {
                   await db.insert(mensagens).values([
-                    { conversaId: chat.id, autorTipo: 'cliente', remetente: 'cliente', conteudo: msgText, status: 'entregue' },
-                    { conversaId: chat.id, autorTipo: isSolicitacaoHumano ? 'sistema' : 'ia', remetente: isSolicitacaoHumano ? 'sistema' : 'ia', conteudo: respostaIA, status: 'entregue' }
+                    { conversaId: chat.id, remetente: 'cliente', conteudo: msgText, statusEntrega: 'entregue' },
+                    { conversaId: chat.id, remetente: isSolicitacaoHumano ? 'sistema' : 'ia', conteudo: respostaIA, statusEntrega: 'entregue' }
                   ]);
                 }
               } catch (dbErr: any) {
