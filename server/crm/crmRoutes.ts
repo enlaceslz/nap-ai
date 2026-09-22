@@ -19,14 +19,14 @@ export const setupCrmRoutes = (app: express.Express, { registrarAuditoria }: any
       const result = await crmService.syncContatosFromErp();
       if (registrarAuditoria) {
         registrarAuditoria({
-          usuario: "Operador (API)",
+          usuario: (req as any).user?.email || "system",
           modulo: "CRM 360",
           acao: "Sincronização de Base SGP",
           detalhes: `Sincronizados ${result.count} clientes do ERP para a base do NAP.`,
           categoria: "sgp_crm",
           severidade: "info",
-          ip: req.ip || "127.0.0.1",
-          userAgent: req.headers["user-agent"] || "CRM"
+          ip: req.socket?.remoteAddress || req.ip || null,
+          userAgent: req.headers["user-agent"] || null
         });
       }
       res.json(result);
@@ -50,14 +50,14 @@ export const setupCrmRoutes = (app: express.Express, { registrarAuditoria }: any
       
       if (registrarAuditoria) {
         registrarAuditoria({
-          usuario: "Operador (API)",
+          usuario: (req as any).user?.email || "system",
           modulo: "CRM 360",
           acao: "Criação de Deal",
           detalhes: `Novo card criado no pipeline ${newDeal.pipeline}: ${newDeal.titulo}`,
           categoria: "sgp_crm",
           severidade: "info",
-          ip: req.ip || "127.0.0.1",
-          userAgent: req.headers["user-agent"] || "CRM"
+          ip: req.socket?.remoteAddress || req.ip || null,
+          userAgent: req.headers["user-agent"] || null
         });
       }
 
@@ -84,14 +84,14 @@ export const setupCrmRoutes = (app: express.Express, { registrarAuditoria }: any
       
       if (registrarAuditoria) {
         registrarAuditoria({
-          usuario: "WABA System",
+          usuario: "system",
           modulo: "CRM 360",
           acao: "Disparo de Template WABA",
           detalhes: `Template WABA disparado para Deal #${req.params.id}.`,
           categoria: "waba",
           severidade: "info",
-          ip: "127.0.0.1",
-          userAgent: "WABA Backend"
+          ip: req.socket?.remoteAddress || req.ip || null,
+          userAgent: req.headers["user-agent"] || null
         });
       }
       res.json({ success: true, message: 'Disparo WABA realizado' });
@@ -105,14 +105,14 @@ export const setupCrmRoutes = (app: express.Express, { registrarAuditoria }: any
     crmService.executeBillingRule();
     if (registrarAuditoria) {
       registrarAuditoria({
-        usuario: "SGP System (CRON)",
+        usuario: "system",
         modulo: "SGP Cobrança",
         acao: "Execução Régua de Cobrança",
         detalhes: "Rotina executada para bloqueios por atraso > 15 dias.",
         categoria: "sgp_crm",
         severidade: "medio",
-        ip: "127.0.0.1",
-        userAgent: "SGP Backend"
+        ip: req.socket?.remoteAddress || req.ip || null,
+        userAgent: req.headers["user-agent"] || null
       });
     }
     res.json({ success: true, message: 'Régua de cobrança executada' });
@@ -134,14 +134,14 @@ export const setupCrmRoutes = (app: express.Express, { registrarAuditoria }: any
 
     if (registrarAuditoria) {
       registrarAuditoria({
-        usuario: "Gemini AI",
+        usuario: "system",
         modulo: "WABA Inbox",
         acao: "Handoff IA -> Humano",
         detalhes: `Handoff realizado para o ticket ${newDeal.id} (${nome}).`,
         categoria: "waba",
         severidade: "info",
-        ip: req.ip || "127.0.0.1",
-        userAgent: req.headers["user-agent"] || "WABA Backend"
+        ip: req.socket?.remoteAddress || req.ip || null,
+        userAgent: req.headers["user-agent"] || null
       });
     }
 

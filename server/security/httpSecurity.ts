@@ -136,7 +136,7 @@ export function getHelmetOptions(isProduction = process.env.NODE_ENV === 'produc
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
           imgSrc: ["'self'", "data:", "blob:", "https://*.tile.openstreetmap.org"],
-          connectSrc: ["'self'", "ws:", "wss:", "https://*.tile.openstreetmap.org"],
+          connectSrc: ["'self'", "https://*.tile.openstreetmap.org", "wss://*:8089", "ws://*:8089", ...(process.env.ASTERISK_WEBSOCKET_URL ? [process.env.ASTERISK_WEBSOCKET_URL] : [])],
           mediaSrc: ["'self'", "blob:"],
           objectSrc: ["'none'"],
           baseUri: ["'self'"],

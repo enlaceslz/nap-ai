@@ -22,13 +22,13 @@ export const setupFieldRoutes = (app: express.Express, { registrarAuditoria }: a
       
       if (registrarAuditoria) {
          registrarAuditoria({
-            usuario: req.body.assignedTo || "Sistema",
+            usuario: (req as any).user?.email || req.body.assignedTo || "system",
             modulo: "Field Service / SGP",
             acao: "Criação de OS",
             detalhes: `OS ${newOs.osNumber} criada. Problema: ${newOs.problem}`,
             categoria: "suporte",
             severidade: newOs.priority === 'critical' ? 'critico' : 'normal',
-            ip: req.ip || "127.0.0.1",
+            ip: req.socket?.remoteAddress || req.ip || null,
             userAgent: req.headers["user-agent"]
          });
       }
@@ -53,13 +53,13 @@ export const setupFieldRoutes = (app: express.Express, { registrarAuditoria }: a
 
       if (registrarAuditoria) {
          registrarAuditoria({
-            usuario: userId || "Técnico",
+            usuario: (req as any).user?.email || userId || "system",
             modulo: "Field Service / SGP",
             acao: "Atualização de OS",
             detalhes: `A OS ${updated.osNumber} mudou para o status [${status}]. Comentário: ${comment || 'N/A'}`,
             categoria: "suporte",
             severidade: "medio",
-            ip: req.ip || "127.0.0.1",
+            ip: req.socket?.remoteAddress || req.ip || null,
             userAgent: req.headers["user-agent"]
          });
       }

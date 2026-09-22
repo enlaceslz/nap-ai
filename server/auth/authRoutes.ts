@@ -12,8 +12,8 @@ export const authRouter = Router();
 // Endpoint de login unificado do NAP
 authRouter.post('/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
-  const ip = req.socket.remoteAddress || req.ip || '127.0.0.1';
-  const userAgent = req.headers['user-agent'] || 'unknown';
+  const ip = req.socket.remoteAddress || req.ip || undefined;
+  const userAgent = req.headers['user-agent'] || undefined;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
@@ -166,7 +166,7 @@ authRouter.post('/logout', async (req: Request, res: Response) => {
       detalhes: 'Sessão encerrada pelo usuário.',
       categoria: 'autenticacao',
       severidade: 'info',
-      ip: req.user.ip || '127.0.0.1',
+      ip: req.user.ip || req.socket.remoteAddress || req.ip || undefined,
       status: 'sucesso'
     }).catch(() => {});
   }

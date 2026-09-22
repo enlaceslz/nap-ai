@@ -193,6 +193,35 @@ TEMPO TOTAL: 5.42 segundos
 
 ---
 
+## 4.1. HARDENING FINAL: ERRADICAÇÃO DE DADOS ARTIFICIAIS E SANEAMENTO DE AUDITORIA
+
+Em conformidade estrita com o princípio: **"PRODUÇÃO NUNCA PODE FABRICAR DADOS OPERACIONAIS"**:
+
+1. **Eliminação de Seeds Fictícias no Customer 360 (`server/customer360_service.ts`):**
+   - O método `seedInitialData()` foi inteiramente removido do código-fonte.
+   - Foram eliminadas todas as instâncias e dados de clientes fictícios (João da Silva, Maria Oliveira, Carlos Eduardo Mendes) e faturas associadas.
+   - Em produção e runtime, o repositório opera exclusivamente com dados reais sincronizados diretamente do PostgreSQL e dos adaptadores de ERP (SGP, IXC, HubSoft).
+
+2. **Saneamento de OLT e Topologia de Fibra (`server/olt/oltService.ts` e `zteDriver.ts`):**
+   - Eliminadas as 3 OLTs, slots, portas PON, 7 ONUs, unassigned e alarmes sintéticos do seed inicial.
+   - Inicialização em runtime com schema estritamente vazio (`emptyData`), aguardando descoberta real SNMP/TR-069.
+   - Driver ZTE inicializa com status `offline` por padrão, evitando fabricação de conectividade.
+
+3. **Saneamento do Monitor de Sincronização (`src/components/SyncStatusMonitor.tsx`):**
+   - Removido qualquer valor hardcoded de uptime (`99.98%` ou `99.9%`).
+   - O indicador de Uptime exibe exclusivamente telemetria real (`data.uptime_pct` ou `uptime_seconds`) ou `Uptime N/A` quando a telemetria não estiver disponível.
+
+4. **Identidades Auditáveis e Reais na Trilha de Auditoria:**
+   - Em `server/crm/crmRoutes.ts`, `server/field/fieldRoutes.ts`, `server/zabbix/zabbixRoutes.ts`, `server/marketing/reguaRoutes.ts`, `server/auth/authRoutes.ts` e `server/auth/rbacMiddleware.ts`:
+   - Eliminadas todas as identidades fictícias ou estáticas em logs de auditoria (`"Operador (API)"`, `"WABA System"`, `"SGP System (CRON)"`, `"Gemini AI"`, `"Técnico"`, `"Super Admin (API)"`).
+   - O usuário auditado é extraído diretamente da sessão autenticada (`req.user?.email`), do autor verificado ou categorizado estritamente como `"system"`.
+   - O IP é extraído do cabeçalho de proxy reverso (`x-forwarded-for`) ou do socket de rede real (`remoteAddress`), não sendo fabricado como `127.0.0.1` arbitrário.
+
+5. **Content Security Policy (CSP) Restrito:**
+   - No `server/security/httpSecurity.ts`, a diretiva `connectSrc` substituiu curingas genéricos (`ws:`, `wss:`) por origens estritas: `'self'`, tiles do OpenStreetMap, `wss://*:8089` / `ws://*:8089` (Asterisk WSS) e a variável `ASTERISK_WEBSOCKET_URL`.
+
+---
+
 ## 5. GUIA DE OPERAÇÃO E INICIALIZAÇÃO EM DEBIAN 12
 
 ### Procedimento para Primeiro Provisionamento (Bootstrap)

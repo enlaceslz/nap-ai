@@ -92,7 +92,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     if (verified) {
       req.user = {
         ...verified,
-        ip: req.socket.remoteAddress || req.ip || '127.0.0.1'
+        ip: req.socket.remoteAddress || req.ip || undefined
       };
       return next();
     }
@@ -108,7 +108,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
       nome: 'Administrador Local (Dev)',
       role: devRole,
       permissions: ROLE_PERMISSIONS[devRole],
-      ip: req.socket.remoteAddress || '127.0.0.1'
+      ip: req.socket.remoteAddress || req.ip || undefined
     };
   }
 

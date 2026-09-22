@@ -10,7 +10,8 @@ export interface SyncStatusData {
  sucesso: boolean;
  timestamp: string;
  status_geral: 'operacional' | 'atencao' | 'critico';
- uptime_pct: number;
+ uptime_pct?: number | null;
+ uptime_seconds?: number | null;
  ultima_sincronizacao: string;
  sgp: {
  nome: string;
@@ -227,7 +228,7 @@ export default function SyncStatusMonitor({ variant = 'topbar', className = '' }
  </div>
  <div>
  <h4 className="text-xs font-bold text-foreground font-outfit">Sincronização em Tempo Real</h4>
- <p className="text-[10px] text-muted-foreground">Gateway Telecom • Uptime {data?.uptime_pct || 99.9}%</p>
+ <p className="text-[10px] text-muted-foreground">Gateway Telecom • Uptime {data?.uptime_pct != null ? data.uptime_pct + "%" : (data?.uptime_seconds != null ? Math.floor(data.uptime_seconds / 3600) + "h" : "N/A")}</p>
  </div>
  </div>
 
@@ -528,7 +529,7 @@ export default function SyncStatusMonitor({ variant = 'topbar', className = '' }
  <span>Polling Ativo: <strong>15 segundos</strong></span>
  </span>
  <span className="text-muted-foreground">•</span>
- <span className="text-emerald-400 font-bold">Uptime 99.98%</span>
+ {data?.uptime_pct != null ? (<span className="text-emerald-400 font-bold">Uptime {data.uptime_pct}%</span>) : data?.uptime_seconds != null ? (<span className="text-emerald-400 font-bold">Uptime {Math.floor(data.uptime_seconds / 3600)}h {Math.floor((data.uptime_seconds % 3600) / 60)}m</span>) : (<span className="text-muted-foreground">Uptime N/A</span>)}
  </div>
  </div>
  </div>

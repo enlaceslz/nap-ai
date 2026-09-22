@@ -36,14 +36,14 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
     globalReguaConfig = { ...globalReguaConfig, ...req.body };
     if (registrarAuditoria) {
       registrarAuditoria({
-        usuario: "Super Admin (API)",
+        usuario: (req as any).user?.email || "system",
         modulo: "Campanhas ISP",
         acao: "Atualização da Régua",
         detalhes: "Configurações da Régua de Cobrança atualizadas.",
         categoria: "marketing",
         severidade: "info",
-        ip: req.ip || "127.0.0.1",
-        userAgent: req.headers["user-agent"]
+        ip: req.socket?.remoteAddress || req.ip || null,
+        userAgent: req.headers["user-agent"] || null
       });
     }
     res.json({ success: true, config: globalReguaConfig });
@@ -82,7 +82,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
         categoria: "marketing",
         severidade: "medio",
         ip: req.ip || null,
-        userAgent: req.headers["user-agent"] || "CRON Engine"
+        userAgent: req.headers["user-agent"] || null || "CRON Engine"
       });
     }
 

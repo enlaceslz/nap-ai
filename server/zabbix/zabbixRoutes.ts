@@ -43,19 +43,19 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
       // Mandatory Audit Trail for Zabbix ACK (AGENTS.md Rule)
       if (registrarAuditoria) {
         registrarAuditoria({
-          usuario: author,
+          usuario: author || (req as any).user?.email || "system",
           modulo: "NOC & Telemetria",
           acao: "Reconhecimento de Alarme (ACK)",
           detalhes: `Alarme [${problem.severity.toUpperCase()}] no host '${problem.host}' reconhecido. Mensagem: ${message}`,
           categoria: "noc_zabbix",
           severidade: "medio",
-          ip: req.ip || "127.0.0.1",
-          userAgent: req.headers["user-agent"] || "Zabbix NOC Console"
+          ip: req.socket?.remoteAddress || req.ip || null,
+          userAgent: req.headers["user-agent"] || null
         });
       }
 
       
-      // MOCK: Dispatch via Communications Hub (Fase 4 - NOC PRD)
+      // Dispatch via Communications Hub (Fase 4 - NOC PRD)
       if (req.body.severity === 'critical') {
          fetch('http://127.0.0.1:3000/api/communications/telegram/send', {
            method: 'POST',
