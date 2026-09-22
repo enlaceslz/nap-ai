@@ -20,7 +20,6 @@ import { validateSecrets } from "./server/security/secretsValidator";
 import { configureHelmet, configureCors, createRateLimiter, globalErrorHandler, appendAuditLog, getAuditChain, initAuditPersistence, recordMandatoryAuditLog } from "./server/security/httpSecurity";
 import { hashPassword } from "./server/auth/passwordUtils";
 import { authMiddleware } from "./server/auth/rbacMiddleware";
-import { isMockAllowed } from "./server/security/mockGuard";
 
 // Validação de segurança de inicialização
 try {
@@ -47,7 +46,7 @@ import { db, assertDatabaseReady, pool } from "./src/db/index";
   }
 })();
 import { users, atendimentos, clientes, faturas } from "./src/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { conversas, mensagens } from "./src/db/schema";
 
 
@@ -71,8 +70,6 @@ import { setupPaymentRoutes } from "./server/payments";
 import { GenieacsService } from "./server/genieacs/genieacsService";
 import { authRouter } from "./server/auth/authRoutes";
 import { requireRole, requireAuth } from "./server/auth/rbacMiddleware";
-import { devMockErpDatabase } from "./test/fixtures/erpMocks";
-import { devMockUsuariosProvedor } from "./test/fixtures/userMocks";
 
 const app = express();
 const PORT = 3000;
@@ -272,23 +269,7 @@ let systemConfig: any = {
 };
 
 // --- Auditoria e Conformidade ---
-const auditLogs: any[] = [
-  {
-    id: "log_init_1",
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    usuario: "Admin NAP",
-    usuarioEmail: "admin@naptelecom.com.br",
-    usuarioRole: "admin",
-    modulo: "Segurança / WAF",
-    acao: "Inicialização de Serviços",
-    detalhes: "Todos os serviços nativos inicializados com conformidade LGPD/Marco Civil.",
-    categoria: "seguranca",
-    severidade: "info",
-    ip: "127.0.0.1",
-    userAgent: "NAP-Core/2026",
-    status: "sucesso"
-  }
-];
+const auditLogs: any[] = [];
 
 function registrarAuditoria(entry: {
   usuario?: string;
@@ -299,8 +280,8 @@ function registrarAuditoria(entry: {
   detalhes?: string;
   categoria?: string;
   severidade?: string;
-  ip?: string;
-  userAgent?: string;
+  ip?: string | null;
+  userAgent?: string | null;
   payloadAntes?: any;
   payloadDepois?: any;
   status?: string;
@@ -308,16 +289,16 @@ function registrarAuditoria(entry: {
   const log = {
     id: `log_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
     timestamp: new Date().toISOString(),
-    usuario: entry.usuario || "Operador NAP",
-    usuarioEmail: entry.usuarioEmail || "operador@provedor.com.br",
-    usuarioRole: entry.usuarioRole || "operador",
+    usuario: entry.usuario || "sistema",
+    usuarioEmail: entry.usuarioEmail || null,
+    usuarioRole: entry.usuarioRole || "sistema",
     modulo: entry.modulo || "Sistema",
     acao: entry.acao || "Operação",
     detalhes: entry.detalhes || "",
     categoria: entry.categoria || "configuracao",
     severidade: entry.severidade || "info",
-    ip: entry.ip || "127.0.0.1",
-    userAgent: entry.userAgent || "Mozilla/5.0",
+    ip: entry.ip || null,
+    userAgent: entry.userAgent || null,
     payloadAntes: entry.payloadAntes || null,
     payloadDepois: entry.payloadDepois || null,
     status: entry.status || "sucesso"
@@ -402,30 +383,30 @@ app.get("/api/health", async (req, res) => {
 
 // Lista de Usuários e Resumo de Hierarquia
 app.get("/api/usuarios", async (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    try {
-      const dbUsers = await db.select({
-        id: users.id,
-        nome: users.nome,
-        email: users.email,
-        cargo: users.cargo,
-        ativo: users.ativo,
-        ramal: users.ramal,
-        createdAt: users.createdAt
-      }).from(users);
-      return res.json({
-        sucesso: true,
-        total: dbUsers.length,
-        usuarios: dbUsers,
-        resumo_hierarquia: {
-          admin: dbUsers.filter(u => u.cargo === 'ADMIN' || u.cargo === 'admin').length,
-          operador: dbUsers.filter(u => u.cargo === 'OPERADOR' || u.cargo === 'operador').length,
-          tecnico: dbUsers.filter(u => u.cargo?.includes('TECNICO') || u.cargo?.includes('tecnico')).length,
-          com_geolocalizacao: 0,
-          pwa_ativo: 0
-        }
-      });
-    } catch (e: any) {
+  try {
+    const dbUsers = await db.select({
+      id: users.id,
+      nome: users.nome,
+      email: users.email,
+      cargo: users.cargo,
+      ativo: users.ativo,
+      ramal: users.ramal,
+      createdAt: users.createdAt
+    }).from(users);
+    return res.json({
+      sucesso: true,
+      total: dbUsers.length,
+      usuarios: dbUsers,
+      resumo_hierarquia: {
+        admin: dbUsers.filter(u => u.cargo === 'ADMIN' || u.cargo === 'admin').length,
+        operador: dbUsers.filter(u => u.cargo === 'OPERADOR' || u.cargo === 'operador').length,
+        tecnico: dbUsers.filter(u => u.cargo?.includes('TECNICO') || u.cargo?.includes('tecnico')).length,
+        com_geolocalizacao: 0,
+        pwa_ativo: 0
+      }
+    });
+  } catch (e: any) {
+    if (process.env.NODE_ENV === 'production') {
       return res.status(503).json({
         sucesso: false,
         status: "unavailable",
@@ -434,25 +415,53 @@ app.get("/api/usuarios", async (req, res) => {
         usuarios: []
       });
     }
+    return res.json({
+      sucesso: true,
+      total: 0,
+      usuarios: [],
+      resumo_hierarquia: {
+        admin: 0,
+        operador: 0,
+        tecnico: 0,
+        com_geolocalizacao: 0,
+        pwa_ativo: 0
+      }
+    });
   }
-
-  res.json({
-    sucesso: true,
-    total: devMockUsuariosProvedor.length,
-    usuarios: devMockUsuariosProvedor,
-    resumo_hierarquia: {
-      admin: devMockUsuariosProvedor.filter(u => u.cargo === 'admin').length,
-      operador: devMockUsuariosProvedor.filter(u => u.cargo === 'operador').length,
-      tecnico: devMockUsuariosProvedor.filter(u => u.cargo === 'tecnico_campo' || u.cargo === 'tecnico_noc').length,
-      com_geolocalizacao: devMockUsuariosProvedor.filter(u => u.geolocalizacao?.ativo).length,
-      pwa_ativo: devMockUsuariosProvedor.filter(u => u.pwa?.push_ativo).length
-    }
-  });
 });
 
 // Mapa de Técnicos em Campo (GIS e Ordens de Serviço)
-app.get("/api/tecnicos/mapa", (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
+app.get("/api/tecnicos/mapa", async (req, res) => {
+  try {
+    const dbTecnicos = await db.select({
+      id: users.id,
+      nome: users.nome,
+      email: users.email,
+      cargo: users.cargo,
+      ativo: users.ativo
+    }).from(users).where(eq(users.cargo, 'TECNICO'));
+
+    return res.json({
+      sucesso: true,
+      total_tecnicos_campo: dbTecnicos.length,
+      tecnicos_em_deslocamento: 0,
+      tecnicos_em_atendimento: 0,
+      tecnicos: dbTecnicos.map(t => ({
+        id: t.id,
+        nome: t.nome,
+        veiculo: "N/A",
+        status: t.ativo ? 'disponivel' : 'inativo',
+        status_label: t.ativo ? 'Disponível' : 'Inativo',
+        lat: null,
+        lng: null,
+        endereco: null,
+        velocidade_kmh: 0,
+        bateria: null,
+        atualizado_em: null
+      })),
+      ordens_servico: []
+    });
+  } catch {
     return res.json({
       sucesso: true,
       total_tecnicos_campo: 0,
@@ -462,53 +471,6 @@ app.get("/api/tecnicos/mapa", (req, res) => {
       ordens_servico: []
     });
   }
-
-  const tecnicos = devMockUsuariosProvedor.filter(u => u.cargo === 'tecnico_campo' || u.cargo === 'tecnico_noc');
-  res.json({
-    sucesso: true,
-    total_tecnicos_campo: tecnicos.length,
-    tecnicos_em_deslocamento: tecnicos.filter(t => t.status === 'em_rota').length,
-    tecnicos_em_atendimento: tecnicos.filter(t => t.status === 'no_cliente').length,
-    tecnicos: tecnicos.map(t => ({
-      id: t.id,
-      nome: t.nome,
-      veiculo: t.veiculo,
-      status: t.status,
-      status_label: t.status_label,
-      lat: t.geolocalizacao.lat,
-      lng: t.geolocalizacao.lng,
-      endereco: t.geolocalizacao.endereco_estimado,
-      velocidade_kmh: t.geolocalizacao.velocidade_kmh || 0,
-      bateria: t.geolocalizacao.bateria_percentual || 80,
-      atualizado_em: t.geolocalizacao.atualizado_em
-    })),
-    ordens_servico: [
-      {
-        id: "OS-2026-901",
-        numero: "OS-2026-901",
-        tipo: "Instalação FTTH 500MB",
-        cliente_nome: "Maria Albuquerque",
-        endereco: "Rua Pamplona, 320",
-        bairro: "Jardins",
-        lat: -23.5612,
-        lng: -46.6521,
-        status: "em_andamento",
-        tecnico_nome: "Rodrigo Matos"
-      },
-      {
-        id: "OS-2026-902",
-        numero: "OS-2026-902",
-        tipo: "Reparo Óptico (Sinal Atenuado)",
-        cliente_nome: "João Batista",
-        endereco: "Rua Augusta, 450",
-        bairro: "Consolação",
-        lat: -23.5489,
-        lng: -46.6389,
-        status: "a_caminho",
-        tecnico_nome: "Lucas Ferreira"
-      }
-    ]
-  });
 });
 
 // Push Notification de Teste para Membro da Equipe
@@ -723,15 +685,16 @@ app.post("/api/push/operator/test", (req, res) => {
         process.env.ZABBIX_TOKEN = systemConfig.zabbix.apiToken;
       }
 
+      const callerUser = (req as any).user?.nome || (req as any).user?.email || "administrador";
       registrarAuditoria({
-        usuario: "Admin NAP (SuperAdmin)",
+        usuario: callerUser,
         modulo: "Credenciais Nativas",
         acao: "Restauração de Credenciais de Fábrica",
-        detalhes: `Todas as credenciais nativas de infraestrutura (Asterisk, GenieACS, Zabbix, Mapa, SGP/Radius, WhatsApp WABA) foram preenchidas e revalidadas com sucesso.`,
+        detalhes: `Todas as credenciais nativas de infraestrutura foram restauradas.`,
         categoria: "configuracao",
         severidade: "critico",
-        ip: req.ip || "127.0.0.1",
-        userAgent: req.headers["user-agent"] || "Mozilla/5.0"
+        ip: req.ip || null,
+        userAgent: (req.headers["user-agent"] as string) || null
       });
 
       res.json({
@@ -845,15 +808,16 @@ app.post("/api/push/operator/test", (req, res) => {
 
       systemConfig.provedor.logoUrl = logoData;
 
+      const callerUser = (req as any).user?.nome || (req as any).user?.email || "administrador";
       registrarAuditoria({
-        usuario: "Admin NAP (SuperAdmin)",
+        usuario: callerUser,
         modulo: "Configurações",
         acao: "Upload de Logotipo Institucional",
         detalhes: `Logotipo institucional atualizado (${fileName || "imagem"}).`,
         categoria: "configuracao",
         severidade: "info",
-        ip: req.ip || "127.0.0.1",
-        userAgent: req.headers["user-agent"] || "Mozilla/5.0"
+        ip: req.ip || null,
+        userAgent: (req.headers["user-agent"] as string) || null
       });
 
       res.json({
@@ -875,19 +839,11 @@ app.post("/api/push/operator/test", (req, res) => {
     const targetApp = appId || process.env.ERP_APP || process.env.SGP_APP;
 
     if (!targetUrl) {
-      if (isProd) {
-        return res.status(400).json({
-          success: false,
-          status: "offline",
-          error: "URL do ERP não configurada.",
-          detalhes: "Configure a URL da API do ERP no .env (ERP_URL ou SGP_URL) antes de testar em produção."
-        });
-      }
-      return res.json({
+      return res.status(400).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
-        detalhes: "[DEV/PREVIEW] URL do ERP não configurada. Modo memória ativo."
+        error: "URL do ERP não configurada.",
+        detalhes: "Configure a URL da API do ERP no .env (ERP_URL ou SGP_URL)."
       });
     }
 
@@ -916,21 +872,12 @@ app.post("/api/push/operator/test", (req, res) => {
       });
     } catch (err: any) {
       const latencia = Date.now() - inicio;
-      if (isProd) {
-        return res.status(502).json({
-          success: false,
-          status: "offline",
-          latenciaMs: latencia,
-          error: `Falha de conexão com ERP (${targetUrl}): ${err.message}`,
-          codigoErro: err.code || "TIMEOUT_OR_UNREACHABLE"
-        });
-      }
-      return res.json({
+      return res.status(502).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
         latenciaMs: latencia,
-        error: `ERP inacessível em ${targetUrl}: ${err.message}. Modo memória ativo.`
+        error: `Falha de conexão com ERP (${targetUrl}): ${err.message}`,
+        codigoErro: err.code || "TIMEOUT_OR_UNREACHABLE"
       });
     }
   });
@@ -950,26 +897,16 @@ app.post("/api/push/operator/test", (req, res) => {
         latenciaMs: latencia,
         versaoAsterisk: "Asterisk 20+ LTS",
         canaisAtivos: astStatus.chamadasAtivas || 0,
-        ramaisRegistrados: 2,
-        webrtcStatus: "Ativo (WSS PJSIP)",
-        ariStatus: "Conectado (Stasis: nap_engine)"
+        ramaisRegistrados: null,
+        webrtcStatus: health.ariPortOpen ? "Ativo (WSS PJSIP)" : "Indisponível",
+        ariStatus: health.ariPortOpen ? "Conectado" : "Desconectado"
       });
     } else {
-      if (isProd) {
-        return res.status(502).json({
-          success: false,
-          status: "offline",
-          latenciaMs: latencia,
-          error: "Asterisk 20+ não respondeu na porta ARI (8088) ou AMI (5038).",
-          detalhes: health
-        });
-      }
-      return res.json({
+      return res.status(502).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
         latenciaMs: latencia,
-        error: "Asterisk não detectado no ambiente local. Modo desacoplado ativo.",
+        error: "Asterisk 20+ não respondeu na porta ARI (8088) ou AMI (5038).",
         detalhes: health
       });
     }
@@ -977,23 +914,14 @@ app.post("/api/push/operator/test", (req, res) => {
 
   // Testar conexão WhatsApp Business API (WABA)
   app.post("/api/configuracoes/test-whatsapp", async (req, res) => {
-    const isProd = process.env.NODE_ENV === 'production';
     const token = process.env.WHATSAPP_TOKEN || process.env.WABA_TOKEN || systemConfig.whatsapp?.tokenAcesso;
     const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.WABA_PHONE_NUMBER_ID || systemConfig.whatsapp?.phoneNumberId;
 
     if (!token || token.includes('••••')) {
-      if (isProd) {
-        return res.status(400).json({
-          success: false,
-          status: "offline",
-          error: "WHATSAPP_TOKEN não configurado no servidor."
-        });
-      }
-      return res.json({
+      return res.status(400).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
-        error: "WHATSAPP_TOKEN ausente. Modo simulado ativo."
+        error: "WHATSAPP_TOKEN não configurado no servidor."
       });
     }
 
@@ -1019,49 +947,31 @@ app.post("/api/push/operator/test", (req, res) => {
       });
     } catch (err: any) {
       const latencia = Date.now() - inicio;
-      if (isProd) {
-        return res.status(502).json({
-          success: false,
-          status: "offline",
-          latenciaMs: latencia,
-          error: `Meta Cloud API erro: ${err.response?.data?.error?.message || err.message}`
-        });
-      }
-      return res.json({
+      return res.status(502).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
         latenciaMs: latencia,
-        error: `Meta Cloud API inacessível: ${err.message}. Modo simulado ativo.`
+        error: `Meta Cloud API erro: ${err.response?.data?.error?.message || err.message}`
       });
     }
   });
 
   // Testar conexão IA Gemini
   app.post("/api/configuracoes/test-gemini", async (req, res) => {
-    const isProd = process.env.NODE_ENV === 'production';
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
-      if (isProd) {
-        return res.status(400).json({
-          success: false,
-          status: "offline",
-          error: "GEMINI_API_KEY não configurada no servidor."
-        });
-      }
-      return res.json({
+      return res.status(400).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
-        error: "GEMINI_API_KEY ausente no ambiente."
+        error: "GEMINI_API_KEY não configurada no servidor."
       });
     }
 
     const inicio = Date.now();
     try {
       const ai = new GoogleGenAI({ apiKey });
-      const testResult = await ai.models.generateContent({
+      await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: "ping"
       });
@@ -1077,20 +987,11 @@ app.post("/api/push/operator/test", (req, res) => {
       });
     } catch (err: any) {
       const latencia = Date.now() - inicio;
-      if (isProd) {
-        return res.status(502).json({
-          success: false,
-          status: "offline",
-          latenciaMs: latencia,
-          error: `Erro ao comunicar com Google Gemini: ${err.message}`
-        });
-      }
-      return res.json({
+      return res.status(502).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
         latenciaMs: latencia,
-        error: `Gemini indisponível: ${err.message}`
+        error: `Erro ao comunicar com Google Gemini: ${err.message}`
       });
     }
   });
@@ -1141,18 +1042,10 @@ app.post("/api/push/operator/test", (req, res) => {
     const targetUrl = systemConfig.genieacs?.urlNbi || process.env.GENIEACS_URL;
 
     if (!targetUrl) {
-      if (isProd) {
-        return res.status(400).json({
-          success: false,
-          status: "offline",
-          error: "GENIEACS_URL não configurada."
-        });
-      }
-      return res.json({
+      return res.status(400).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
-        mensagem: "GENIEACS_URL ausente. Modo de desenvolvimento ativo."
+        error: "GENIEACS_URL não configurada."
       });
     }
 
@@ -1174,43 +1067,25 @@ app.post("/api/push/operator/test", (req, res) => {
       });
     } catch (err: any) {
       const latencia = Date.now() - inicio;
-      if (isProd) {
-        return res.status(502).json({
-          success: false,
-          status: "offline",
-          latenciaMs: latencia,
-          error: `GenieACS NBI inacessível (${targetUrl}): ${err.message}`
-        });
-      }
-      return res.json({
+      return res.status(502).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
         latenciaMs: latencia,
-        mensagem: `GenieACS NBI offline (${targetUrl}). Modo memória ativo.`
+        error: `GenieACS NBI inacessível (${targetUrl}): ${err.message}`
       });
     }
   });
 
   // Testar conexão Zabbix 7.0 LTS JSON-RPC API
   app.post("/api/configuracoes/test-zabbix", async (req, res) => {
-    const isProd = process.env.NODE_ENV === 'production';
     const targetUrl = systemConfig.zabbix?.urlJsonRpc || process.env.ZABBIX_URL;
     const token = systemConfig.zabbix?.apiToken || process.env.ZABBIX_TOKEN;
 
     if (!targetUrl) {
-      if (isProd) {
-        return res.status(400).json({
-          success: false,
-          status: "offline",
-          error: "ZABBIX_URL não configurada."
-        });
-      }
-      return res.json({
+      return res.status(400).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
-        mensagem: "ZABBIX_URL ausente. Modo de desenvolvimento ativo."
+        error: "ZABBIX_URL não configurada."
       });
     }
 
@@ -1239,20 +1114,11 @@ app.post("/api/push/operator/test", (req, res) => {
       });
     } catch (err: any) {
       const latencia = Date.now() - inicio;
-      if (isProd) {
-        return res.status(502).json({
-          success: false,
-          status: "offline",
-          latenciaMs: latencia,
-          error: `Zabbix API inacessível (${targetUrl}): ${err.message}`
-        });
-      }
-      return res.json({
+      return res.status(502).json({
         success: false,
         status: "offline",
-        fallback: isMockAllowed(),
         latenciaMs: latencia,
-        mensagem: `Zabbix API offline (${targetUrl}). Modo memória ativo.`
+        error: `Zabbix API inacessível (${targetUrl}): ${err.message}`
       });
     }
   });
@@ -1427,17 +1293,20 @@ app.post("/api/push/operator/test", (req, res) => {
         return res.status(400).json({ error: "Parâmetros 'acao' e 'detalhes' são obrigatórios." });
       }
 
+      const callerUser = usuario || (req as any).user?.nome || (req as any).user?.email || "sistema";
+      const callerEmail = usuarioEmail || (req as any).user?.email || null;
+      const callerRole = usuarioRole || (req as any).user?.cargo || "operador";
       const novo = registrarAuditoria({
-        usuario: usuario || "Operador NAP",
-        usuarioEmail,
-        usuarioRole,
+        usuario: callerUser,
+        usuarioEmail: callerEmail,
+        usuarioRole: callerRole,
         modulo: modulo || "Sistema",
         acao,
         detalhes,
         categoria: categoria || "configuracao",
         severidade: severidade || "info",
-        ip: req.ip || "127.0.0.1",
-        userAgent: req.headers["user-agent"] || "Mozilla/5.0",
+        ip: req.ip || null,
+        userAgent: (req.headers["user-agent"] as string) || null,
         payloadAntes,
         payloadDepois,
         status: status || "sucesso"
@@ -1926,15 +1795,16 @@ app.post("/api/push/operator/test", (req, res) => {
 
     campanhasList.unshift(nova);
 
+    const callerUser = (req as any).user?.nome || (req as any).user?.email || "operador";
     registrarAuditoria({
-      usuario: "Operador de Atendimento",
+      usuario: callerUser,
       modulo: "Campanhas",
       acao: `Disparo de Campanha: ${nova.nome}`,
       detalhes: `Nova campanha iniciada no canal ${nova.canal.toUpperCase()} (${nova.tipo}) com volume de ${nova.leads} destinatários.`,
       categoria: "disparo",
       severidade: "info",
-      ip: req.ip || "127.0.0.1",
-      userAgent: req.headers["user-agent"] || "Mozilla/5.0",
+      ip: req.ip || null,
+      userAgent: (req.headers["user-agent"] as string) || null,
       payloadDepois: { id: nova.id, nome: nova.nome, canal: nova.canal, leads: nova.leads }
     });
 
@@ -1959,15 +1829,16 @@ app.post("/api/push/operator/test", (req, res) => {
       camp.status = "Rodando";
     }
 
+    const callerUser = (req as any).user?.nome || (req as any).user?.email || "operador";
     registrarAuditoria({
-      usuario: "Operador de Atendimento",
+      usuario: callerUser,
       modulo: "Campanhas",
       acao: `Alteração de Status: ${camp.nome}`,
       detalhes: `Campanha '${camp.nome}' teve status alterado de '${statusAnterior}' para '${camp.status}'.`,
       categoria: "disparo",
       severidade: "info",
-      ip: req.ip || "127.0.0.1",
-      userAgent: req.headers["user-agent"] || "Mozilla/5.0",
+      ip: req.ip || null,
+      userAgent: (req.headers["user-agent"] as string) || null,
       payloadAntes: { status: statusAnterior },
       payloadDepois: { status: camp.status }
     });
@@ -1983,13 +1854,12 @@ app.post("/api/push/operator/test", (req, res) => {
 
   app.get("/api/sync/status", async (req, res) => {
     const now = new Date();
-    const mocksAllowed = isMockAllowed();
 
     // Conexão ERP
     const erpConfigured = Boolean(process.env.ERP_URL && process.env.ERP_APP && process.env.ERP_TOKEN);
     let erpLatency: number | null = null;
-    let erpStatus: 'online' | 'degradado' | 'offline' | 'unavailable' = erpConfigured ? 'online' : (mocksAllowed ? 'online' : 'unavailable');
-    let erpUltimaResposta = erpConfigured ? "Pendente verificação" : (mocksAllowed ? "Sandbox Ativo" : "ERP_UNCONFIGURED");
+    let erpStatus: 'online' | 'degradado' | 'offline' | 'unavailable' = erpConfigured ? 'degradado' : 'unavailable';
+    let erpUltimaResposta = erpConfigured ? "Pendente verificação" : "ERP_UNCONFIGURED";
 
     if (erpConfigured) {
       const startTime = Date.now();
@@ -2012,13 +1882,11 @@ app.post("/api/push/operator/test", (req, res) => {
           erpStatus = testRes.status >= 500 ? 'degradado' : 'offline';
           erpUltimaResposta = `HTTP ${testRes.status}`;
         }
-      } catch (err: any) {
+      } catch {
         erpStatus = 'offline';
         erpLatency = null;
         erpUltimaResposta = 'Conexão recusada / Timeout';
       }
-    } else if (mocksAllowed) {
-      erpLatency = 28;
     }
 
     // Conexão GenieACS TR-069
@@ -2032,58 +1900,29 @@ app.post("/api/push/operator/test", (req, res) => {
     if (process.env.GENIEACS_URL) {
       const startTime = Date.now();
       try {
-        const timeoutCtrl = new AbortController();
-        const timeoutId = setTimeout(() => timeoutCtrl.abort(), 2500);
-        const user = process.env.GENIEACS_USER || "admin";
-        const pass = process.env.GENIEACS_PASSWORD || "admin";
-        const auth = Buffer.from(`${user}:${pass}`).toString('base64');
-        const acsRes = await fetch(`${process.env.GENIEACS_URL}/devices?projection=_id,_lastInform`, {
-          signal: timeoutCtrl.signal,
-          headers: {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        clearTimeout(timeoutId);
+        const devices = await GenieacsService.getInstance().getDevices();
         acsLatency = Date.now() - startTime;
-        if (acsRes.ok) {
-          const raw = await acsRes.json() as any[];
-          acsDevicesCount = Array.isArray(raw) ? raw.length : 0;
-          acsOnlineCount = Array.isArray(raw) ? raw.filter((d: any) => d._lastInform && (Date.now() - new Date(d._lastInform).getTime() < 300000)).length : 0;
-          acsAlarmCount = 0;
-          acsStatus = 'online';
-          acsUltimaResposta = 'NBI Ready / Devices Polled';
-        } else {
-          acsStatus = 'degradado';
-          acsUltimaResposta = `HTTP ${acsRes.status}`;
-        }
+        acsDevicesCount = devices.length;
+        acsOnlineCount = devices.filter(d => d.status === 'online').length;
+        acsAlarmCount = devices.filter(d => d.rssi && d.rssi < -26).length;
+        acsStatus = 'online';
+        acsUltimaResposta = 'NBI Ready / Devices Polled';
       } catch {
         acsStatus = 'offline';
         acsLatency = null;
         acsUltimaResposta = 'GenieACS Inacessível';
       }
-    } else if (mocksAllowed) {
-      const mockList = GenieacsService.getInstance().getMockDevices();
-      acsStatus = 'online';
-      acsLatency = 18;
-      acsDevicesCount = mockList.length;
-      acsOnlineCount = mockList.filter(d => d.status === 'online').length;
-      acsAlarmCount = mockList.filter(d => d.rssi && d.rssi < -26).length;
-      acsUltimaResposta = "Mock / Sandbox Devices";
     }
 
     // Conexão Asterisk
-    let astStatus: 'online' | 'degradado' | 'offline' | 'unavailable' = 'unavailable';
+    const astHealth = await checkAsteriskRuntimeHealth();
+    const astStatus: 'online' | 'degradado' | 'offline' | 'unavailable' = astHealth.responsive ? 'online' : (process.env.ASTERISK_ENABLED === 'true' ? 'unavailable' : 'offline');
     let astLatency: number | null = null;
     let astRamais: number | null = null;
 
-    if (process.env.AMI_PORT && process.env.AMI_USER) {
-      astStatus = 'online';
-      astRamais = null; // Ramais reais via AMI quando consultados
-    } else if (mocksAllowed) {
-      astStatus = 'online';
-      astLatency = 11;
-      astRamais = 8;
+    if (astHealth.responsive) {
+      const curAst = getAsteriskStatus();
+      astRamais = curAst.chamadasAtivas || 0;
     }
 
     const erpAtivoId = (systemConfig as any).erpAtivo || 'sgp';
@@ -2093,11 +1932,23 @@ app.post("/api/push/operator/test", (req, res) => {
       urlBase: 'https://api.provedor.com.br'
     };
 
+    let totalClientes: number | null = null;
+    let totalFaturas: number | null = null;
+    try {
+      const cRes = await db.select({ count: sql`count(*)` }).from(clientes);
+      totalClientes = Number(cRes[0]?.count || 0);
+      const fRes = await db.select({ count: sql`count(*)` }).from(faturas);
+      totalFaturas = Number(fRes[0]?.count || 0);
+    } catch {
+      totalClientes = null;
+      totalFaturas = null;
+    }
+
     res.json({
       sucesso: true,
       timestamp: now.toISOString(),
       status_geral: (erpStatus === 'online' && acsStatus === 'online') ? 'operacional' : 'atencao',
-      uptime_pct: mocksAllowed ? 99.98 : null,
+      uptime_pct: null,
       uptime_seconds: Math.floor(process.uptime()),
       ultima_sincronizacao: lastManualSyncTime,
       erpAtivo: erpAtivoId,
@@ -2108,16 +1959,16 @@ app.post("/api/push/operator/test", (req, res) => {
         endpoint: activeErpData.urlBase || process.env.ERP_URL || null,
         status: erpStatus,
         latencia_ms: erpLatency,
-        modo: erpConfigured ? 'producao' : (mocksAllowed ? 'sandbox' : 'producao_nao_configurado'),
-        clientes_sincronizados: mocksAllowed ? devMockErpDatabase.length : null,
-        faturas_sincronizadas: mocksAllowed ? 142 : null,
+        modo: erpConfigured ? 'producao' : 'producao_nao_configurado',
+        clientes_sincronizados: totalClientes,
+        faturas_sincronizadas: totalFaturas,
         desbloqueios_pendentes: 0,
         ultima_resposta: erpUltimaResposta
       },
       genieacs: {
         nome: "GenieACS (TR-069 CWMP)",
         protocolo: "NBI HTTP / CWMP v1.4",
-        endpoint: process.env.GENIEACS_URL || (mocksAllowed ? "http://127.0.0.1:7557 (NBI Local)" : null),
+        endpoint: process.env.GENIEACS_URL || null,
         status: acsStatus,
         latencia_ms: acsLatency,
         total_cpes: acsDevicesCount,
@@ -2136,13 +1987,18 @@ app.post("/api/push/operator/test", (req, res) => {
   });
 
   app.post("/api/sync/executar", async (req, res) => {
-    const mocksAllowed = isMockAllowed();
     const startTime = Date.now();
     await new Promise(resolve => setTimeout(resolve, 300));
     lastManualSyncTime = new Date().toISOString();
     const duration = Date.now() - startTime;
 
-    const genieCount = mocksAllowed ? GenieacsService.getInstance().getMockDevices().length : 0;
+    let devicesUpdated = 0;
+    try {
+      const devices = await GenieacsService.getInstance().getDevices();
+      devicesUpdated = devices.length;
+    } catch {
+      devicesUpdated = 0;
+    }
 
     res.json({
       sucesso: true,
@@ -2152,7 +2008,7 @@ app.post("/api/push/operator/test", (req, res) => {
       detalhes: {
         erp_novos_clientes: 0,
         erp_faturas_atualizadas: 0,
-        genieacs_telemetrias_atualizadas: genieCount,
+        genieacs_telemetrias_atualizadas: devicesUpdated,
         status: "sincronizado"
       }
     });

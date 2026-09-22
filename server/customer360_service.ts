@@ -83,9 +83,7 @@ export class Customer360Store {
   ];
 
   private constructor() {
-    if (isMockAllowed()) {
-      this.seedInitialData();
-    }
+    // Instância limpa em runtime; dados são carregados estritamente via sincronização ERP e PostgreSQL
   }
 
   public static getInstance(): Customer360Store {

@@ -93,31 +93,20 @@ export async function connectARI() {
     ariInstance.start('ura_maia'); 
     isConnected = true;
   } catch (error: any) {
-    if (!isMockAllowed()) {
-      isConnected = false;
-      chamadasAtivas = [];
-      console.warn(`[Asterisk] Falha ao conectar no ARI em produção: ${error.message}. Status definido como offline/indisponível.`);
-      return;
-    }
-    // Fallback apenas em ambiente de desenvolvimento / preview
-    console.warn('[Asterisk] [Modo Dev] Falha ao conectar no ARI. Utilizando chamadas simuladas apenas em ambiente local.');
     isConnected = false;
-    chamadasAtivas = [
-      { id: "SIP-0012A", caller: "5511987654321", did: "08005910000", status: "Up", duration: 142, queue: "Suporte N1", agent: "Roberto Oliveira" },
-      { id: "SIP-0016E", caller: "5521999998888", did: "08005910000", status: "Up", duration: 12, queue: "URA Lia", agent: "Lia (Voice Agent)" }
-    ];
+    chamadasAtivas = [];
+    console.warn(`[Asterisk] Falha ao conectar no ARI: ${error.message}. Status definido como offline/indisponível.`);
   }
 }
 
 export function getChamadas() {
-  if (!isMockAllowed() && !isConnected) {
+  if (!isConnected) {
     return [];
   }
   return chamadasAtivas;
 }
 
 export function getAsteriskStatus() {
-  const isProd = process.env.NODE_ENV === 'production';
   return {
     conectado: isConnected,
     status: isConnected ? 'online' : (process.env.ASTERISK_ENABLED === 'true' ? 'unavailable' : 'offline'),
@@ -129,7 +118,7 @@ export function getAsteriskStatus() {
     ramalPadrao: process.env.ASTERISK_RAMAL_PADRAO || '2001',
     contexto: 'from-internal',
     stasisApp: 'ura_maia',
-    chamadasAtivas: isConnected ? chamadasAtivas.length : (isProd ? 0 : chamadasAtivas.length),
+    chamadasAtivas: isConnected ? chamadasAtivas.length : 0,
     codecs: ['opus', 'alaw', 'ulaw', 'g729']
   };
 }

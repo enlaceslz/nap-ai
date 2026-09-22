@@ -614,20 +614,21 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
         ultimaSincronizacao: new Date().toISOString()
       };
     } else {
-      (systemConfig as any).erps[erpId].status = "conectado";
+      (systemConfig as any).erps[erpId].status = "configurado";
       (systemConfig as any).erps[erpId].ultimaSincronizacao = new Date().toISOString();
     }
 
     // Auditoria
+    const callerUser = (req as any).user?.nome || (req as any).user?.email || "operador";
     registrarAuditoria({
-      usuario: "Admin NAP (Operador)",
+      usuario: callerUser,
       modulo: "ERP / ERP",
       acao: `Ativação do ERP Primário: ${encontrado.nome}`,
       detalhes: `Provedor definiu o ERP ativo como ${encontrado.nome} (${encontrado.protocolo}).`,
       categoria: "configuracao",
       severidade: "critico",
-      ip: req.ip || "127.0.0.1",
-      userAgent: req.headers["user-agent"] || "Mozilla/5.0",
+      ip: req.ip || null,
+      userAgent: (req.headers["user-agent"] as string) || null,
       payloadDepois: { erpAtivo: erpId, nome: encontrado.nome }
     });
 
@@ -663,19 +664,20 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
       // Se o token vier mascarado e já havia valor antes, preserva
       token: (config.token && !config.token.includes("••••")) ? config.token : (configAtual.token || config.token),
       clientSecret: (config.clientSecret && !config.clientSecret.includes("••••")) ? config.clientSecret : (configAtual.clientSecret || config.clientSecret),
-      status: "conectado",
+      status: "configurado",
       ultimaSincronizacao: new Date().toISOString()
     };
 
+    const callerUser = (req as any).user?.nome || (req as any).user?.email || "operador";
     registrarAuditoria({
-      usuario: "Admin NAP (Operador)",
+      usuario: callerUser,
       modulo: "ERP / ERP",
       acao: `Atualização de Parâmetros: ${encontrado.nome}`,
       detalhes: `Parâmetros de conexão e credenciais do ERP ${encontrado.nome} (${encontrado.sigla}) foram salvos e revalidados pelo operador.`,
       categoria: "configuracao",
       severidade: "critico",
-      ip: req.ip || "127.0.0.1",
-      userAgent: req.headers["user-agent"] || "Mozilla/5.0",
+      ip: req.ip || null,
+      userAgent: (req.headers["user-agent"] as string) || null,
       payloadDepois: { erpId, nome: encontrado.nome, protocolo: encontrado.protocolo }
     });
 

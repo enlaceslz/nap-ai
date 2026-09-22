@@ -54,6 +54,19 @@ export class OltService {
       console.warn('[OLT Manager] Falha ao carregar banco JSON local, inicializando dados padrão:', e);
     }
 
+    if (process.env.NODE_ENV === 'production') {
+      const emptyData: OltDatabaseSchema = {
+        olts: [],
+        slots: [],
+        pons: [],
+        onus: [],
+        unassigned: [],
+        alarms: []
+      };
+      this.saveDatabase(emptyData);
+      return emptyData;
+    }
+
     const initialData = this.getInitialSeedData();
     this.saveDatabase(initialData);
     return initialData;

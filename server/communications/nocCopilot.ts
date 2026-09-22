@@ -113,7 +113,7 @@ export class NocCopilot {
 
       if (name === "get_cpe_status") {
         const genieacs = GenieacsService.getInstance();
-        const devices = genieacs.getMockDevices();
+        const devices = await genieacs.getDevices();
         // Simple search logic
         const query = (args.mac_or_serial || '').toLowerCase();
         const device = devices.find(d => 
@@ -121,7 +121,7 @@ export class NocCopilot {
           d.serialNumber.toLowerCase().includes(query)
         );
         if (device) return device;
-        return { error: "CPE não encontrada." };
+        return { error: "CPE não encontrada ou GenieACS indisponível." };
       }
 
       return { error: "Tool não reconhecida." };

@@ -1,5 +1,3 @@
-import { isMockAllowed } from '../security/mockGuard';
-
 export interface GenieAcsDevice {
   _id: string;
   serialNumber: string;
@@ -24,11 +22,8 @@ export interface GenieAcsDevice {
 
 export class GenieacsService {
   private static instance: GenieacsService;
-  private mockDevices: GenieAcsDevice[] = [];
 
-  private constructor() {
-    this.initMocks();
-  }
+  private constructor() {}
 
   public static getInstance(): GenieacsService {
     if (!GenieacsService.instance) {
@@ -37,76 +32,73 @@ export class GenieacsService {
     return GenieacsService.instance;
   }
 
-  private initMocks() {
-    this.mockDevices = [
-      {
-        _id: 'huawei-h8546m-1234',
-        serialNumber: 'HWTC4A12B34C',
-        mac: '00:1E:A6:4A:2B:3C',
-        model: 'HG8546M',
-        vendor: 'Huawei',
-        ip: '10.10.1.100',
-        status: 'online',
-        uptime: '45 dias',
-        ssid: 'WIFI_CASA_ALMEIDA',
-        wifiPassword: 'senha_segura123',
-        wifiChannel: 6,
-        lanClients: 4,
-        firmwareVersion: 'V3R017C10S105',
-        rssi: -19.5,
-        tempLaser: '42.1°C',
-        vccVolts: '3.3V',
-        lastInform: new Date(Date.now() - 300000).toISOString(),
-        rxBytes: 120500400,
-        txBytes: 45030200
-      },
-      {
-        _id: 'zte-f670L-5678',
-        serialNumber: 'ZTEGC1234567',
-        mac: '08:2A:B4:7C:9D:1E',
-        model: 'F670L',
-        vendor: 'ZTE',
-        ip: '10.10.1.101',
-        status: 'online',
-        uptime: '12 dias',
-        ssid: 'ZTE_2G_SILVA',
-        wifiChannel: 11,
-        lanClients: 2,
-        firmwareVersion: 'V2.0.10P2T3',
-        rssi: -22.1,
-        tempLaser: '38.5°C',
-        vccVolts: '3.2V',
-        lastInform: new Date(Date.now() - 150000).toISOString(),
-        rxBytes: 88500200,
-        txBytes: 12010100
-      },
-      {
-        _id: 'datacom-dm984-9012',
-        serialNumber: 'DM984C789012',
-        mac: '5C:83:8F:1A:2B:3C',
-        model: 'DM984-422',
-        vendor: 'Datacom',
-        ip: '10.10.1.102',
-        status: 'offline',
-        uptime: '0 dias',
-        ssid: 'DATACOM_FIBRA',
-        wifiChannel: 1,
-        lanClients: 0,
-        firmwareVersion: 'v4.1.2',
-        rssi: -28.9,
-        tempLaser: 'N/A',
-        vccVolts: '0.0V',
-        lastInform: new Date(Date.now() - 86400000).toISOString(),
-        rxBytes: 0,
-        txBytes: 0
-      }
-    ];
-  }
-
-  public getMockDevices(): GenieAcsDevice[] {
-    if (!isMockAllowed()) {
-      throw new Error("Mock data is disabled in production");
+  /**
+   * Consulta dispositivos reais a partir da API NBI do GenieACS.
+   * Se o GenieACS estiver inacessível ou não configurado, retorna lista vazia.
+   */
+  public async getDevices(): Promise<GenieAcsDevice[]> {
+    const nbiUrl = process.env.GENIEACS_URL;
+    if (!nbiUrl) {
+      return [];
     }
-    return this.mockDevices;
+
+    try {
+      const user = process.env.GENIEACS_USER || "admin";
+      const pass = process.env.GENIEACS_PASSWORD || "admin";
+      const auth = Buffer.from(`${user}:${pass}`).toString('base64');
+      const timeoutCtrl = new AbortController();
+      const timeoutId = setTimeout(() => timeoutCtrl.abort(), 3000);
+
+      const res = await fetch(`${nbiUrl}/devices`, {
+        signal: timeoutCtrl.signal,
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        return [];
+      }
+
+      const raw = await res.json() as any[];
+      if (!Array.isArray(raw)) return [];
+
+      return raw.map((d: any) => {
+        const di = d['Device.DeviceInfo'] || d['InternetGatewayDevice.DeviceInfo'] || {};
+        const wan = d['Device.WANDevice'] || d['InternetGatewayDevice.WANDevice'] || {};
+        const optical = d['Device.Optical'] || {};
+        const wlan = d['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1'] || {};
+
+        let rssi = -25;
+        if (optical?.['OpticalSignalLevel']) rssi = parseFloat(optical['OpticalSignalLevel']) / 100;
+
+        const isOnline = d._lastInform && (Date.now() - new Date(d._lastInform).getTime() < 900000);
+
+        return {
+          _id: d._id || '',
+          serialNumber: di['SerialNumber'] || d._id || '',
+          mac: di['MACAddress'] || 'Desconhecido',
+          model: di['ModelName'] || di['ProductClass'] || 'Desconhecido',
+          vendor: di['Manufacturer'] || 'Desconhecido',
+          ip: wan['1.WANConnectionDevice.1.WANIPConnection.1.ExternalIPAddress'] || '0.0.0.0',
+          status: isOnline ? 'online' : 'offline',
+          uptime: di['UpTime'] ? `${Math.floor(parseInt(di['UpTime']) / 86400)} dias` : 'Desconhecido',
+          ssid: wlan['SSID'] || 'N/A',
+          wifiChannel: parseInt(wlan['Channel']) || 0,
+          lanClients: 0,
+          firmwareVersion: di['SoftwareVersion'] || 'N/A',
+          rssi: rssi,
+          tempLaser: optical['Temperature'] ? `${parseFloat(optical['Temperature']) / 100}°C` : 'N/A',
+          vccVolts: optical['Voltage'] ? `${parseFloat(optical['Voltage']) / 1000}V` : 'N/A',
+          lastInform: d._lastInform || new Date().toISOString(),
+          rxBytes: parseInt(wan['1.WANCommonInterfaceConfig.TotalBytesReceived']) || 0,
+          txBytes: parseInt(wan['1.WANCommonInterfaceConfig.TotalBytesSent']) || 0
+        };
+      });
+    } catch {
+      return [];
+    }
   }
 }

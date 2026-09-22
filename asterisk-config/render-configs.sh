@@ -93,9 +93,28 @@ password = ${RAMAL_SECRET}
 EOF
 chmod 600 "$DEST_DIR/pjsip_secret.conf"
 
+# 4. Chaves TLS para WebRTC / WSS (8089)
+if [ ! -f "$DEST_DIR/keys/asterisk.crt" ] || [ ! -f "$DEST_DIR/keys/asterisk.key" ]; then
+  mkdir -p "$DEST_DIR/keys"
+  chmod 700 "$DEST_DIR/keys"
+  openssl req -new -x509 -days 3650 -nodes \
+    -out "$DEST_DIR/keys/asterisk.crt" \
+    -keyout "$DEST_DIR/keys/asterisk.key" \
+    -subj "/C=BR/ST=SP/L=SaoPaulo/O=NAPTelecom/CN=asterisk.local" 2>/dev/null || true
+  if [ -f "$DEST_DIR/keys/asterisk.key" ]; then
+    chmod 600 "$DEST_DIR/keys/asterisk.key"
+  fi
+  if [ -f "$DEST_DIR/keys/asterisk.crt" ]; then
+    chmod 644 "$DEST_DIR/keys/asterisk.crt"
+  fi
+fi
+
 # Se executando como root no Debian com usuário asterisk presente
 if id -u asterisk >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
   chown asterisk:asterisk "$DEST_DIR/ari_secret.conf" "$DEST_DIR/manager_secret.conf" "$DEST_DIR/pjsip_secret.conf"
+  if [ -d "$DEST_DIR/keys" ]; then
+    chown -R asterisk:asterisk "$DEST_DIR/keys"
+  fi
 fi
 
 echo "[Asterisk Config] Credenciais renderizadas e protegidas com sucesso (0600)."

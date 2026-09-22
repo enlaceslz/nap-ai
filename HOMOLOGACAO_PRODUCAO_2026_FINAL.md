@@ -75,6 +75,36 @@ Todos os bloqueadores identificados na auditoria independente foram mitigados no
      - O endpoint `/api/tecnicos/mapa` em produção retorna lista vazia segura caso não haja coordenadas de GPS em tempo real transmitidas pelos técnicos no PWA.
      - O endpoint de conversas WABA (`/api/waba/chats`) em produção consulta exclusivamente as tabelas `conversas` e `mensagens` do PostgreSQL, retornando HTTP 503 com status explícito se o banco estiver indisponível, impedindo contaminação com dados de teste.
 
+### 2.5. Eliminação Definitiva dos Bloqueadores de Produção (Hardening Runtime)
+
+Na etapa final de saneamento de produção, foram erradicados integralmente os 6 vícios de runtime:
+
+1. **Secrets de Infraestrutura no Setup Web:**
+   - O componente `SetupWizard.tsx` foi saneado para gerenciar estritamente a criação da conta do primeiro administrador e a identidade visual do ISP.
+   - Nenhuma credencial de Asterisk (AMI/ARI/WebRTC), Gemini AI, SGP/ERP ou banco é submetida via frontend; todos os segredos são carregados exclusivamente de variáveis de ambiente do sistema operacional ou `/opt/nap/config.env`.
+
+2. **Remoção de Fixtures/Mocks do Runtime:**
+   - Erradicadas todas as importações de `test/fixtures` (`erpMocks`, `userMocks`, `wabaMocks`) em `server.ts` e serviços de backend.
+   - O runtime não importa nem referencia coleções estáticas de mock.
+
+3. **Erradicação de Dados Operacionais Artificiais:**
+   - `GenieacsService`: removido gerador de dispositivos mockados. Em produção, consulta diretamente a API NBI do GenieACS (`/devices`) ou lança exceção com status indisponível.
+   - `Asterisk`: removidas chamadas ativas simuladas e contadores hardcoded de ramais em `server/asterisk.ts` e `server.ts`.
+   - `OLT Service`: banco JSON local inicializa com schema estritamente vazio (`emptyData`) em produção; remoção de métricas de telemetria artificial no `ZteDriver`.
+   - `Customer360Store`: removido seeding com clientes e faturas fictícias no construtor.
+   - `/api/usuarios` e `/api/tecnicos/mapa`: consultam a tabela `users` do PostgreSQL via Drizzle ORM ou retornam contadores zerados/vazios.
+
+4. **Eliminação de Estados Falsos de Conectividade:**
+   - Os endpoints de teste e monitoramento (`/api/sync/status`, `/api/configuracoes/test-*`) realizam sondagens HTTP/TCP reais com timeout estrito.
+   - Não há mais flags `mocksAllowed` mascarando instâncias offline com latências sintéticas (ex: 28ms) ou percentuais de uptime inventados (99.98%).
+
+5. **Saneamento de Identidades Fictícias na Auditoria:**
+   - A função `registrarAuditoria` em `server.ts` e em todos os endpoints não recorre mais a valores padrão como `"Admin NAP"`, `"Operador NAP"`, `"operador@provedor.com.br"` ou `"Mozilla/5.0"`.
+   - As entradas utilizam a identidade do usuário autenticado no request context ou atribuem explicitamente a origem `sistema`, com IP e User-Agent reais da conexão.
+
+6. **Bloqueio de Fallbacks que Mascaram Falhas:**
+   - Falhas de comunicação com ERP, Asterisk, GenieACS ou Meta Cloud API geram respostas HTTP com código de erro correspondente (400, 502 ou 503) e relatório do motivo real, garantindo alertas precisos nas ferramentas de monitoramento e no NOC do provedor.
+
 ---
 
 ## 3. RESULTADOS DA SUÍTE DE TESTES AUTOMATIZADOS
