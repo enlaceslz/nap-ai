@@ -369,16 +369,16 @@ export function setupPaymentRoutes(app: any) {
     try {
       const hasCert = Boolean(process.env.C6_CERT_PATH || store.c6BankConfig.mtlsCertificateUploaded);
       const hasClient = Boolean(process.env.C6_CLIENT_ID || store.c6BankConfig.clientId);
-      if (!isMockAllowed() && (!hasCert || !hasClient)) {
+      if (!hasCert || !hasClient) {
         return res.status(503).json({
           success: false,
           status: 'unavailable',
           reason: 'real_data_source_unavailable',
-          message: 'Certificados mTLS ou credenciais do Banco C6 não configurados no ambiente de produção.'
+          message: 'Certificados mTLS ou credenciais do Banco C6 não configurados no ambiente.'
         });
       }
 
-      const latencyMs = isMockAllowed() ? 32 : null;
+      const latencyMs = null;
       store.c6BankConfig.latencyMs = latencyMs;
       store.c6BankConfig.lastHealthCheck = new Date().toISOString();
       store.c6BankConfig.status = 'connected';
@@ -392,7 +392,7 @@ export function setupPaymentRoutes(app: any) {
         pixKey: store.c6BankConfig.pixKey,
         webhookActive: true,
         mtlsStatus: 'VALID_CERTIFICATE',
-        message: latencyMs ? `Conexão mTLS com C6 Bank validada com sucesso! Resposta em ${latencyMs}ms.` : 'Conexão mTLS com C6 Bank validada com sucesso!'
+        message: 'Conexão mTLS com C6 Bank validada com sucesso!'
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

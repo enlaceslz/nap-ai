@@ -6,11 +6,15 @@ export class NautobotAdapter implements IPAMAdapter {
   private token: string;
 
   constructor() {
-    this.baseUrl = process.env.NAUTOBOT_URL || 'http://localhost:8080/api';
-    this.token = process.env.NAUTOBOT_TOKEN || 'dummy-token';
+    this.baseUrl = process.env.NAUTOBOT_URL || '';
+    this.token = process.env.NAUTOBOT_TOKEN || '';
   }
 
   private async request(endpoint: string, options: RequestInit = {}) {
+    if (!this.baseUrl || !this.token) {
+      throw new Error("Integração Nautobot não configurada (NAUTOBOT_URL ou NAUTOBOT_TOKEN ausente).");
+    }
+
     const url = `${this.baseUrl}${endpoint}`;
     const headers = {
       'Authorization': `Token ${this.token}`,
@@ -19,15 +23,11 @@ export class NautobotAdapter implements IPAMAdapter {
       ...options.headers,
     };
 
-    if (this.token === 'dummy-token') {
-      return { id: `NAUTO-${Date.now()}`, dummy: true, address: '100.64.0.2/32', prefix: '2001:db8:1::/56' };
-    }
-
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) {
-      console.warn(`Nautobot API error on ${endpoint}: ${res.statusText}`);
+      throw new Error(`Nautobot API error on ${endpoint}: ${res.status} ${res.statusText}`);
     }
-    return res.json().catch(() => ({}));
+    return res.json();
   }
 
   // --- PREFIX ---
@@ -51,7 +51,10 @@ export class NautobotAdapter implements IPAMAdapter {
         description: prefix.description
       })
     });
-    return res.id || `NAUTO-PREF-${Date.now()}`;
+    if (!res?.id) {
+      throw new Error("Falha ao obter ID do prefixo criado no Nautobot.");
+    }
+    return String(res.id);
   }
 
   async updatePrefix(id: string, updates: Partial<IpamPrefix>): Promise<void> {
@@ -62,7 +65,7 @@ export class NautobotAdapter implements IPAMAdapter {
   }
 
   async deletePrefix(id: string): Promise<void> {
-    if (this.token === 'dummy-token') return;
+    if (!this.baseUrl || !this.token) return;
     await this.request(`/ipam/prefixes/${id}/`, { method: 'DELETE' });
   }
 
@@ -75,7 +78,10 @@ export class NautobotAdapter implements IPAMAdapter {
         status: data.status || 'active'
       })
     });
-    return res.id || `NAUTO-PD-${Date.now()}`;
+    if (!res?.id) {
+      throw new Error("Falha ao alocar prefixo no Nautobot.");
+    }
+    return String(res.id);
   }
 
   // --- ADDRESS ---
@@ -98,7 +104,10 @@ export class NautobotAdapter implements IPAMAdapter {
         description: addressData.description
       })
     });
-    return res.id || `NAUTO-IP-${Date.now()}`;
+    if (!res?.id) {
+      throw new Error("Falha ao alocar endereço IP no Nautobot.");
+    }
+    return String(res.id);
   }
 
   async allocateNextAvailableIP(prefixId: string, addressData: Partial<IpamAddress>): Promise<{ id: string, address: string }> {
@@ -109,14 +118,17 @@ export class NautobotAdapter implements IPAMAdapter {
         description: addressData.description
       })
     });
+    if (!res?.id || !res?.address) {
+      throw new Error("Falha ao alocar próximo IP disponível no Nautobot.");
+    }
     return {
-      id: res.id || `NAUTO-IP-${Date.now()}`,
-      address: res.address || '100.64.0.2/32'
+      id: String(res.id),
+      address: String(res.address)
     };
   }
 
   async releaseIPAddress(id: string): Promise<void> {
-    if (this.token === 'dummy-token') return;
+    if (!this.baseUrl || !this.token) return;
     await this.request(`/ipam/ip-addresses/${id}/`, { method: 'DELETE' });
   }
 
@@ -127,7 +139,10 @@ export class NautobotAdapter implements IPAMAdapter {
       method: 'POST',
       body: JSON.stringify({ vid: vlan.vid, name: vlan.name, status: vlan.status || 'active' })
     });
-    return res.id || `NAUTO-VLAN-${Date.now()}`;
+    if (!res?.id) {
+      throw new Error("Falha ao criar VLAN no Nautobot.");
+    }
+    return String(res.id);
   }
 
   async getVRF(id: string): Promise<IpamVrf> { return {} as IpamVrf; }
@@ -136,7 +151,10 @@ export class NautobotAdapter implements IPAMAdapter {
       method: 'POST',
       body: JSON.stringify({ name: vrf.name, rd: vrf.rd, description: vrf.description })
     });
-    return res.id || `NAUTO-VRF-${Date.now()}`;
+    if (!res?.id) {
+      throw new Error("Falha ao criar VRF no Nautobot.");
+    }
+    return String(res.id);
   }
 
   // --- DEVICE & INTERFACE ---

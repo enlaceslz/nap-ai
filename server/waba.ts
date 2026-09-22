@@ -4,7 +4,7 @@ import { eq, desc } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
 import { processGeminiAgentRun } from "./gemini.js";
 
-export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages: any[]) {
+export function setupWabaRoutes(app: any) {
 // --- WhatsApp Cloud API (WABA) Webhook & Endpoints ---
   
   // 1. Verificação do Webhook pela Meta
@@ -141,15 +141,8 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
              console.error("Erro no Gemini", errAi);
            }
         }
-      } catch (dbErr) {
-        console.error("DB WABA Error", dbErr);
-        // Fallback em memória
-        let chat = mockWabaChats.find(c => c.telefone === telefone);
-        if(!chat) {
-           chat = { id: Date.now(), telefone, nomeCliente: nome_cliente, fila: 'triagem_ia' };
-           mockWabaChats.push(chat);
-        }
-        mockWabaMessages.push({ conversaId: chat.id, remetente: 'cliente', conteudo: texto, createdAt: new Date() });
+      } catch (dbErr: any) {
+        console.error("[WABA Webhook DB Error] Falha ao persistir mensagem no banco:", dbErr?.message);
       }
 
       res.status(200).send("EVENT_RECEIVED");
@@ -218,31 +211,13 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
       
       res.json({ sucesso: true, resposta: resposta_ia, handoff: isSolicitacaoHumano });
       
-    } catch (dbErr) {
-      console.warn("[Mock] Erro Webchat (DB/IA offline), usando memória", dbErr?.message);
-      
-      const isSolicitacaoHumano = /humano|atendente|pessoa|operador|falar com alguem/i.test(texto);
-      
-      // Fallback em memória
-      let chat = mockWabaChats.find(c => c.telefone === telefone);
-      if(!chat) {
-         chat = { id: Date.now(), telefone, nomeCliente: nome, fila: isSolicitacaoHumano ? 'handoff' : 'triagem_ia' };
-         mockWabaChats.push(chat);
-      } else if (isSolicitacaoHumano) {
-         chat.fila = 'handoff';
-      }
-      mockWabaMessages.push({ conversaId: chat.id, remetente: 'cliente', conteudo: texto, createdAt: new Date() });
-      
-      let resposta_mock = "";
-      if (isSolicitacaoHumano) {
-        resposta_mock = `👤 Entendido! Estou transferindo seu atendimento diretamente para nossos operadores humanos no Inbox Unificado. Aguarde um instante...`;
-      } else {
-        resposta_mock = `Olá! Sou a MaIA do DJD Telecom de internet. Recebi sua mensagem: "${texto}". Se precisar falar com um atendente humano a qualquer momento, é só me avisar!`;
-      }
-      
-      mockWabaMessages.push({ conversaId: chat.id, remetente: isSolicitacaoHumano ? 'sistema' : 'ia', conteudo: resposta_mock, createdAt: new Date() });
-      
-      res.json({ sucesso: true, resposta: resposta_mock, handoff: isSolicitacaoHumano });
+    } catch (dbErr: any) {
+      console.error("[Webchat Error] Falha no processamento do atendimento:", dbErr?.message);
+      return res.status(503).json({
+        sucesso: false,
+        error: "Serviço de atendimento temporariamente indisponível. Tente novamente mais tarde.",
+        status: "unavailable"
+      });
     }
   });
 
@@ -250,57 +225,16 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
   
   app.get("/api/waba/chats-full", async (req, res) => {
     try {
-      if (process.env.NODE_ENV === 'production') {
-        if (!isDatabaseConnected) {
-          return res.status(503).json({ error: "Banco de dados indisponível em produção", status: "unavailable", chats: [] });
-        }
-        const chats = await db.select().from(conversas).orderBy(desc(conversas.updatedAt));
-        const fullChats = [];
-        for (const c of chats) {
-          const chatMsgs = await db.select().from(mensagens).where(eq(mensagens.conversaId, c.id)).orderBy(mensagens.createdAt);
-          fullChats.push({
-            ...c,
-            nome_cliente: c.nomeCliente || 'Desconhecido',
-            mensagens: chatMsgs.map((m: any) => ({
-              id: m.id,
-              conversa_id: m.conversaId || m.conversa_id,
-              autor_tipo: m.remetente || m.autorTipo || m.autor_tipo || 'sistema',
-              conteudo: m.conteudo,
-              enviada_em: m.createdAt ? new Date(m.createdAt).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) : (m.enviadaEm || m.enviada_em || '00:00'),
-              status: m.status || 'entregue'
-            }))
-          });
-        }
-        return res.json(fullChats);
+      if (!isDatabaseConnected) {
+        return res.status(503).json({ error: "Banco de dados indisponível", status: "unavailable", chats: [] });
       }
-
-      let chats = [];
-      try {
-        if (isDatabaseConnected) {
-          chats = await db.select().from(conversas).orderBy(desc(conversas.updatedAt));
-        } else {
-          chats = mockWabaChats || [];
-        }
-      } catch (e) {
-        chats = mockWabaChats || [];
-      }
-      
+      const chats = await db.select().from(conversas).orderBy(desc(conversas.updatedAt));
       const fullChats = [];
       for (const c of chats) {
-        let chatMsgs = [];
-        try {
-          if (isDatabaseConnected) {
-            chatMsgs = await db.select().from(mensagens).where(eq(mensagens.conversaId, c.id)).orderBy(mensagens.createdAt);
-          } else {
-            chatMsgs = (mockWabaMessages || []).filter((m: any) => m.conversaId === c.id || m.conversa_id === c.id);
-          }
-        } catch (e) {
-          chatMsgs = (mockWabaMessages || []).filter((m: any) => m.conversaId === c.id || m.conversa_id === c.id);
-        }
-        
+        const chatMsgs = await db.select().from(mensagens).where(eq(mensagens.conversaId, c.id)).orderBy(mensagens.createdAt);
         fullChats.push({
           ...c,
-          nome_cliente: c.nomeCliente || c.nome_cliente || 'Desconhecido',
+          nome_cliente: c.nomeCliente || 'Desconhecido',
           mensagens: chatMsgs.map((m: any) => ({
             id: m.id,
             conversa_id: m.conversaId || m.conversa_id,
@@ -311,52 +245,34 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
           }))
         });
       }
-      res.json(fullChats);
+      return res.json(fullChats);
     } catch (e: any) {
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(503).json({ error: "Banco de dados indisponível em produção", status: "unavailable", chats: [] });
-      }
-      res.status(500).json({ error: e.message });
+      return res.status(503).json({ error: "Banco de dados indisponível", status: "unavailable", chats: [] });
     }
   });
 
   app.get("/api/conversas", async (req, res) => {
     try {
-      if (isDatabaseConnected) {
-        const chats = await db.select().from(conversas).orderBy(desc(conversas.updatedAt));
-        return res.json(chats);
+      if (!isDatabaseConnected) {
+        return res.status(503).json({ success: false, error: 'Banco de dados indisponível.', conversas: [] });
       }
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(503).json({ success: false, error: 'Banco de dados indisponível em produção.', conversas: [] });
-      }
-      return res.json(mockWabaChats || []);
+      const chats = await db.select().from(conversas).orderBy(desc(conversas.updatedAt));
+      return res.json(chats);
     } catch (e: any) {
-      if (process.env.NODE_ENV === 'production') {
-        console.error('[DATABASE CRITICAL] Falha ao consultar conversas no PostgreSQL:', e.message);
-        return res.status(503).json({ success: false, error: 'Banco de dados indisponível em produção.', conversas: [] });
-      }
-      console.warn('[DEV] DB offline, utilizando conversas mock para visualização de desenvolvimento');
-      res.json(mockWabaChats || []);
+      return res.status(503).json({ success: false, error: 'Banco de dados indisponível.', conversas: [] });
     }
   });
 
   app.get("/api/conversas/:id/mensagens", async (req, res) => {
     try {
       const convId = parseInt(req.params.id);
-      if (isDatabaseConnected) {
-        const msgs = await db.select().from(mensagens).where(eq(mensagens.conversaId, convId)).orderBy(mensagens.createdAt);
-        return res.json(msgs);
+      if (!isDatabaseConnected) {
+        return res.status(503).json({ success: false, error: 'Banco de dados indisponível.', mensagens: [] });
       }
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(503).json({ success: false, error: 'Banco de dados indisponível em produção.', mensagens: [] });
-      }
-      return res.json((mockWabaMessages || []).filter((m: any) => m.conversaId === convId || m.conversa_id === convId));
+      const msgs = await db.select().from(mensagens).where(eq(mensagens.conversaId, convId)).orderBy(mensagens.createdAt);
+      return res.json(msgs);
     } catch (e: any) {
-      if (process.env.NODE_ENV === 'production') {
-        console.error('[DATABASE CRITICAL] Falha ao consultar mensagens no PostgreSQL:', e.message);
-        return res.status(503).json({ success: false, error: 'Banco de dados indisponível em produção.', mensagens: [] });
-      }
-      res.json((mockWabaMessages || []).filter((m: any) => m.conversaId === parseInt(req.params.id) || m.conversa_id === parseInt(req.params.id)));
+      return res.status(503).json({ success: false, error: 'Banco de dados indisponível.', mensagens: [] });
     }
   });
 
@@ -601,23 +517,30 @@ export function setupWabaRoutes(app: any, mockWabaChats: any[], mockWabaMessages
               respostaIA = `Olá, ${contactName}! Sou a MaIA, assistente virtual do DJD Telecom de internet. Recebi sua mensagem: "${msgText}". Como posso te ajudar hoje? Se precisar de suporte na sua fibra, segunda via ou falar com nossa equipe, estou à disposição 24h!`;
             }
 
-            mockWabaMessages.push({
-              id: Date.now(),
-              conversaId: 1,
-              autorTipo: 'cliente',
-              conteudo: msgText,
-              enviadaEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-              status: 'entregue'
-            });
-
-            mockWabaMessages.push({
-              id: Date.now() + 1,
-              conversaId: 1,
-              autorTipo: isSolicitacaoHumano ? 'sistema' : 'ia',
-              conteudo: respostaIA,
-              enviadaEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-              status: 'entregue'
-            });
+            if (isDatabaseConnected) {
+              try {
+                let [chat] = await db.select().from(conversas).where(eq(conversas.telefone, senderPhone)).limit(1);
+                if (!chat) {
+                  const [newChat] = await db.insert(conversas).values({
+                    telefone: senderPhone,
+                    nomeCliente: contactName,
+                    fila: isSolicitacaoHumano ? 'handoff' : 'triagem_ia',
+                    status: 'aberta'
+                  }).returning();
+                  chat = newChat;
+                } else if (isSolicitacaoHumano) {
+                  await db.update(conversas).set({ fila: 'handoff', updatedAt: new Date() }).where(eq(conversas.id, chat.id));
+                }
+                if (chat) {
+                  await db.insert(mensagens).values([
+                    { conversaId: chat.id, autorTipo: 'cliente', remetente: 'cliente', conteudo: msgText, status: 'entregue' },
+                    { conversaId: chat.id, autorTipo: isSolicitacaoHumano ? 'sistema' : 'ia', remetente: isSolicitacaoHumano ? 'sistema' : 'ia', conteudo: respostaIA, status: 'entregue' }
+                  ]);
+                }
+              } catch (dbErr: any) {
+                console.error("[WABA 24h DB Error] Falha ao persistir evento no banco:", dbErr?.message);
+              }
+            }
           }
         }
       }

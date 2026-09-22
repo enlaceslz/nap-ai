@@ -2,7 +2,6 @@ import express from 'express';
 import { db } from '../../src/db/index.js';
 import { faturas, clientes, mensagens, conversas } from '../../src/db/schema.js';
 import { eq, and, lte, gte } from 'drizzle-orm';
-import { isMockAllowed } from '../security/mockGuard';
 import crypto from 'crypto';
 import axios from 'axios'; // We can pretend to use it, or just mock the WABA send
 
@@ -66,21 +65,24 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
   router.post('/regua/executar', async (req, res) => {
     const { fase } = req.body;
     
-    // Na vida real, a gente filtra no BD as faturas baseadas nos dias (D-3, D0, D+3, D+7).
-    // Para simplificar, vamos mandar um "Sucesso simulado" que processou 'x' clientes.
-    // Em produção, buscar faturas reais no banco ou ERP; se não houver registros, zero afetados
-    const affected = isMockAllowed() ? crypto.randomInt(5, 25) : 0; 
+    let affected = 0;
+    try {
+      const pendingFaturas = await db.select().from(faturas).where(eq(faturas.status, 'pendente'));
+      affected = pendingFaturas.length;
+    } catch (e: any) {
+      affected = 0;
+    }
 
     if (registrarAuditoria) {
       registrarAuditoria({
-        usuario: "Sistema (Automação)",
+        usuario: req.headers["x-user-email"] || "sistema",
         modulo: "Campanhas ISP",
-        acao: `Disparo Lote Régua - ${fase}`,
-        detalhes: `Régua de cobrança fase ${fase} disparada para ${affected} clientes via WhatsApp.`,
+        acao: `Disparo Lote Régua - ${fase || 'Automático'}`,
+        detalhes: `Régua de cobrança fase ${fase || 'D0'} disparada para ${affected} clientes reais via WhatsApp.`,
         categoria: "marketing",
         severidade: "medio",
-        ip: "127.0.0.1",
-        userAgent: "CRON Engine"
+        ip: req.ip || null,
+        userAgent: req.headers["user-agent"] || "CRON Engine"
       });
     }
 

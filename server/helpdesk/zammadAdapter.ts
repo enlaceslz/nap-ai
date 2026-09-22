@@ -6,11 +6,14 @@ export class ZammadAdapter implements HelpDeskAdapter {
   private token: string;
 
   constructor() {
-    this.baseUrl = process.env.ZAMMAD_URL || 'http://localhost:8080/api/v1';
-    this.token = process.env.ZAMMAD_TOKEN || 'dummy-token';
+    this.baseUrl = process.env.ZAMMAD_URL || '';
+    this.token = process.env.ZAMMAD_TOKEN || '';
   }
 
   private async request(endpoint: string, options: RequestInit = {}) {
+    if (!this.baseUrl || !this.token) {
+      throw new Error("Integração Zammad não configurada (ZAMMAD_URL ou ZAMMAD_TOKEN ausente).");
+    }
     const url = `${this.baseUrl}${endpoint}`;
     const headers = {
       'Authorization': `Token token=${this.token}`,
@@ -20,13 +23,15 @@ export class ZammadAdapter implements HelpDeskAdapter {
 
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) {
-      console.warn(`Zammad API error on ${endpoint}: ${res.statusText}`);
-      // In a real scenario we'd throw or handle properly
+      throw new Error(`Zammad API error on ${endpoint}: ${res.status} ${res.statusText}`);
     }
-    return res.json().catch(() => ({}));
+    return res.json();
   }
 
   async createTicket(ticket: NapTicket): Promise<string> {
+    if (!this.baseUrl || !this.token) {
+      throw new Error("Integração Zammad não configurada.");
+    }
     // Zammad expects specific fields (title, group, customer, article for description)
     const payload = {
       title: ticket.title,
@@ -39,19 +44,19 @@ export class ZammadAdapter implements HelpDeskAdapter {
         internal: false
       }
     };
-    
-    // Simulating Zammad Response for development if Zammad is unreachable
-    if (this.token === 'dummy-token') return `ZAMMAD-${Date.now()}`;
 
     const res = await this.request('/tickets', {
       method: 'POST',
       body: JSON.stringify(payload)
     });
-    return res.id ? String(res.id) : `ZAMMAD-${Date.now()}`;
+    if (!res?.id) {
+      throw new Error("Falha ao obter ID do ticket criado no Zammad.");
+    }
+    return String(res.id);
   }
 
   async updateTicket(backendId: string, updates: Partial<NapTicket>): Promise<void> {
-    if (this.token === 'dummy-token') return;
+    if (!this.baseUrl || !this.token) return;
     const payload: any = {};
     if (updates.title) payload.title = updates.title;
     // Map NAP status to Zammad state
@@ -64,7 +69,9 @@ export class ZammadAdapter implements HelpDeskAdapter {
   }
 
   async getTicket(backendId: string): Promise<NapTicket> {
-    if (this.token === 'dummy-token') return {} as NapTicket;
+    if (!this.baseUrl || !this.token) {
+      throw new Error("Integração Zammad não configurada.");
+    }
     const res = await this.request(`/tickets/${backendId}`);
     return {
       title: res.title,
@@ -86,7 +93,9 @@ export class ZammadAdapter implements HelpDeskAdapter {
   }
 
   async createComment(backendId: string, comment: NapComment): Promise<string> {
-    if (this.token === 'dummy-token') return `ART-${Date.now()}`;
+    if (!this.baseUrl || !this.token) {
+      throw new Error("Integração Zammad não configurada.");
+    }
     const payload = {
       ticket_id: backendId,
       subject: 'Comment',
@@ -98,7 +107,10 @@ export class ZammadAdapter implements HelpDeskAdapter {
       method: 'POST',
       body: JSON.stringify(payload)
     });
-    return res.id ? String(res.id) : `ART-${Date.now()}`;
+    if (!res?.id) {
+      throw new Error("Falha ao registrar comentário no Zammad.");
+    }
+    return String(res.id);
   }
 
   async addAttachment(backendId: string, fileData: Buffer, fileName: string): Promise<string> {
@@ -107,7 +119,7 @@ export class ZammadAdapter implements HelpDeskAdapter {
   }
 
   async assignTicket(backendId: string, agentBackendId: string): Promise<void> {
-    if (this.token === 'dummy-token') return;
+    if (!this.baseUrl || !this.token) return;
     await this.request(`/tickets/${backendId}`, {
       method: 'PUT',
       body: JSON.stringify({ owner_id: agentBackendId })

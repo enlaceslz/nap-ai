@@ -14,19 +14,20 @@ export class TelegramGateway {
   private defaultChatId: string;
 
   constructor() {
-    // Estas credenciais viriam de variáveis de ambiente
-    this.botToken = process.env.TELEGRAM_BOT_TOKEN || 'dummy-token';
-    this.defaultChatId = process.env.TELEGRAM_NOC_GROUP_ID || 'dummy-chat-id';
+    this.botToken = process.env.TELEGRAM_BOT_TOKEN || '';
+    this.defaultChatId = process.env.TELEGRAM_NOC_GROUP_ID || '';
   }
 
   async sendMessage(message: string, chatId?: string, parseMode: 'MarkdownV2' | 'HTML' = 'HTML') {
-    if (this.botToken === 'dummy-token') {
-      console.log('[TELEGRAM MOCK]', message);
-      return { success: true, message: 'Message logged locally' };
+    if (!this.botToken) {
+      return { success: false, error: 'Telegram não configurado (TELEGRAM_BOT_TOKEN ausente no ambiente).' };
     }
 
     try {
       const targetChat = chatId || this.defaultChatId;
+      if (!targetChat) {
+        return { success: false, error: 'Chat ID do Telegram não informado e TELEGRAM_NOC_GROUP_ID ausente.' };
+      }
       const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -50,11 +51,35 @@ export class TelegramGateway {
 
   // Envia alerta com botões inline (Ex: "Fazer ACK", "Ver no Mapa")
   async sendAlertWithActions(message: string, actions: any[], chatId?: string) {
-    if (this.botToken === 'dummy-token') {
-      console.log('[TELEGRAM MOCK ALERT]', message, actions);
-      return { success: true, message: 'Alert logged locally' };
+    if (!this.botToken) {
+      return { success: false, error: 'Telegram não configurado (TELEGRAM_BOT_TOKEN ausente no ambiente).' };
     }
-    // ... Implementação real enviando reply_markup ...
-    return { success: true };
+    const targetChat = chatId || this.defaultChatId;
+    if (!targetChat) {
+      return { success: false, error: 'Chat ID do Telegram não informado e TELEGRAM_NOC_GROUP_ID ausente.' };
+    }
+
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: targetChat,
+          text: message,
+          reply_markup: {
+            inline_keyboard: actions
+          }
+        })
+      });
+
+      const data = await response.json();
+      if (!data.ok) {
+        throw new Error(data.description);
+      }
+      return { success: true, data };
+    } catch (error: any) {
+      console.error('[TELEGRAM ERROR]', error.message);
+      return { success: false, error: error.message };
+    }
   }
 }

@@ -2172,7 +2172,7 @@ setupPortalRoutes(app);
 setupGenieacsRoutes(app, { registrarAuditoria });
 setupCommunicationsRoutes(app, { registrarAuditoria });
 setupFieldRoutes(app, { registrarAuditoria });
-setupWabaRoutes(app, isMockAllowed() ? devMockWabaChats : [], isMockAllowed() ? devMockWabaMessages : []);
+setupWabaRoutes(app);
 app.use("/api/gis", gisRoutes);
 app.use("/api/ai", aiRoutes);
 
