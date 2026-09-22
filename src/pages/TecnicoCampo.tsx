@@ -62,10 +62,7 @@ export default function TecnicoCampo() {
 
 
  // Carregar OSs de campo do servidor
-const mockOrdens: OSItem[] = [
- { id: '1', numero: 'OS-000182', tipo: 'Reparo', cliente_nome: 'João Silva', cliente_cpf: '111', endereco: 'Rua A', bairro: 'Cohab', cidade: 'São Luís', lat: -2.529, lng: -44.302, status: 'pendente', prioridade: 'alta', horario_agendado: '14:00', observacoes: 'Mock' }
-];
- const carregarOrdens = async () => {
+const carregarOrdens = async () => {
  try {
  setLoading(true);
  const orders = await fetchWorkOrders();
@@ -127,47 +124,43 @@ const mockOrdens: OSItem[] = [
 
  // Diagnóstico TR-069 in loco da ONU
  const handleDiagnosticarSinal = async (os: OSItem) => {
- setIsDiagnosticando(true);
- try {
- let medicaoAtual = -20.4;
- 
- // Tenta buscar a ONT real se a OS tiver mac ou serial
- if (os.onu_mac || os.onu_serial) {
- try {
- const onus = await oltApi.getOnus();
- const targetOnu = onus.find(o => 
- (os.onu_mac && o.mac === os.onu_mac) || 
- (os.onu_serial && o.serial === os.onu_serial)
- );
- if (targetOnu) {
- const diag = await oltApi.runDiagnostics(targetOnu.id);
- medicaoAtual = diag.optical.rx_onu;
- } else {
- medicaoAtual = Number((-19.0 - Math.random() * 4).toFixed(1));
- }
- } catch (e) {
- medicaoAtual = Number((-19.0 - Math.random() * 4).toFixed(1));
- }
- } else {
- // Fallback simulado se a OS não possuir os dados vinculados
- await new Promise(resolve => setTimeout(resolve, 1200));
- medicaoAtual = Number((-19.0 - Math.random() * 4).toFixed(1));
- }
+    setIsDiagnosticando(true);
+    try {
+      let medicaoAtual: number | null = null;
+      
+      if (os.onu_mac || os.onu_serial) {
+        try {
+          const onus = await oltApi.getOnus();
+          const targetOnu = onus.find(o => 
+            (os.onu_mac && o.mac === os.onu_mac) || 
+            (os.onu_serial && o.serial === os.onu_serial)
+          );
+          if (targetOnu) {
+            const diag = await oltApi.runDiagnostics(targetOnu.id);
+            medicaoAtual = diag?.optical?.rx_onu || null;
+          }
+        } catch (e) {
+          console.error("Erro ao coletar diagnóstico óptico da ONT:", e);
+        }
+      }
 
- setOrdens(prev => prev.map(o => o.id === os.id ? { ...o, sinal_optico_dbm: medicaoAtual } : o));
- if (selectedOS?.id === os.id) {
- setSelectedOS(prev => prev ? { ...prev, sinal_optico_dbm: medicaoAtual } : null);
- }
- setChecklist(c => ({ ...c, potenciaMedida: true }));
- 
- showNotification("Diagnóstico Óptico Realizado", {
- body: `Potência RX aferida: ${medicaoAtual} dBm.`,
- tag: `diag_${os.id}`
- }, 'noc');
- } finally {
- setIsDiagnosticando(false);
- }
- };
+      if (medicaoAtual !== null) {
+        setOrdens(prev => prev.map(o => o.id === os.id ? { ...o, sinal_optico_dbm: medicaoAtual } : o));
+        if (selectedOS?.id === os.id) {
+          setSelectedOS(prev => prev ? { ...prev, sinal_optico_dbm: medicaoAtual } : null);
+        }
+        setChecklist(c => ({ ...c, potenciaMedida: true }));
+        showNotification("Diagnóstico Óptico Realizado", {
+          body: `Potência RX aferida: ${medicaoAtual} dBm.`,
+          tag: `diag_${os.id}`
+        }, "noc");
+      } else {
+        alert("ONT não identificada na OLT/GenieACS ou telemetria indisponível para esta OS.");
+      }
+    } finally {
+      setIsDiagnosticando(false);
+    }
+  };
 
  // Concluir Atendimento
  

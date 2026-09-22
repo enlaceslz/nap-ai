@@ -1,6 +1,7 @@
 import { OltDriver } from './driverInterface';
 import { assertRealService, isMockAllowed } from '../security/mockGuard';
 import crypto from 'crypto';
+import net from 'net';
 import {
   OltDevice,
   OltSystemInfo,
@@ -29,14 +30,40 @@ export class HuaweiOltDriver implements OltDriver {
 
   public async connect(): Promise<{ success: boolean; message: string; latency_ms: number }> {
     const startTime = Date.now();
-    await new Promise((resolve) => setTimeout(resolve, 95));
-    this.connected = true;
-    const latency = Date.now() - startTime;
-    return {
-      success: true,
-      message: `Conexão SSH estabelecida com sucesso na OLT Huawei ${this.olt.modelo} (${this.olt.ip}:${this.olt.porta || 22})`,
-      latency_ms: latency
-    };
+    const port = this.olt.porta || 22;
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      socket.setTimeout(2500);
+      socket.once('connect', () => {
+        socket.destroy();
+        this.connected = true;
+        const latency = Date.now() - startTime;
+        resolve({
+          success: true,
+          message: `Conexão TCP/SSH estabelecida com sucesso na OLT Huawei ${this.olt.modelo} (${this.olt.ip}:${port})`,
+          latency_ms: latency
+        });
+      });
+      socket.once('timeout', () => {
+        socket.destroy();
+        this.connected = false;
+        resolve({
+          success: false,
+          message: `Timeout ao conectar na OLT Huawei (${this.olt.ip}:${port})`,
+          latency_ms: 2500
+        });
+      });
+      socket.once('error', (err) => {
+        socket.destroy();
+        this.connected = false;
+        resolve({
+          success: false,
+          message: `Falha ao conectar na OLT Huawei (${this.olt.ip}:${port}): ${err.message}`,
+          latency_ms: Date.now() - startTime
+        });
+      });
+      socket.connect(port, this.olt.ip);
+    });
   }
 
   public async disconnect(): Promise<void> {

@@ -101,4 +101,27 @@ export class GenieacsService {
       return [];
     }
   }
+
+  public async rebootDevice(deviceId: string): Promise<{ success: boolean; message: string }> {
+    const nbiUrl = process.env.GENIEACS_URL;
+    if (!nbiUrl) {
+      return { success: false, message: "GenieACS URL não configurada" };
+    }
+    try {
+      const user = process.env.GENIEACS_USER || "admin";
+      const pass = process.env.GENIEACS_PASSWORD || "admin";
+      const auth = Buffer.from(`${user}:${pass}`).toString('base64');
+      const res = await fetch(`${nbiUrl}/devices/${encodeURIComponent(deviceId)}/tasks?connection_request`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: 'reboot' })
+      });
+      return { success: res.ok, message: res.ok ? "Comando de reboot enviado" : "Falha ao enviar reboot" };
+    } catch (err: any) {
+      return { success: false, message: err.message };
+    }
+  }
 }

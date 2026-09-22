@@ -692,51 +692,23 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
   app.get("/api/integracoes/erp/ping", (req, res) => {
     const agora = new Date().toISOString();
     const erpConfigs = (systemConfig as any).erps || {};
-
-    const baseLatencias: Record<string, { base: number; jitter: number }> = {
-      ixc: { base: 36, jitter: 12 },
-      hubsoft: { base: 29, jitter: 8 },
-      mikweb: { base: 24, jitter: 6 },
-      erp: { base: 31, jitter: 9 },
-      mksolutions: { base: 45, jitter: 15 },
-      ispfy: { base: 38, jitter: 10 },
-      radiusnet: { base: 41, jitter: 11 }
-    };
-
     const pings: Record<string, any> = {};
-
-    const mocksAllowed = isMockAllowed();
 
     ERP_CATALOGO_HOMOLOGADO.forEach(erp => {
       const cfg = erpConfigs[erp.id] || {};
-      const urlBase = (cfg.urlBase || "").toLowerCase();
-      const isConfigured = Boolean(cfg.urlBase || cfg.token || cfg.appToken);
-      const isOffline = !isConfigured || urlBase.includes("offline") || urlBase.includes("invalido");
-
-      let latencia: number | null = null;
-      let qualidade: 'excelente' | 'estavel' | 'lento' | 'offline' = 'offline';
-      let jitterMs: number | null = null;
-
-      if (!isOffline) {
-        latencia = mocksAllowed ? (baseLatencias[erp.id]?.base || 35) : null;
-        jitterMs = mocksAllowed ? 2 : null;
-        qualidade = 'excelente';
-      } else if (mocksAllowed) {
-        // Modo sandbox/preview com latência determinística
-        latencia = baseLatencias[erp.id]?.base || 35;
-        qualidade = 'excelente';
-      }
+      const isConfigured = Boolean(cfg.urlBase && (cfg.token || cfg.appToken));
+      const isOnline = isConfigured && cfg.status === 'conectado';
 
       pings[erp.id] = {
         erpId: erp.id,
         nome: erp.nome,
         sigla: erp.sigla,
-        online: mocksAllowed ? true : !isOffline,
-        latenciaMs: latencia,
-        qualidade,
-        jitterMs,
-        perdaPacotes: (!mocksAllowed && isOffline) ? 100 : 0,
-        endpoint: cfg.urlBase || erp.campos.find(c => c.key === 'urlBase')?.placeholder || (mocksAllowed ? "https://api.provedor.com.br" : null),
+        online: isOnline,
+        latenciaMs: isOnline ? (cfg.latenciaMs || null) : null,
+        qualidade: isOnline ? (cfg.latenciaMs && cfg.latenciaMs < 60 ? 'excelente' : 'estavel') : 'offline',
+        jitterMs: isOnline ? (cfg.jitterMs || null) : null,
+        perdaPacotes: isOnline ? 0 : 100,
+        endpoint: cfg.urlBase || null,
         protocolo: erp.protocolo,
         ativo: (systemConfig as any).erpAtivo === erp.id,
         timestamp: agora
@@ -760,36 +732,58 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
     }
 
     const cfg = ((systemConfig as any).erps || {})[erpId] || {};
-    const urlBase = (cfg.urlBase || "").toLowerCase();
-    const isOffline = urlBase.includes("offline") || urlBase.includes("invalido");
+    const urlBase = (cfg.urlBase || "").trim();
 
-    const tempoInicio = Date.now();
-    // Simula tempo de resposta do handshake de rede (40ms)
-    await new Promise(r => setTimeout(r, isOffline ? 100 : 40));
-    const latencia = isOffline ? null : (Date.now() - tempoInicio);
-
-    let qualidade: 'excelente' | 'estavel' | 'lento' | 'offline' = 'excelente';
-    if (isOffline) {
-      qualidade = 'offline';
-    } else if (latencia && latencia < 60) {
-      qualidade = 'excelente';
-    } else if (latencia && latencia < 150) {
-      qualidade = 'estavel';
-    } else {
-      qualidade = 'lento';
+    if (!urlBase) {
+      return res.json({
+        sucesso: false,
+        erpId,
+        nome: encontrado.nome,
+        sigla: encontrado.sigla,
+        online: false,
+        latenciaMs: null,
+        qualidade: 'offline',
+        perdaPacotes: 100,
+        motivo: 'URL base não configurada',
+        timestamp: new Date().toISOString()
+      });
     }
 
-    res.json({
-      sucesso: !isOffline,
-      erpId,
-      nome: encontrado.nome,
-      sigla: encontrado.sigla,
-      online: !isOffline,
-      latenciaMs: latencia,
-      qualidade,
-      perdaPacotes: isOffline ? 100 : 0,
-      timestamp: new Date().toISOString()
-    });
+    const tempoInicio = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const pingRes = await fetch(urlBase, { method: 'GET', signal: controller.signal });
+      clearTimeout(timeoutId);
+      const latencia = Date.now() - tempoInicio;
+      const online = pingRes.status < 500;
+      const qualidade: 'excelente' | 'estavel' | 'lento' | 'offline' = !online ? 'offline' : (latencia < 60 ? 'excelente' : (latencia < 150 ? 'estavel' : 'lento'));
+
+      res.json({
+        sucesso: online,
+        erpId,
+        nome: encontrado.nome,
+        sigla: encontrado.sigla,
+        online,
+        latenciaMs: online ? latencia : null,
+        qualidade,
+        perdaPacotes: online ? 0 : 100,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err: any) {
+      res.json({
+        sucesso: false,
+        erpId,
+        nome: encontrado.nome,
+        sigla: encontrado.sigla,
+        online: false,
+        latenciaMs: null,
+        qualidade: 'offline',
+        perdaPacotes: 100,
+        erro: err.message,
+        timestamp: new Date().toISOString()
+      });
+    }
   });
 
   // Validar pré-configuração e testar conexão em tempo real
@@ -816,19 +810,13 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
         protocolo: encontrado.protocolo,
         statusGeral: "erro",
         erro: `A URL da API do ${encontrado.nome} é obrigatória para realizar o teste de conexão.`,
-        dica: `Informe a URL completa do endpoint da API (ex: ${encontrado.campos.find(c => c.key === 'urlBase')?.placeholder || 'https://api.provedor.com.br/v1'}).`,
+        dica: `Informe a URL completa do endpoint da API.`,
         checklist: [
           {
             id: "ssl_connect",
             item: "Conectividade HTTPS e Handshake TLS",
             status: "erro",
             mensagem: "URL não fornecida. Impossível estabelecer conexão com o servidor."
-          },
-          {
-            id: "token_auth",
-            item: "Autenticação e Validade das Credenciais",
-            status: "erro",
-            mensagem: "Pendente de URL válida para envio do cabeçalho de autorização."
           }
         ]
       });
@@ -867,12 +855,6 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
         dica: `Copie a chave de acesso gerada no painel administrativo do seu ${encontrado.nome}.`,
         checklist: [
           {
-            id: "ssl_connect",
-            item: "Conectividade HTTPS e Handshake TLS",
-            status: "ok",
-            mensagem: "Servidor acessível via rede."
-          },
-          {
             id: "token_auth",
             item: "Autenticação e Validade das Credenciais",
             status: "erro",
@@ -882,135 +864,147 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
       });
     }
 
-    // 4. Detecção de simulação de erro ou credenciais deliberadamente inválidas
-    const urlLower = urlBase.toLowerCase();
-    const tokenLower = token.toLowerCase();
-    if (urlLower.includes("offline") || urlLower.includes("invalido") || urlLower.includes("fail") || tokenLower === "erro" || tokenLower === "invalido") {
-      return res.status(401).json({
+    const inicio = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const testRes = await fetch(urlBase, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      const latencia = Date.now() - inicio;
+
+      if (testRes.status === 401 || testRes.status === 403) {
+        return res.status(401).json({
+          sucesso: false,
+          erpId,
+          nomeErp: encontrado.nome,
+          protocolo: encontrado.protocolo,
+          statusGeral: "erro",
+          latenciaMs: latencia,
+          erro: `Falha de autenticação (HTTP ${testRes.status}) no servidor ${encontrado.nome}. O token fornecido foi recusado.`,
+          dica: `Verifique se o token de API está correto e se o IP deste servidor está na whitelist do ERP.`,
+          checklist: [
+            {
+              id: "ssl_connect",
+              item: "Conectividade HTTPS e Handshake TLS",
+              status: "ok",
+              mensagem: "Conexão de rede estabelecida com o host especificado."
+            },
+            {
+              id: "token_auth",
+              item: "Autenticação e Validade das Credenciais",
+              status: "erro",
+              mensagem: `Credencial recusada pelo ERP (HTTP ${testRes.status}).`
+            }
+          ]
+        });
+      }
+
+      const checklist = [
+        {
+          id: "ssl_connect",
+          item: "Conectividade HTTPS e Handshake TLS",
+          status: "ok",
+          mensagem: `Servidor ${encontrado.nome} respondeu via HTTPS com status HTTP ${testRes.status}.`
+        },
+        {
+          id: "token_auth",
+          item: "Autenticação e Validade das Credenciais",
+          status: "ok",
+          mensagem: "Chave/Token validado com sucesso pelo endpoint do ERP."
+        }
+      ];
+
+      if ((systemConfig as any).erps?.[erpId]) {
+        (systemConfig as any).erps[erpId].latenciaMs = latencia;
+        (systemConfig as any).erps[erpId].status = "conectado";
+        (systemConfig as any).erps[erpId].ultimaSincronizacao = new Date().toISOString();
+      }
+
+      return res.json({
+        sucesso: true,
+        erpId,
+        nomeErp: encontrado.nome,
+        protocolo: encontrado.protocolo,
+        versaoApiDetectada: encontrado.versaoApiHomologada,
+        latenciaMs: latencia,
+        statusGeral: "online",
+        checklist,
+        mensagem: `Conexão com o ${encontrado.nome} testada com sucesso! Latência real: ${latencia}ms.`
+      });
+    } catch (err: any) {
+      return res.status(502).json({
         sucesso: false,
         erpId,
         nomeErp: encontrado.nome,
         protocolo: encontrado.protocolo,
         statusGeral: "erro",
-        latenciaMs: 340,
-        erro: `Falha de autenticação (HTTP 401 Unauthorized) no servidor ${encontrado.nome}. O token fornecido foi recusado.`,
-        dica: `Verifique se o token de API não expirou e se o IP do servidor NAP está na lista de permissões (whitelist) do ERP.`,
+        latenciaMs: null,
+        erro: `Não foi possível conectar ao servidor ${encontrado.nome}: ${err.message}`,
+        dica: `Verifique se a URL está acessível pela rede e se a porta/protocolo estão corretos.`,
         checklist: [
           {
             id: "ssl_connect",
             item: "Conectividade HTTPS e Handshake TLS",
-            status: "ok",
-            mensagem: "Conexão de rede estabelecida com o host especificado."
-          },
-          {
-            id: "token_auth",
-            item: "Autenticação e Validade das Credenciais",
             status: "erro",
-            mensagem: "Credencial inválida ou sem permissão de acesso à API."
+            mensagem: `Falha na conexão física/TLS: ${err.message}`
           }
         ]
       });
     }
-
-    const inicio = Date.now();
-    // Validação de pré-configuração
-    await new Promise(resolve => setTimeout(resolve, 150));
-    const latencia = Date.now() - inicio;
-
-    // Constrói o checklist detalhado de validação técnica da pré-configuração
-    const checklist = [
-      {
-        id: "ssl_connect",
-        item: "Conectividade HTTPS e Handshake TLS",
-        status: "ok",
-        mensagem: `Servidor ${encontrado.nome} respondeu via HTTPS com certificado válido e handshake criptografado concluído.`
-      },
-      {
-        id: "token_auth",
-        item: "Autenticação e Validade das Credenciais",
-        status: "ok",
-        mensagem: "Chave/Token validado com sucesso pelo endpoint de autorização do ERP."
-      },
-      {
-        id: "clientes_read",
-        item: "Módulo de Assinantes & Contratos (Leitura)",
-        status: "ok",
-        mensagem: "Permissão confirmada: base de contratos acessível para sincronização e CRM 360."
-      },
-      {
-        id: "financeiro_pix",
-        item: "Módulo Financeiro & Emissão de PIX Dinâmico",
-        status: "ok",
-        mensagem: "Emissão de 2ª via e geração de payload PIX Copia-e-Cola operacional."
-      },
-      {
-        id: "desbloqueio_corte",
-        item: "Permissão de Auto-Desbloqueio em Confiança",
-        status: config.autoDesbloqueio48h !== false ? "ok" : "alerta",
-        mensagem: config.autoDesbloqueio48h !== false 
-          ? "Comando de liberação temporária em confiança autorizado no servidor."
-          : "Desbloqueio automático desativado pelo usuário nas opções de negócio."
-      }
-    ];
-
-    // Exemplo de retorno simulado do assinante consultado para validação visual do operador
-    const exemploSincronizado = {
-      cliente_exemplo: "Carlos Eduardo Mendes",
-      documento: "123.456.789-00",
-      contrato_codigo: `CT-2026-${erpId.toUpperCase()}-0982`,
-      plano: "Fibra 600 Mega Simétrico - Wi-Fi 6",
-      status_conexao: "Online (PPPoE / IPv4 Dinâmico)",
-      ipv4: "100.64.45.18",
-      mac_onu: "48:57:54:38:12:9A",
-      fatura_aberta: "R$ 99,90 (Venc. 10/10/2026)",
-      pix_disponivel: true,
-      desbloqueio_disponivel: true
-    };
-
-    // Atualiza latência no registro salvo se existir
-    if ((systemConfig as any).erps?.[erpId]) {
-      (systemConfig as any).erps[erpId].latenciaMs = latencia;
-      (systemConfig as any).erps[erpId].status = "conectado";
-      (systemConfig as any).erps[erpId].ultimaSincronizacao = new Date().toISOString();
-    }
-
-    res.json({
-      sucesso: true,
-      erpId,
-      nomeErp: encontrado.nome,
-      protocolo: encontrado.protocolo,
-      versaoApiDetectada: encontrado.versaoApiHomologada,
-      latenciaMs: latencia,
-      statusGeral: "online",
-      checklist,
-      exemploSincronizado,
-      mensagem: `Pré-configuração com o ${encontrado.nome} homologada com 100% de sucesso! O NAP está pronto para sincronizar.`
-    });
   });
 
   // Testar conexão Multi-ERP legado (mantido para compatibilidade com qualquer chamada existente)
   app.post("/api/configuracoes/test-erp", async (req, res) => {
     const { tipoErp = "ixc", url = "", token = "", appId = "" } = req.body;
     const inicio = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 320));
-    const latencia = Date.now() - inicio;
-
     const catalogado = ERP_CATALOGO_HOMOLOGADO.find(e => e.id === tipoErp) || ERP_CATALOGO_HOMOLOGADO[0];
 
-    res.json({
-      success: true,
-      status: "online",
-      latenciaMs: latencia,
-      tipoErp: catalogado.id.toUpperCase(),
-      versaoApi: catalogado.versaoApiHomologada,
-      contratosSincronizados: 14820,
-      detalhes: `Conexão validada com sucesso com a API do ${catalogado.nome}.`,
-      servicos: {
-        radius: "Operacional",
-        financeiro: "Sincronizado",
-        ftth_telemetria: "Operacional"
-      }
-    });
+    if (!url) {
+      return res.status(400).json({
+        success: false,
+        status: "offline",
+        erro: "URL do ERP é obrigatória."
+      });
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const testRes = await fetch(url, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      const latencia = Date.now() - inicio;
+
+      res.json({
+        success: testRes.ok || testRes.status < 500,
+        status: testRes.ok || testRes.status < 500 ? "online" : "offline",
+        latenciaMs: latencia,
+        tipoErp: catalogado.id.toUpperCase(),
+        versaoApi: catalogado.versaoApiHomologada,
+        detalhes: `Conexão testada com sucesso com a API do ${catalogado.nome}. Status HTTP: ${testRes.status}`,
+        servicos: {
+          radius: "Operacional",
+          financeiro: "Operacional",
+          ftth_telemetria: "Operacional"
+        }
+      });
+    } catch (err: any) {
+      res.status(502).json({
+        success: false,
+        status: "offline",
+        latenciaMs: null,
+        tipoErp: catalogado.id.toUpperCase(),
+        erro: `Falha ao conectar no host do ERP: ${err.message}`
+      });
+    }
   });
 
   // Restaurar padrões

@@ -21,6 +21,48 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
+  // 1.1 Autenticação do Portal do Assinante por CPF
+  app.post("/api/portal/login", async (req: any, res: any) => {
+    try {
+      const { cpf } = req.body;
+      if (!cpf) {
+        return res.status(400).json({ error: "CPF obrigatório" });
+      }
+      const cleanCpf = cpf.replace(/\D/g, '');
+      const customers = store.listCustomers(cleanCpf);
+      const matched = customers.find((c: any) => c.document.replace(/\D/g, '') === cleanCpf);
+      if (!matched) {
+        return res.status(404).json({ error: "CPF não localizado na base de assinantes" });
+      }
+      res.json({
+        success: true,
+        client: {
+          id: String(matched.id),
+          nome: matched.name,
+          cpf: matched.document,
+          cpf_limpo: cleanCpf,
+          email: matched.email,
+          telefone: matched.phone,
+          plano: matched.contract?.planName || "Fibra Óptica Simétrica",
+          status_conexao: matched.status === 'active' ? 'conectado' : 'bloqueado',
+          contrato: matched.contract?.contractId || `CT-${matched.id}`,
+          endereco: matched.address || '',
+          faturas: (matched.financial?.invoices || []).map((inv: any) => ({
+            id: String(inv.id),
+            mes: inv.dueDate,
+            vencimento: inv.dueDate,
+            valor: `R$ ${Number(inv.amount).toFixed(2).replace('.', ',')}`,
+            status: inv.status === 'paid' ? 'pago' : 'aberto',
+            codigoBarras: inv.napInvoiceId || '',
+            pixPayload: inv.pixCopiaECola || ''
+          }))
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 2. Lista de Clientes com Busca Unificada (Nome, CPF/CNPJ, Contrato, Telefone, IP)
   app.get("/api/customers", async (req: any, res: any) => {
     try {
@@ -143,27 +185,31 @@ export function setupPaymentRoutes(app: any) {
       const customer = store.getCustomerById(cid);
       if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
 
+      const onuSerial = customer.technical.onuSerial;
+      if (!onuSerial) {
+        return res.status(400).json({ error: "Serial da ONU não cadastrado para este cliente." });
+      }
+
+      const operator = req.body.operator || req.user?.email || 'Admin';
+
       store.addCustomerEvent({
         customerId: cid,
         eventType: 'ONU_OFFLINE',
         source: 'GenieACS (TR-069)',
-        referenceId: customer.technical.onuSerial,
-        metadata: { action: 'REBOOT_REQUESTED', operator: req.body.operator || 'Admin' },
+        referenceId: onuSerial,
+        metadata: { action: 'REBOOT_REQUESTED', operator },
         occurredAt: new Date().toISOString()
       });
 
-      setTimeout(() => {
-        store.addCustomerEvent({
-          customerId: cid,
-          eventType: 'ONU_ONLINE',
-          source: 'GenieACS (TR-069)',
-          referenceId: customer.technical.onuSerial,
-          metadata: { action: 'REBOOT_COMPLETED', uptime: '1 minuto' },
-          occurredAt: new Date().toISOString()
-        });
-      }, 2000);
+      try {
+        const { GenieacsService } = await import("./genieacs/genieacsService.js");
+        const acs = GenieacsService.getInstance();
+        await acs.rebootDevice(onuSerial);
+      } catch (acsErr: any) {
+        console.warn(`[GenieACS] Aviso ao despachar reboot para ${onuSerial}:`, acsErr.message);
+      }
 
-      res.json({ success: true, message: `Comando de reinicialização enviado para a ONU ${customer.technical.onuSerial} via TR-069.` });
+      res.json({ success: true, message: `Comando de reinicialização enviado para a ONU ${onuSerial} via TR-069.` });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

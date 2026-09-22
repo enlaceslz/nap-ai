@@ -77,63 +77,6 @@ interface OrdemServicoNode {
  tecnico_nome?: string;
 }
 
-// Gerador de Mocks Geográficos (Ao redor de uma coordenada central)
-const generateMockOnts = (centerLat: number, centerLng: number, count: number): OntGeoNode[] => {
- const nodes: OntGeoNode[] = [];
- const radius = 0.05; // ~5km
- 
- const statuses: ('online' | 'offline' | 'alerta')[] = ['online', 'online', 'online', 'online', 'alerta', 'offline'];
- const nomes = ['João Silva', 'Maria Souza', 'Empresa XYZ', 'Carlos Oliveira', 'Ana Costa', 'Padaria Pão Quente', 'Lucas Mendes', 'Farmácia Vida'];
- const planos = ['Fibra 500 Mega', 'Fibra 700 Mega', 'Gamer 1 Giga', 'Empresarial Link Dedicado'];
- const olts = ['OLT-HUAWEI-01 (Centro)', 'OLT-ZTE-02 (Norte)', 'OLT-DATACOM-03 (Sul)'];
- const modelos = ['Huawei HG8145V5', 'ZTE F670L', 'Fiberhome AN5506', 'Datacom DM985'];
-
- for (let i = 0; i < count; i++) {
- const r = radius * Math.sqrt(Math.random());
- const theta = Math.random() * 2 * Math.PI;
- 
- const status = statuses[Math.floor(Math.random() * statuses.length)];
- let rx = '-19.5 dBm';
- let tx = '+2.3 dBm';
- let temp = `${Math.floor(Math.random() * 8 + 38)}°C`;
- let volt = '3.31 V';
-
- if (status === 'alerta') {
- rx = '-28.4 dBm (Crítico)';
- tx = '+1.1 dBm';
- temp = '52°C';
- }
- if (status === 'offline') {
- rx = 'Sem Sinal (LOS)';
- tx = '0.0 dBm (Desligado)';
- temp = '--';
- volt = '0.0 V';
- }
- 
- nodes.push({
- id: `ONT-${1000 + i}`,
- cliente: nomes[Math.floor(Math.random() * nomes.length)] + ` ${i+1}`,
- mac: `48:57:DD:${Math.floor(Math.random()*90+10)}:${Math.floor(Math.random()*90+10)}:${Math.floor(Math.random()*90+10)}`,
- lat: centerLat + r * Math.cos(theta),
- lng: centerLng + r * Math.sin(theta),
- status: status,
- rxPower: rx,
- txPower: tx,
- uptime: status === 'offline' ? '00:00:00' : `${Math.floor(Math.random() * 30 + 1)} dias`,
- plano: planos[Math.floor(Math.random() * planos.length)],
- olt: olts[Math.floor(Math.random() * olts.length)],
- pon: `0/${Math.floor(Math.random() * 2)}/${Math.floor(Math.random() * 16)}`,
- ip: `100.64.${Math.floor(Math.random() * 50 + 10)}.${Math.floor(Math.random() * 250 + 2)}`,
- modelo: modelos[Math.floor(Math.random() * modelos.length)],
- temp,
- volt,
- wifiSsid: `DJD_FIBRA_${Math.floor(Math.random() * 900 + 100)}`,
- wifiClients: status === 'offline' ? 0 : Math.floor(Math.random() * 7 + 1)
- });
- }
- return nodes;
-};
-
 // Ícones Customizados
 const createCustomIcon = (status: 'online' | 'offline' | 'alerta') => {
  let colorClass = 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]';
@@ -296,13 +239,10 @@ export default function MapaRede() {
  };
  });
 
- // Generate additional mocks (reduced to 800 for better performance)
- const mockOnts = generateMockOnts(centralPos.lat, centralPos.lng, 800);
- 
- setOnts([...realOntNodes, ...mockOnts]);
+ setOnts(realOntNodes);
  } catch (err) {
  console.error('Erro ao carregar ONTs da OLT:', err);
- setOnts(generateMockOnts(centralPos.lat, centralPos.lng, 800));
+ setOnts([]);
  } finally {
  setLoading(false);
  }

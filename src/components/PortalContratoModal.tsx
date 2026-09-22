@@ -29,10 +29,10 @@ export default function PortalContratoModal({
  const [assinando, setAssinando] = useState(false);
  const [aceitouTermos, setAceitouTermos] = useState(false);
  const [dataAssinatura, setDataAssinatura] = useState<string>(() => {
- return localStorage.getItem(`${storageKey}_data`) || '12/09/2026 às 10:14:22';
+ return localStorage.getItem(`${storageKey}_data`) || '';
  });
  const [hashAssinatura, setHashAssinatura] = useState<string>(() => {
- return localStorage.getItem(`${storageKey}_hash`) || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+ return localStorage.getItem(`${storageKey}_hash`) || '';
  });
 
  if (!isOpen) return null;
@@ -89,7 +89,7 @@ export default function PortalContratoModal({
  <div className="flex items-center gap-2">
  <ShieldCheck size={18} className="text-emerald-600 shrink-0" />
  <span>
- <strong>Contrato Assinado Digitalmente</strong> em {dataAssinatura} • IP: 177.67.240.12 (Válido Juridicamente)
+ <strong>Contrato Assinado Digitalmente</strong> em {dataAssinatura}  (Válido Juridicamente)
  </span>
  </div>
  <div className="flex items-center gap-2">

@@ -96,7 +96,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
 
   // Endpoints complementares para Push e Campanhas
   router.get('/push/status', (req, res) => {
-    res.json({ active: true, subscriptions: 145 });
+    res.json({ active: true, subscriptions: 0 });
   });
 
   router.post('/push/send', (req, res) => {

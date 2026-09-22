@@ -435,35 +435,94 @@ export function setupWabaRoutes(app: any) {
   });
 
   // Submeter template para homologação na Meta
-  app.post("/api/waba/templates/submit", (req, res) => {
-    const { name, category, language = "pt_BR" } = req.body;
-    
-    // Simula resposta de sucesso da Meta Graph API (POST /{waba-id}/message_templates)
-    const simulatedMetaId = `waba_tpl_${Date.now()}`;
-    res.json({
-      success: true,
-      id: simulatedMetaId,
-      name,
-      status: "APPROVED",
-      category,
-      language,
-      message: "Template validado e sincronizado com a Meta Business Cloud API com sucesso!"
-    });
+  app.post("/api/waba/templates/submit", async (req, res) => {
+    const { name, category, language = "pt_BR", components = [] } = req.body;
+    const accessToken = process.env.WABA_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+    const wabaId = process.env.WABA_BUSINESS_ID || process.env.WABA_ID;
+
+    if (!accessToken || !wabaId) {
+      return res.status(400).json({
+        success: false,
+        error: "WABA_ACCESS_TOKEN ou WABA_BUSINESS_ID não configurados no servidor."
+      });
+    }
+
+    try {
+      const metaRes = await fetch(`https://graph.facebook.com/v19.0/${wabaId}/message_templates`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name,
+          category,
+          language,
+          components
+        })
+      });
+      const data = await metaRes.json();
+      if (!metaRes.ok) {
+        return res.status(metaRes.status).json({ success: false, error: data.error?.message || "Erro retornado pela Meta API" });
+      }
+      return res.json({
+        success: true,
+        id: data.id,
+        status: data.status || "PENDING",
+        name,
+        category,
+        language
+      });
+    } catch (err: any) {
+      return res.status(502).json({ success: false, error: err.message });
+    }
   });
 
   // Disparar envio de teste de template
   app.post("/api/waba/templates/send-test", async (req, res) => {
     const { template_name, telefone } = req.body;
-    await new Promise(r => setTimeout(r, 400));
-    
-    res.json({
-      success: true,
-      message_id: `wamid.HBgLMjU1${Date.now()}==`,
-      template: template_name,
-      to: telefone,
-      status: "sent",
-      timestamp: new Date().toISOString()
-    });
+    const accessToken = process.env.WABA_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+    const phoneNumberId = process.env.WABA_PHONE_NUMBER_ID;
+
+    if (!accessToken || !phoneNumberId) {
+      return res.status(400).json({
+        success: false,
+        error: "WABA_ACCESS_TOKEN ou WABA_PHONE_NUMBER_ID não configurados no servidor."
+      });
+    }
+
+    try {
+      const metaRes = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: telefone,
+          type: "template",
+          template: {
+            name: template_name,
+            language: { code: "pt_BR" }
+          }
+        })
+      });
+      const data = await metaRes.json();
+      if (!metaRes.ok) {
+        return res.status(metaRes.status).json({ success: false, error: data.error?.message || "Erro retornado pela Meta API ao enviar mensagem" });
+      }
+      return res.json({
+        success: true,
+        message_id: data.messages?.[0]?.id,
+        template: template_name,
+        to: telefone,
+        status: "sent",
+        timestamp: new Date().toISOString()
+      });
+    } catch (err: any) {
+      return res.status(502).json({ success: false, error: err.message });
+    }
   });
 
   // --- Webhook WhatsApp Cloud API (Meta Oficial) ---

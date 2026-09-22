@@ -68,6 +68,7 @@ import { setupCorrelationRoutes } from "./server/correlation/routes";
 import { setupCommunicationRoutes } from "./server/communications/routes";
 import { setupPaymentRoutes } from "./server/payments";
 import { GenieacsService } from "./server/genieacs/genieacsService";
+import { Customer360Store } from "./server/customer360_service";
 import { authRouter } from "./server/auth/authRoutes";
 import { requireRole, requireAuth } from "./server/auth/rbacMiddleware";
 
@@ -181,9 +182,9 @@ let systemConfig: any = {
       urlBase: ERP_URL,
       appId: ERP_APP,
       token: ERP_TOKEN,
-      status: "conectado",
-      latenciaMs: 18,
-      ultimaSincronizacao: new Date().toISOString()
+      status: "desconectado",
+      latenciaMs: null,
+      ultimaSincronizacao: null
     }
   },
   ia: {
@@ -193,7 +194,7 @@ let systemConfig: any = {
   },
   telefonia: {
     troncosSip: [
-      { id: "1", nome: "Tronco Localhost PJSIP (Nativo)", host: ASTERISK_HOST, porta: 5060, usuario: "nap_pjsip", senha: "nap_pjsip_secret", codecs: "alaw, ulaw, g729, opus", status: "ativo" }
+      { id: "1", nome: "Tronco PJSIP (Nativo)", host: ASTERISK_HOST, porta: 5060, usuario: process.env.ASTERISK_PJSIP_USER || "", senha: process.env.ASTERISK_PJSIP_SECRET || "", codecs: "alaw, ulaw, g729, opus", status: "inativo" }
     ],
     ariHost: ASTERISK_HOST,
     ariPort: Number(ASTERISK_PORT_ARI),
@@ -209,7 +210,7 @@ let systemConfig: any = {
     websocketUrl: ASTERISK_WEBSOCKET_URL,
     gravarChamadas: true,
     transcricaoAutomatica: true,
-    status: "conectado"
+    status: "desconectado"
   },
   genieacs: {
     urlNbi: GENIEACS_URL,
@@ -217,7 +218,7 @@ let systemConfig: any = {
     urlUi: GENIEACS_UI_URL,
     usuarioNbi: GENIEACS_USER,
     senhaNbi: GENIEACS_PASSWORD,
-    status: "conectado"
+    status: "desconectado"
   },
   zabbix: {
     urlJsonRpc: ZABBIX_URL,
@@ -225,7 +226,7 @@ let systemConfig: any = {
     usuarioApi: ZABBIX_USER,
     portaAgent: ZABBIX_AGENT_PORT,
     versao: "Zabbix Server 7.0 LTS",
-    status: "conectado"
+    status: "desconectado"
   },
   mapa: {
     provedor: MAPA_PROVEDOR,
@@ -246,19 +247,19 @@ let systemConfig: any = {
     autoDesbloqueio48h: true,
     avisoSonoroInadimplente: true,
     habilitarConsultaRadius: true,
-    status: "conectado"
+    status: "desconectado"
   },
   whatsapp: {
     phoneNumberId: WABA_PHONE_NUMBER_ID,
     businessAccountId: WABA_BUSINESS_ACCOUNT_ID,
     verifyToken: WABA_VERIFY_TOKEN,
     tokenAcesso: WABA_ACCESS_TOKEN,
-    status: "conectado"
+    status: "desconectado"
   },
   infraestrutura: {
     dominioLandingPage: "https://naptelecom.com.br",
     dominioGenieAcs: GENIEACS_CWMP_URL,
-    ipPublico: "127.0.0.1",
+    ipPublico: process.env.PUBLIC_IP || "",
     ipPrivadoTr069: "10.10.10.254",
     radiusHost: RADIUS_HOST,
     radiusPort: RADIUS_PORT,
@@ -601,7 +602,8 @@ app.post("/api/push/operator/test", (req, res) => {
     try {
       systemConfig.telefonia = {
         troncosSip: [
-          { id: "1", nome: "Tronco Localhost PJSIP (Nativo)", host: ASTERISK_HOST, porta: 5060, usuario: "nap_pjsip", senha: "nap_pjsip_secret", codecs: "alaw, ulaw, g729, opus", status: "ativo" } ],
+          { id: "1", nome: "Tronco PJSIP (Nativo)", host: ASTERISK_HOST, porta: 5060, usuario: process.env.ASTERISK_PJSIP_USER || "", senha: process.env.ASTERISK_PJSIP_SECRET || "", codecs: "alaw, ulaw, g729, opus", status: "inativo" }
+        ],
         ariHost: ASTERISK_HOST,
         ariPort: Number(ASTERISK_PORT_ARI),
         ariUser: ASTERISK_USER_ARI,
@@ -616,7 +618,7 @@ app.post("/api/push/operator/test", (req, res) => {
         websocketUrl: ASTERISK_WEBSOCKET_URL,
         gravarChamadas: true,
         transcricaoAutomatica: true,
-        status: "conectado"
+        status: "desconectado"
       };
 
       systemConfig.genieacs = {
@@ -625,7 +627,7 @@ app.post("/api/push/operator/test", (req, res) => {
         urlUi: GENIEACS_UI_URL,
         usuarioNbi: GENIEACS_USER,
         senhaNbi: GENIEACS_PASSWORD,
-        status: "conectado"
+        status: "desconectado"
       };
 
       systemConfig.zabbix = {
@@ -634,7 +636,7 @@ app.post("/api/push/operator/test", (req, res) => {
         usuarioApi: ZABBIX_USER,
         portaAgent: ZABBIX_AGENT_PORT,
         versao: "Zabbix Server 7.0 LTS",
-        status: "conectado"
+        status: "desconectado"
       };
 
       systemConfig.mapa = {
@@ -657,7 +659,7 @@ app.post("/api/push/operator/test", (req, res) => {
         autoDesbloqueio48h: true,
         avisoSonoroInadimplente: true,
         habilitarConsultaRadius: true,
-        status: "conectado"
+        status: "desconectado"
       };
 
       systemConfig.whatsapp = {
@@ -666,13 +668,13 @@ app.post("/api/push/operator/test", (req, res) => {
         businessAccountId: WABA_BUSINESS_ACCOUNT_ID,
         verifyToken: WABA_VERIFY_TOKEN,
         tokenAcesso: WABA_ACCESS_TOKEN,
-        status: "conectado"
+        status: "desconectado"
       };
 
       systemConfig.infraestrutura = {
         dominioLandingPage: "https://naptelecom.com.br",
         dominioGenieAcs: GENIEACS_CWMP_URL,
-        ipPublico: "127.0.0.1",
+        ipPublico: process.env.PUBLIC_IP || "",
         ipPrivadoTr069: "10.10.10.254",
         radiusHost: RADIUS_HOST,
         radiusPort: RADIUS_PORT,
@@ -1485,11 +1487,64 @@ app.post("/api/push/operator/test", (req, res) => {
     linkSegundaVia: string;
   }
 
+  function getFilaAssinantesReal(): AssinanteFilaRegua[] {
+    try {
+      const store = Customer360Store.getInstance();
+      const customers = store.listCustomers();
+      const fila: AssinanteFilaRegua[] = [];
+      const now = new Date();
+
+      customers.forEach((c: any) => {
+        (c.financial?.invoices || []).forEach((inv: any) => {
+          if (inv.status === "open" || inv.status === "divergent") {
+            const dueDate = new Date(inv.dueDate);
+            const diffDays = Math.round((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            let fase: "d_menos_3" | "d_zero" | "d_mais_3" | "d_mais_7" = "d_zero";
+            let vencimentoLabel = "Hoje";
+
+            if (diffDays >= 2 && diffDays <= 4) {
+              fase = "d_menos_3";
+              vencimentoLabel = `Em ${diffDays} dias`;
+            } else if (diffDays >= -1 && diffDays <= 1) {
+              fase = "d_zero";
+              vencimentoLabel = "Hoje";
+            } else if (diffDays <= -2 && diffDays >= -5) {
+              fase = "d_mais_3";
+              vencimentoLabel = `${Math.abs(diffDays)} dias atrás`;
+            } else if (diffDays <= -6) {
+              fase = "d_mais_7";
+              vencimentoLabel = `${Math.abs(diffDays)} dias atrás`;
+            }
+
+            fila.push({
+              id: `inv-${inv.id}`,
+              nome: c.name,
+              telefone: c.phone || "",
+              cpf: c.document,
+              bairro: c.address || "Centro",
+              plano: c.contract?.planName || "Fibra Óptica",
+              valor: Number(inv.amount || 0),
+              vencimento: vencimentoLabel,
+              fase,
+              statusRadius: c.status === "blocked" ? "bloqueio_parcial" : "ativo",
+              statusEnvio: "pendente",
+              pixCopiaECola: inv.pixCopiaECola || "",
+              linkSegundaVia: inv.napInvoiceId ? `/api/invoices/${inv.id}/pdf` : ""
+            });
+          }
+        });
+      });
+      return fila;
+    } catch {
+      return [];
+    }
+  }
+
   let reguaCobrancaConfig = {
-    ativa: true,
+    ativa: false,
     horarioInicio: "08:30",
     horarioFim: "19:30",
-    descontoPontualidade: 10.00,
+    descontoPontualidade: 0.00,
     diasAntesVencimento: 3,
     notificarDiaVencimento: true,
     diasAposVencimentoTolerancia: 3,
@@ -1497,145 +1552,30 @@ app.post("/api/push/operator/test", (req, res) => {
     gerarPixAutomatico: true,
     canais: {
       whatsapp: true,
-      sms: true,
-      push: true,
+      sms: false,
+      push: false,
       email: false
     },
     templates: {
-      d_menos_3: "Olá, {{nome_cliente}}! 💙 Passando para lembrar que sua fatura de {{plano}} no valor de R$ {{valor_fatura}} vence em 3 dias ({{data_vencimento}}). Pague agora via PIX e mantenha seu desconto de pontualidade de R$ {{desconto_pontualidade}}:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}\n\n📄 2ª Via em PDF: {{link_segunda_via}}",
-      d_zero: "Olá, {{nome_cliente}}! 🚀 Sua mensalidade de internet vence HOJE ({{data_vencimento}}). Para manter sua conexão rápida e sem interrupções, pague agora via PIX:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}\n\nPrecisa de 2ª via? Acesse: {{link_segunda_via}}",
-      d_mais_3: "Olá, {{nome_cliente}}. Não localizamos o pagamento da sua fatura vencida em {{data_vencimento}}. Aconteceu algo? 🤝\n\nCaso precise de um prazo para regularizar, você pode ativar o Desbloqueio em Confiança 24h pelo Portal do Cliente ou pagar com o PIX abaixo sem juros:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}",
-      d_mais_7: "⚠️ AVISO URGENTE: Prezado(a) {{nome_cliente}}, sua fatura está com 7 dias de atraso. Conforme regulamentação Anatel, sua conexão poderá sofrer redução de velocidade nas próximas 24 horas no concentrador.\n\nEvite a suspensão do serviço efetuando o pagamento via PIX (baixa bancária em até 2 minutos):\n\n🔑 PIX:\n{{chave_pix}}"
+      d_menos_3: "Olá, {{nome_cliente}}! 💙 Passando para lembrar que sua fatura de {{plano}} no valor de R$ {{valor_fatura}} vence em 3 dias ({{data_vencimento}}). Pague agora via PIX:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}\n\n📄 2ª Via em PDF: {{link_segunda_via}}",
+      d_zero: "Olá, {{nome_cliente}}! 🚀 Sua mensalidade vence HOJE ({{data_vencimento}}). Para manter sua conexão rápida e sem interrupções, pague agora via PIX:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}\n\nPrecisa de 2ª via? Acesse: {{link_segunda_via}}",
+      d_mais_3: "Olá, {{nome_cliente}}. Não localizamos o pagamento da sua fatura vencida em {{data_vencimento}}.\n\nCaso precise regularizar, você pode pagar com o PIX abaixo:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}",
+      d_mais_7: "⚠️ AVISO URGENTE: Prezado(a) {{nome_cliente}}, sua fatura está com 7 dias de atraso. Evite a suspensão do serviço efetuando o pagamento via PIX:\n\n🔑 PIX:\n{{chave_pix}}"
     },
     estatisticas: {
-      totalDisparadosHoje: 84,
-      faturasRecuperadasPix: 39,
-      valorRecuperadoHoje: 3896.10,
-      taxaConversaoPix: "46.4%"
+      totalDisparadosHoje: 0,
+      faturasRecuperadasPix: 0,
+      valorRecuperadoHoje: 0.00,
+      taxaConversaoPix: "0.0%"
     },
-    historicoExecucoes: [
-      {
-        id: "exec-01",
-        fase: "D-3 (Lembrete Preventivo)",
-        disparados: 42,
-        pixGerados: 42,
-        sucesso: 42,
-        data: "Hoje, às 08:30"
-      },
-      {
-        id: "exec-02",
-        fase: "D0 (Vence Hoje)",
-        disparados: 28,
-        pixGerados: 28,
-        sucesso: 28,
-        data: "Hoje, às 09:15"
-      },
-      {
-        id: "exec-03",
-        fase: "D+3 (Notificação de Tolerância)",
-        disparados: 14,
-        pixGerados: 14,
-        sucesso: 14,
-        data: "Hoje, às 10:00"
-      }
-    ],
-    filaAssinantes: [
-      {
-        id: "reg-101",
-        nome: "Ana Beatriz Moreira",
-        telefone: "(11) 98765-1101",
-        cpf: "123.456.789-01",
-        bairro: "Centro Histórico",
-        plano: "Fibra 500MB",
-        valor: 99.90,
-        vencimento: "Em 3 dias",
-        fase: "d_menos_3",
-        statusRadius: "ativo",
-        statusEnvio: "pendente",
-        pixCopiaECola: "00020126580014BR.GOV.BCB.PIX0136nap-isp-cobranca@provedor.com.br520400005303986540599.905802BR5918ANA B MOREIRA6009SAO PAULO62070503***6304E8A1",
-        linkSegundaVia: "https://isp.provedor.com.br/faturas/pdf/101"
-      },
-      {
-        id: "reg-102",
-        nome: "Carlos Eduardo Ramos",
-        telefone: "(11) 98765-1102",
-        cpf: "234.567.890-12",
-        bairro: "Jardim América",
-        plano: "Fibra 700MB Gamer",
-        valor: 129.90,
-        vencimento: "Em 3 dias",
-        fase: "d_menos_3",
-        statusRadius: "ativo",
-        statusEnvio: "enviado",
-        ultimoEnvio: "Hoje às 08:32",
-        pixCopiaECola: "00020126580014BR.GOV.BCB.PIX0136nap-isp-cobranca@provedor.com.br5204000053039865406129.905802BR5916CARLOS E RAMOS6009SAO PAULO62070503***6304C9F2",
-        linkSegundaVia: "https://isp.provedor.com.br/faturas/pdf/102"
-      },
-      {
-        id: "reg-103",
-        nome: "Mariana Fonseca Silva",
-        telefone: "(11) 98765-1103",
-        cpf: "345.678.901-23",
-        bairro: "Vila Nova",
-        plano: "Fibra 300MB",
-        valor: 79.90,
-        vencimento: "Hoje",
-        fase: "d_zero",
-        statusRadius: "ativo",
-        statusEnvio: "pendente",
-        pixCopiaECola: "00020126580014BR.GOV.BCB.PIX0136nap-isp-cobranca@provedor.com.br520400005303986540579.905802BR5916MARIANA F SILVA6009SAO PAULO62070503***6304A1B2",
-        linkSegundaVia: "https://isp.provedor.com.br/faturas/pdf/103"
-      },
-      {
-        id: "reg-104",
-        nome: "Roberto Mendes Braga",
-        telefone: "(11) 98765-1104",
-        cpf: "456.789.012-34",
-        bairro: "Bela Vista",
-        plano: "Fibra 500MB",
-        valor: 99.90,
-        vencimento: "Hoje",
-        fase: "d_zero",
-        statusRadius: "ativo",
-        statusEnvio: "enviado",
-        ultimoEnvio: "Hoje às 09:16",
-        pixCopiaECola: "00020126580014BR.GOV.BCB.PIX0136nap-isp-cobranca@provedor.com.br520400005303986540599.905802BR5917ROBERTO M BRAGA6009SAO PAULO62070503***6304D4E5",
-        linkSegundaVia: "https://isp.provedor.com.br/faturas/pdf/104"
-      },
-      {
-        id: "reg-105",
-        nome: "Juliana Peixoto Alencar",
-        telefone: "(11) 98765-1105",
-        cpf: "567.890.123-45",
-        bairro: "Parque Industrial",
-        plano: "Fibra 1 Giga Dedicado",
-        valor: 199.90,
-        vencimento: "3 dias atrás",
-        fase: "d_mais_3",
-        statusRadius: "ativo",
-        statusEnvio: "pendente",
-        pixCopiaECola: "00020126580014BR.GOV.BCB.PIX0136nap-isp-cobranca@provedor.com.br5204000053039865406199.905802BR5918JULIANA P ALENCAR6009SAO PAULO62070503***6304B7F8",
-        linkSegundaVia: "https://isp.provedor.com.br/faturas/pdf/105"
-      },
-      {
-        id: "reg-106",
-        nome: "Fernando Guedes Lima",
-        telefone: "(11) 98765-1106",
-        cpf: "678.901.234-56",
-        bairro: "Centro Histórico",
-        plano: "Fibra 500MB",
-        valor: 99.90,
-        vencimento: "7 dias atrás",
-        fase: "d_mais_7",
-        statusRadius: "bloqueio_parcial",
-        statusEnvio: "pendente",
-        pixCopiaECola: "00020126580014BR.GOV.BCB.PIX0136nap-isp-cobranca@provedor.com.br520400005303986540599.905802BR5916FERNANDO G LIMA6009SAO PAULO62070503***63049F12",
-        linkSegundaVia: "https://isp.provedor.com.br/faturas/pdf/106"
-      }
-    ] as AssinanteFilaRegua[]
+    historicoExecucoes: [] as any[],
+    filaAssinantes: [] as AssinanteFilaRegua[]
   };
 
   app.get("/api/cobranca/regua", (req, res) => {
+    if (reguaCobrancaConfig.filaAssinantes.length === 0) {
+      reguaCobrancaConfig.filaAssinantes = getFilaAssinantesReal();
+    }
     res.json({
       sucesso: true,
       config: reguaCobrancaConfig
@@ -1654,45 +1594,39 @@ app.post("/api/push/operator/test", (req, res) => {
   app.post("/api/cobranca/regua/executar", (req, res) => {
     const { fase = "d_menos_3" } = req.body;
 
-    let totalDisparados = 0;
-    let valorEstimado = 0;
-    let nomeFase = "";
+    if (reguaCobrancaConfig.filaAssinantes.length === 0) {
+      reguaCobrancaConfig.filaAssinantes = getFilaAssinantesReal();
+    }
 
+    let nomeFase = "";
     if (fase === "d_menos_3") {
-      totalDisparados = 35;
-      valorEstimado = 3496.50;
       nomeFase = "D-3 (Lembrete Preventivo Amigável)";
     } else if (fase === "d_zero") {
-      totalDisparados = 22;
-      valorEstimado = 2197.80;
       nomeFase = "D0 (Vence Hoje)";
     } else if (fase === "d_mais_3") {
-      totalDisparados = 12;
-      valorEstimado = 1198.80;
       nomeFase = "D+3 (Aviso de Tolerância e Desbloqueio 24h)";
     } else {
-      totalDisparados = 8;
-      valorEstimado = 799.20;
       nomeFase = "D+7 (Aviso de Suspensão MikroTik)";
     }
 
+    const alvos = reguaCobrancaConfig.filaAssinantes.filter(ass => ass.fase === fase);
+    const totalDisparados = alvos.length;
+    const valorEstimado = alvos.reduce((sum, a) => sum + (a.valor || 0), 0);
+
     // Marcar os assinantes dessa fase como enviados
-    reguaCobrancaConfig.filaAssinantes.forEach(ass => {
-      if (ass.fase === fase) {
-        ass.statusEnvio = "enviado";
-        ass.ultimoEnvio = "Agora mesmo";
-      }
+    alvos.forEach(ass => {
+      ass.statusEnvio = "enviado";
+      ass.ultimoEnvio = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     });
 
     reguaCobrancaConfig.estatisticas.totalDisparadosHoje += totalDisparados;
-    reguaCobrancaConfig.estatisticas.valorRecuperadoHoje += (valorEstimado * 0.45);
     reguaCobrancaConfig.historicoExecucoes.unshift({
       id: `exec-${Date.now()}`,
       fase: nomeFase,
       disparados: totalDisparados,
       pixGerados: totalDisparados,
       sucesso: totalDisparados,
-      data: "Agora mesmo"
+      data: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
     });
 
     res.json({
@@ -1700,11 +1634,12 @@ app.post("/api/push/operator/test", (req, res) => {
       fase: nomeFase,
       totalDisparados,
       valorTotal: valorEstimado,
-      mensagem: `Disparo da régua "${nomeFase}" processado com sucesso! ${totalDisparados} clientes notificados com PIX Copia e Cola via WhatsApp WABA.`
+      mensagem: totalDisparados > 0 
+        ? `Disparo da régua "${nomeFase}" processado com sucesso! ${totalDisparados} clientes notificados via WABA.`
+        : `Nenhum cliente elegível na fase "${nomeFase}" para disparo no momento.`
     });
   });
 
-  // Disparo individual para um assinante da fila
   app.post("/api/cobranca/regua/disparar-individual", (req, res) => {
     const { id } = req.body;
     const cliente = reguaCobrancaConfig.filaAssinantes.find(a => a.id === id);

@@ -229,10 +229,10 @@ export const DEFAULT_CONFIG: SystemConfig = {
  },
  infraestrutura: {
  dominioLandingPage: "https://djdtelecom.com.br",
- dominioGenieAcs: "http://127.0.0.1:7547",
- ipPublico: "127.0.0.1",
+ dominioGenieAcs: "",
+ ipPublico: "",
  ipPrivadoTr069: "10.10.10.254",
- radiusHost: "127.0.0.1",
+ radiusHost: "",
  radiusPort: 3799,
  radiusSecret: "",
  postgresUrl: ""
@@ -259,15 +259,13 @@ export const DEFAULT_CONFIG: SystemConfig = {
  categoria: 'ERP / CRM Telecom',
  protocolo: 'Webservice REST JSON v1',
  urlBase: 'https://ixc.djdtelecom.com.br/webservice/v1',
- token: '12:YXBpX3Rva2VuX3NlY3JldG9faXhjXzIwMjY=',
+ token: '',
  usuarioId: '1',
  autoDesbloqueio48h: true,
  avisoSonoroInadimplente: true,
  habilitarConsultaRadius: true,
  syncIntervalMinutes: 10,
- status: 'conectado',
- latenciaMs: 24,
- ultimaSincronizacao: new Date().toISOString()
+ status: 'desconectado'
  },
  hubsoft: {
  id: 'hubsoft',
@@ -342,63 +340,61 @@ export const DEFAULT_CONFIG: SystemConfig = {
  nome: 'SGP (Sistema de Gestão de Provedores)',
  categoria: 'ERP Telecom Integrado',
  protocolo: 'REST / HTTPS v2.4',
- urlBase: 'http://127.0.0.1:3000/api/mock-sgp',
+ urlBase: "",
  appId: 'DJD_NATIVE_APP',
  token: '',
  autoDesbloqueio48h: true,
  avisoSonoroInadimplente: true,
  habilitarConsultaRadius: true,
  syncIntervalMinutes: 15,
- status: 'conectado',
- latenciaMs: 14,
- ultimaSincronizacao: new Date().toISOString()
+ status: 'desconectado'
  }
  },
  sgp: {
- urlBase: "http://127.0.0.1:3000/api/mock-sgp",
- appId: "DJD_NATIVE_APP",
- token: "",
- syncIntervalMinutes: 15,
- autoDesbloqueio48h: true,
- avisoSonoroInadimplente: true,
- habilitarConsultaRadius: true,
- status: "conectado"
- },
+		urlBase: "",
+		appId: "",
+		token: "",
+		syncIntervalMinutes: 15,
+		autoDesbloqueio48h: true,
+		avisoSonoroInadimplente: true,
+		habilitarConsultaRadius: true,
+		status: "desconectado"
+	},
  telefonia: {
  troncosSip: [
- { id: '1', nome: 'Tronco SIP Localhost (PJSIP Nativo)', host: '127.0.0.1', porta: 5060, usuario: 'nap_pjsip', senha: '', codecs: 'alaw, ulaw, g729, opus', status: 'ativo' }
+ { id: '1', nome: 'Tronco SIP Localhost (PJSIP Nativo)', host: '', porta: 5060, usuario: '', senha: '', codecs: 'alaw, ulaw, g729, opus', status: 'inativo' }
  ],
- ariHost: "127.0.0.1",
+ ariHost: "",
  ariPort: 8088,
  ariUser: "nap_admin",
  ariSecret: "",
- amiHost: "127.0.0.1",
+ amiHost: "",
  amiPort: 5038,
  amiUser: "nap_ami",
  amiSecret: "",
  contextoDiscagem: "from-internal",
  ramalWebRTC: "2001",
  secretWebRTC: "",
- websocketUrl: "wss://127.0.0.1:8089/ws",
+ websocketUrl: "",
  gravarChamadas: true,
  transcricaoAutomatica: true,
- status: "conectado"
+ status: "desconectado"
  },
  genieacs: {
- urlNbi: "http://127.0.0.1:7557",
- urlCwmp: "http://127.0.0.1:7547",
- urlUi: "http://127.0.0.1:3005",
+ urlNbi: "",
+ urlCwmp: "",
+ urlUi: "",
  usuarioNbi: "nap_acs_admin",
  senhaNbi: "",
- status: "conectado"
+ status: "desconectado"
  },
  zabbix: {
- urlJsonRpc: "http://127.0.0.1:8080/zabbix/api_jsonrpc.php",
+ urlJsonRpc: "",
  apiToken: "",
  usuarioApi: "nap_zabbix_api",
  portaAgent: 10050,
  versao: "Zabbix Server 7.0 LTS",
- status: "conectado"
+ status: "desconectado"
  },
  mapa: {
  provedor: "OpenStreetMap / CARTO (Nativo Open-Source)",
@@ -425,7 +421,7 @@ export const DEFAULT_CONFIG: SystemConfig = {
  homologadoMeta: true, // Validado com a Meta Cloud API
  maiaAtendimento24h: true, // WhatsApp disponível 24h atendido e respondido pela MaIA
  permitirHandoffHumanoInstantaneo: true, // Interatividade humana a qualquer momento
- status: "conectado"
+ status: "desconectado"
  },
  ia: {
  modeloPrimario: "gemini-2.5-flash",
@@ -444,7 +440,7 @@ export const DEFAULT_CONFIG: SystemConfig = {
  promptCobranca: "Você é a MaIA, do suporte financeiro do {nome_provedor}. Haja com empatia, respeito e de forma extremamente humana. Ajude o cliente a resolver pendências fornecendo o PIX sem julgamentos, tornando a conversa leve.",
  gatilhoTransbordo: "solicitacao_cliente",
  copilotoAtivo: true,
- status: "conectado"
+ status: "desconectado"
  },
  seguranca: {
  sessaoTimeoutMinutos: 60,

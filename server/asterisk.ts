@@ -66,22 +66,12 @@ export async function connectARI() {
           }
         } catch(e) {}
 
-        // 3. Gerar Saudação Contextual da URA Cognitiva (Simulando Gemini GenAI)
-        setTimeout(async () => {
-            if (isConhecido) {
-               await playAudioOnAsterisk(channel, `Olá ${nomeCliente}, eu sou a MaIA, a assistente virtual do DJD Telecom de internet. Analisando a sua conexão no nosso sistema, vi que seu roteador está online há 5 dias com sinal excelente. Sobre o que você gostaria de falar? Pode falar naturalmente.`);
-               
-               // Simula o cliente respondendo e a URA transferindo
-               setTimeout(async () => {
-                   console.log(`[Asterisk URA] 🗣️ Cliente (Canal ${channel.id}): "Eu quero a segunda via do meu boleto" (Detectado via Google Speech-to-Text)`);
-                   await playAudioOnAsterisk(channel, `Entendi, você precisa da segunda via. Vou enviar o PIX Copia e Cola agora mesmo para o seu WhatsApp cadastrado, e vou te transferir para o setor financeiro caso tenha mais alguma dúvida. Aguarde um momento.`);
-                   console.log(`[Asterisk] Chamada ${channel.id} sendo transferida para a fila: Financeiro & Cobrança`);
-               }, 6000);
-
-            } else {
-               await playAudioOnAsterisk(channel, `Olá! Você ligou para a nossa central de atendimento. Por favor, digite ou diga o número do seu CPF ou CNPJ para eu localizar o seu cadastro.`);
-            }
-        }, 1000);
+        // 3. Executar Saudação Real da URA Cognitiva MaIA
+        if (isConhecido) {
+          await playAudioOnAsterisk(channel, `Olá ${nomeCliente}, seja bem-vindo ao suporte de internet. Por favor, diga como podemos ajudar ou digite a opção desejada.`);
+        } else {
+          await playAudioOnAsterisk(channel, `Olá! Você ligou para a central de atendimento. Por favor, digite o seu CPF ou CNPJ para localizar seu cadastro.`);
+        }
       });
     });
 
@@ -114,7 +104,7 @@ export function getAsteriskStatus() {
     ariUser: ARI_USER,
     amiPort: Number(process.env.ASTERISK_PORT_AMI || 5038),
     amiUser: process.env.ASTERISK_USER_AMI || 'nap_ami',
-    websocketUrl: process.env.ASTERISK_WEBSOCKET_URL || 'wss://127.0.0.1:8089/ws',
+    websocketUrl: process.env.ASTERISK_WEBSOCKET_URL || null,
     ramalPadrao: process.env.ASTERISK_RAMAL_PADRAO || '2001',
     contexto: 'from-internal',
     stasisApp: 'ura_maia',
