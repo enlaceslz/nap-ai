@@ -510,11 +510,19 @@ export function setupWabaRoutes(app: any) {
       });
       const data = await metaRes.json();
       if (!metaRes.ok) {
-        return res.status(metaRes.status).json({ success: false, error: data.error?.message || "Erro retornado pela Meta API ao enviar mensagem" });
+        return res.status(metaRes.status).json({ success: false, status: "failed", error: data.error?.message || "Erro retornado pela Meta API ao enviar mensagem" });
+      }
+      const messageId = data.messages?.[0]?.id;
+      if (!messageId) {
+        return res.status(502).json({
+          success: false,
+          status: "failed",
+          error: "Meta API não retornou identificador de mensagem válido (message_id)."
+        });
       }
       return res.json({
         success: true,
-        message_id: data.messages?.[0]?.id,
+        message_id: messageId,
         template: template_name,
         to: telefone,
         status: "sent",

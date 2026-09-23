@@ -7,9 +7,10 @@ import { checkAsteriskRuntimeHealth, originateCampaignVoiceCall } from '../aster
 export const setupCampanhasRoutes = (app: express.Express, { registrarAuditoria }: any = {}) => {
   const router = express.Router();
 
-  // Recuperação de integridade pós-restart: limpa execuções órfãs sem inventar sucesso
+  // Recuperação de integridade pós-restart: limpa execuções órfãs e chamadas intermediárias sem inventar sucesso
   (async () => {
     try {
+      // 1. Reconcilia execuções de campanhas interrompidas
       const orphanExecs = await db.select().from(campanhas_execucoes)
         .where(eq(campanhas_execucoes.status, 'running'));
       for (const orphan of orphanExecs) {
@@ -22,6 +23,20 @@ export const setupCampanhasRoutes = (app: express.Express, { registrarAuditoria 
           status: 'paused',
           updatedAt: new Date()
         }).where(eq(campanhas.id, orphan.campanhaId));
+      }
+
+      // 2. Reconcilia chamadas em estado intermediário (originating/ringing)
+      const orphanCalls = await db.select().from(campanhas_chamadas_voz)
+        .where(sql`${campanhas_chamadas_voz.status} IN ('originating', 'ringing', 'queued')`);
+      for (const call of orphanCalls) {
+        await db.update(campanhas_chamadas_voz).set({
+          status: 'failed',
+          result: 'failed',
+          errorCode: 'INTERRUPTED_BY_RESTART',
+          errorMessage: 'Tentativa de chamada interrompida por reinício do processo.',
+          endedAt: new Date(),
+          updatedAt: new Date()
+        }).where(eq(campanhas_chamadas_voz.id, call.id));
       }
     } catch (err: any) {
       console.warn(`[Campanhas] Verificação de integridade pós-restart: ${err.message}`);

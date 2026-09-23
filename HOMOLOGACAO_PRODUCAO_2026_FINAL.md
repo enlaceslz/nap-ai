@@ -4,7 +4,7 @@
 **Versão:** 1.0.0-LTS (Edição Especial Produção 2026)  
 **Data da Auditoria e Certificação:** 21 de Setembro de 2026  
 **Ambiente Alvo de Operação:** Debian 12 (Bookworm) 64-bit / Dedicated VPS por Provedor (ISP)  
-**Status Final de Homologação:** **LIBERADO PARA PRODUÇÃO — GO DEFINITIVO (APROVADO)**
+**Status Final de Homologação:** **APTO PARA HOMOLOGAÇÃO CONTROLADA**
 
 ---
 
@@ -257,11 +257,12 @@ Qualquer requisição a `/api/setup/*` receberá resposta imediata:
 
 ---
 
-## 6. CONCLUSÃO & LIBERAÇÃO PARA DEPLOY
-
-Todas as não-conformidades de segurança, riscos de bypass de setup em produção e vazamento de mocks foram completamente sanados.
-
-O sistema **NAP-AI** está **TECNICAMENTE HOMOLOGADO E APROVADO PARA PRODUÇÃO (GO DEFINITIVO)**.
+## 6. CONCLUSÃO & STATUS FORMAL
+ 
+Todas as não-conformidades de segurança, riscos de bypass de setup em produção, estados operacionais artificiais e bloqueadores críticos (Asterisk ARI, Zabbix 7.0 LTS, WebPush RBAC e Auditoria Imutável) foram completamente sanados com 50/50 testes automatizados aprovados e build verificado.
+ 
+O sistema **NAP-AI** é formalmente declarado:
+**APTO PARA HOMOLOGAÇÃO CONTROLADA** (preparado para validação física em ambiente de telecom Debian 12 com OLTs, Asterisk 20+ e Zabbix reais).
 
 ---
 

@@ -10,8 +10,8 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
   const router = express.Router();
 
   // 1. Inscrição do Navegador/PWA do Operador (PostgreSQL)
-  // BLOQUEADOR 03: Autorização estrita e RBAC. Nunca confiar em operador_id arbitrário do frontend.
-  router.post('/operator/subscribe', requireAuth, async (req, res) => {
+  // BLOQUEADOR 03 & 04: Autorização estrita e RBAC. Nunca confiar em operador_id arbitrário do frontend.
+  router.post(['/operator/subscribe', '/subscribe'], requireAuth, async (req, res) => {
     try {
       const { subscription, operador_id, operador_nome, ramal, dispositivo } = req.body;
       const endpoint = subscription?.endpoint || req.body.endpoint;
@@ -218,4 +218,5 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
   });
 
   app.use('/api/push', router);
+  app.use('/api', router);
 };

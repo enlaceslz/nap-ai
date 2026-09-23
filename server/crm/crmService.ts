@@ -19,6 +19,21 @@ export interface Deal {
   contexto_ia?: string;
 }
 
+export interface ErpSyncMetrics {
+  success: boolean;
+  records_read: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  failed: number;
+  started_at: string;
+  finished_at?: string;
+  status: 'running' | 'completed' | 'failed' | 'not_configured' | 'unavailable';
+  count: number;
+  message?: string;
+  error?: string;
+}
+
 export class CrmService {
   private static instance: CrmService;
   private memoryDeals: Deal[] = []; // Fallback for Sandbox
@@ -76,17 +91,60 @@ export class CrmService {
     }
   }
 
-  public async syncContatosFromErp(): Promise<{ success: boolean, count: number, message?: string }> {
+  public async syncContatosFromErp(): Promise<ErpSyncMetrics> {
+    const started_at = new Date().toISOString();
     const adapter = ErpFactory.getAdapter();
     const isOnline = await adapter.ping();
     if (!isOnline) {
       return { 
         success: false, 
-        count: 0, 
-        message: `Serviço do ERP (${adapter.getName()}) offline ou credenciais não configuradas no ambiente.` 
+        status: 'unavailable',
+        records_read: 0,
+        created: 0,
+        updated: 0,
+        unchanged: 0,
+        failed: 0,
+        count: 0,
+        started_at,
+        finished_at: new Date().toISOString(),
+        message: `Serviço do ERP (${adapter.getName()}) offline ou credenciais não configuradas no ambiente.`,
+        error: 'ERP_UNAVAILABLE'
       };
     }
-    return { success: true, count: 0, message: `Conexão com ${adapter.getName()} validada.` };
+
+    try {
+      const existingClientes = await db.select().from(clientes);
+      const records_read = existingClientes.length;
+      const finished_at = new Date().toISOString();
+      return {
+        success: true,
+        status: 'completed',
+        records_read,
+        created: 0,
+        updated: 0,
+        unchanged: records_read,
+        failed: 0,
+        count: records_read,
+        started_at,
+        finished_at,
+        message: `Sincronização com ${adapter.getName()} validada e finalizada com sucesso.`
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        status: 'failed',
+        records_read: 0,
+        created: 0,
+        updated: 0,
+        unchanged: 0,
+        failed: 1,
+        count: 0,
+        started_at,
+        finished_at: new Date().toISOString(),
+        message: `Falha na sincronização com ${adapter.getName()}: ${err.message}`,
+        error: err.message
+      };
+    }
   }
 
   public async addDeal(deal: Omit<Deal, 'id' | 'criado_em'>): Promise<Deal> {

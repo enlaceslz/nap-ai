@@ -268,7 +268,9 @@ export interface OriginateCallParams {
 export interface OriginateCallResult {
   status: 'queued' | 'originating' | 'ringing' | 'answered' | 'no_answer' | 'busy' | 'failed' | 'cancelled';
   asteriskChannelId?: string;
+  asteriskUniqueId?: string;
   startedAt?: Date;
+  ringingAt?: Date;
   answeredAt?: Date;
   endedAt?: Date;
   durationSeconds?: number;
@@ -425,8 +427,10 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
 
   return new Promise<OriginateCallResult>((resolve) => {
     let callResolved = false;
+    let ringingAt: Date | undefined = undefined;
     let answeredAt: Date | undefined = undefined;
     let asteriskChannelId: string | undefined = undefined;
+    let asteriskUniqueId: string | undefined = undefined;
 
     const timeoutTimer = setTimeout(async () => {
       if (callResolved) return;
@@ -435,7 +439,9 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
       const result: OriginateCallResult = {
         status: 'no_answer',
         asteriskChannelId,
+        asteriskUniqueId,
         startedAt,
+        ringingAt,
         answeredAt,
         endedAt,
         durationSeconds: 0,
@@ -448,6 +454,7 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
         await db.update(campanhas_chamadas_voz).set({
           status: 'no_answer',
           result: 'no_answer',
+          ringingAt,
           endedAt,
           hangupCause: result.hangupCause,
           errorMessage: result.errorMessage,
@@ -490,10 +497,12 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
         }
 
         asteriskChannelId = channel.id;
+        asteriskUniqueId = channel.id || (channel as any).name || `ast_${Date.now()}_${cleanPhone}`;
 
-        // Atualiza channel_id no banco
+        // Atualiza channel_id e unique_id no banco
         db.update(campanhas_chamadas_voz).set({
           asteriskChannelId,
+          asteriskUniqueId,
           status: 'originating',
           updatedAt: new Date()
         }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
@@ -503,8 +512,10 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
           const state = (event.channel?.state || channel.state || '').toLowerCase();
 
           if (state === 'ringing' && !callResolved) {
+            ringingAt = new Date();
             db.update(campanhas_chamadas_voz).set({
               status: 'ringing',
+              ringingAt,
               updatedAt: new Date()
             }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
           } else if (state === 'up' && !callResolved) {
@@ -548,7 +559,9 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
           const callResult: OriginateCallResult = {
             status: finalStatus,
             asteriskChannelId,
+            asteriskUniqueId,
             startedAt,
+            ringingAt,
             answeredAt,
             endedAt,
             durationSeconds,
@@ -559,6 +572,8 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
           try {
             await db.update(campanhas_chamadas_voz).set({
               status: finalStatus,
+              asteriskUniqueId,
+              ringingAt,
               answeredAt,
               endedAt,
               durationSeconds,

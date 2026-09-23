@@ -36,6 +36,7 @@ export interface NocSecurityAlert {
   id: string;
   source: string; // 'zabbix'
   source_event_id: string; // ID real rastreável do evento no Zabbix
+  source_problem_id?: string; // ID rastreável do problema no Zabbix
   host_id: string;
   host_name: string;
   severity: 'info' | 'warning' | 'average' | 'high' | 'disaster';
@@ -44,6 +45,7 @@ export interface NocSecurityAlert {
   description: string;
   started_at: string;
   updated_at: string;
+  resolved_at?: string;
   status: 'active' | 'resolved' | 'acknowledged';
   acknowledged: boolean;
 }
@@ -293,14 +295,16 @@ export class ZabbixService {
         }
 
         const startedAt = p.clock ? new Date(Number(p.clock) * 1000).toISOString() : new Date().toISOString();
-        const updatedAt = p.r_clock && Number(p.r_clock) > 0 ? new Date(Number(p.r_clock) * 1000).toISOString() : startedAt;
+        const resolvedAt = p.r_clock && Number(p.r_clock) > 0 ? new Date(Number(p.r_clock) * 1000).toISOString() : undefined;
+        const updatedAt = resolvedAt || startedAt;
         const isAck = p.acknowledged === '1' || p.acknowledged === true;
-        const isResolved = Boolean(p.r_clock && Number(p.r_clock) > 0);
+        const isResolved = Boolean(resolvedAt);
 
         securityAlerts.push({
           id: `sec_${p.eventid}`,
           source: 'zabbix',
           source_event_id: String(p.eventid),
+          source_problem_id: p.problemid ? String(p.problemid) : String(p.eventid),
           host_id: p.hostid ? String(p.hostid) : 'unknown',
           host_name: p.hostname || (this.hosts.find(h => String(h.id) === String(p.hostid))?.name) || 'Zabbix Gateway',
           severity: this.mapZabbixSeverity(p.severity),
@@ -309,6 +313,7 @@ export class ZabbixService {
           description: `Evento real registrado no Zabbix [EventID #${p.eventid}]. Severidade: ${p.severity}`,
           started_at: startedAt,
           updated_at: updatedAt,
+          resolved_at: resolvedAt,
           status: isResolved ? 'resolved' : (isAck ? 'acknowledged' : 'active'),
           acknowledged: isAck
         });

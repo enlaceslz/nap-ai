@@ -21,17 +21,30 @@ export const setupCrmRoutes = (app: express.Express, { registrarAuditoria }: any
         registrarAuditoria({
           usuario: (req as any).user?.email || "system",
           modulo: "CRM 360",
-          acao: "Sincronização de Base SGP",
-          detalhes: `Sincronizados ${result.count} clientes do ERP para a base do NAP.`,
+          acao: "Sincronização de Base ERP",
+          detalhes: `Sincronização ERP: status=${result.status}, lidos=${result.records_read}, criados=${result.created}, atualizados=${result.updated}, inalterados=${result.unchanged}, falhas=${result.failed}.`,
           categoria: "sgp_crm",
-          severidade: "info",
+          severidade: result.success ? "info" : "atencao",
           ip: req.socket?.remoteAddress || req.ip || null,
           userAgent: req.headers["user-agent"] || null
         });
       }
-      res.json(result);
-    } catch (e) {
-      res.status(500).json({ error: 'Erro ao sincronizar base do SGP' });
+      const statusCode = result.status === 'unavailable' ? 503 : (result.success ? 200 : 502);
+      return res.status(statusCode).json(result);
+    } catch (e: any) {
+      return res.status(500).json({
+        success: false,
+        status: 'failed',
+        error: e?.message || 'Erro ao sincronizar base do ERP',
+        records_read: 0,
+        created: 0,
+        updated: 0,
+        unchanged: 0,
+        failed: 1,
+        count: 0,
+        started_at: new Date().toISOString(),
+        finished_at: new Date().toISOString()
+      });
     }
   });
 

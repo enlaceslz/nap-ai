@@ -32,9 +32,14 @@ export const setupPortalRoutes = (app: express.Express) => {
         pixCopiaECola: f.pixCopiaECola || null,
         linhaDigitavel: f.linhaDigitavel || null
       })));
-    } catch {
-      // Se banco de dados não estiver pronto ou não houver faturas, retorna array vazio (nunca mock)
-      res.json([]);
+    } catch (err: any) {
+      console.error(`[Portal Faturas] Erro ao consultar faturas no PostgreSQL: ${err.message}`);
+      return res.status(503).json({
+        sucesso: false,
+        status: "unavailable",
+        erro: "Serviço de faturas temporariamente indisponível. Falha de conexão com a base de dados.",
+        faturas: []
+      });
     }
   });
 

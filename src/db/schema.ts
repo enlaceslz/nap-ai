@@ -474,8 +474,10 @@ export const campanhas_chamadas_voz = pgTable('campanhas_chamadas_voz', {
   recipientId: integer('recipient_id').references(() => campanhas_destinatarios.id).notNull(),
   telefone: varchar('telefone', { length: 50 }).notNull(),
   asteriskChannelId: varchar('asterisk_channel_id', { length: 150 }),
+  asteriskUniqueId: varchar('asterisk_unique_id', { length: 150 }),
   status: varchar('status', { length: 50 }).default('queued').notNull(), // 'queued', 'originating', 'ringing', 'answered', 'no_answer', 'busy', 'failed', 'cancelled'
   startedAt: timestamp('started_at'),
+  ringingAt: timestamp('ringing_at'),
   answeredAt: timestamp('answered_at'),
   endedAt: timestamp('ended_at'),
   durationSeconds: integer('duration_seconds').default(0),
