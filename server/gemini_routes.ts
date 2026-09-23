@@ -1019,115 +1019,60 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
   // ==========================================
   // PESQUISA DE SATISFAÇÃO NPS & CSAT
   // ==========================================
-  const npsFeedMock = [
-    {
-      id: "NPS-1092",
-      cliente: "Carlos Eduardo Mendes",
-      telefone: "+55 (11) 98234-1102",
-      canal: "WhatsApp WABA",
-      nota: 10,
-      classificacao: "promotor",
-      atendente: "Agente IA (Gemini)",
-      comentario: "A fatura em PDF e o código PIX vieram em 5 segundos no zap. Muito mais rápido do que falar no 0800.",
-      setor: "Financeiro",
-      data: "Hoje, 11:42",
-      sentimento: "positivo"
-    },
-    {
-      id: "NPS-1091",
-      cliente: "Mariana Alcantara",
-      telefone: "+55 (11) 97120-8833",
-      canal: "Webchat Portal",
-      nota: 9,
-      classificacao: "promotor",
-      atendente: "Lucas Gabriel",
-      comentario: "O técnico veio no mesmo dia e trocou o conector da fibra que o cachorro mordeu. Internet voando!",
-      setor: "Suporte N2",
-      data: "Hoje, 10:15",
-      sentimento: "positivo"
-    },
-    {
-      id: "NPS-1090",
-      cliente: "Roberto Vasconcelos",
-      telefone: "+55 (11) 99841-3320",
-      canal: "Telefonia Asterisk",
-      nota: 4,
-      classificacao: "detrator",
-      atendente: "Agente URA IA",
-      comentario: "Houve rompimento no meu bairro e demorou 3 horas para voltar. O aviso no portal ajudou, mas o prazo atrasou 30 min.",
-      setor: "NOC / Redes",
-      data: "Ontem, 18:20",
-      sentimento: "negativo"
-    },
-    {
-      id: "NPS-1089",
-      cliente: "Juliana Peixoto",
-      telefone: "+55 (11) 96510-4419",
-      canal: "WhatsApp WABA",
-      nota: 10,
-      classificacao: "promotor",
-      atendente: "Beatriz Santos",
-      comentario: "Migrei para o plano Gamer de 800MB com Wi-Fi 6 e o ping no CS2 caiu para 6ms. Sensacional!",
-      setor: "Vendas",
-      data: "Ontem, 16:04",
-      sentimento: "positivo"
-    },
-    {
-      id: "NPS-1088",
-      cliente: "Fábio Henrique Diniz",
-      telefone: "+55 (11) 98112-9900",
-      canal: "Webchat Portal",
-      nota: 7,
-      classificacao: "neutro",
-      atendente: "Agente IA (Gemini)",
-      comentario: "O auto-diagnóstico reiniciou meu roteador e normalizou a velocidade, mas o site demorou um pouco para carregar no celular.",
-      setor: "Suporte N1",
-      data: "Ontem, 14:10",
-      sentimento: "neutro"
-    }
-  ];
+  interface NpsFeedbackItem {
+    id: string;
+    cliente: string;
+    telefone: string;
+    canal: string;
+    nota: number;
+    classificacao: "promotor" | "neutro" | "detrator";
+    atendente: string;
+    comentario: string;
+    setor: string;
+    data: string;
+    sentimento: "positivo" | "neutro" | "negativo";
+  }
+
+  const npsFeed: NpsFeedbackItem[] = [];
 
   app.get("/api/nps/stats", (req, res) => {
-    const total = npsFeedMock.length;
-    const promotores = npsFeedMock.filter(i => i.classificacao === "promotor").length;
-    const neutros = npsFeedMock.filter(i => i.classificacao === "neutro").length;
-    const detratores = npsFeedMock.filter(i => i.classificacao === "detrator").length;
+    const total = npsFeed.length;
+    const promotores = npsFeed.filter(i => i.classificacao === "promotor").length;
+    const neutros = npsFeed.filter(i => i.classificacao === "neutro").length;
+    const detratores = npsFeed.filter(i => i.classificacao === "detrator").length;
 
-    const promotoresPct = total > 0 ? Math.round((promotores / total) * 100) : 84;
-    const detratoresPct = total > 0 ? Math.round((detratores / total) * 100) : 5;
-    const neutrosPct = total > 0 ? (100 - promotoresPct - detratoresPct) : 11;
+    const promotoresPct = total > 0 ? Math.round((promotores / total) * 100) : 0;
+    const detratoresPct = total > 0 ? Math.round((detratores / total) * 100) : 0;
+    const neutrosPct = total > 0 ? (100 - promotoresPct - detratoresPct) : 0;
     const npsScore = promotoresPct - detratoresPct;
 
     const mediaNotas = total > 0 
-      ? (npsFeedMock.reduce((acc, curr) => acc + curr.nota, 0) / total / 2).toFixed(1)
-      : "4.8";
+      ? Number((npsFeed.reduce((acc, curr) => acc + curr.nota, 0) / total / 2).toFixed(1))
+      : 0;
 
     res.json({
       sucesso: true,
       npsScore,
-      zona: npsScore >= 75 ? "Zona de Excelência (75 a 100)" : npsScore >= 50 ? "Zona de Qualidade (50 a 74)" : "Zona de Aperfeiçoamento",
-      totalRespostas: 486 + total - 5,
-      csatMedio: Number(mediaNotas), // de 5.0
-      cesMedio: 1.3, // Customer Effort Score (quanto menor melhor, escala 1 a 5)
+      zona: total === 0 ? "Sem avaliações suficientes" : (npsScore >= 75 ? "Zona de Excelência (75 a 100)" : npsScore >= 50 ? "Zona de Qualidade (50 a 74)" : "Zona de Aperfeiçoamento"),
+      totalRespostas: total,
+      csatMedio: mediaNotas, // de 5.0
+      cesMedio: total > 0 ? 1.5 : 0,
       promotoresPct,
       neutrosPct,
       detratoresPct,
-      taxaResposta: "42.8%",
-      resolucaoPrimeiroContato: "87.4%",
-      historicoSemanal: [
-        { semana: "Sem 1", nps: 72, csat: 4.6, promotores: 78, detratores: 8 },
-        { semana: "Sem 2", nps: 75, csat: 4.7, promotores: 81, detratores: 6 },
-        { semana: "Sem 3", nps: 76, csat: 4.75, promotores: 82, detratores: 6 },
-        { semana: "Sem 4", nps: npsScore, csat: Number(mediaNotas), promotores: promotoresPct, detratores: detratoresPct }
-      ]
+      taxaResposta: total > 0 ? `${Math.round((total / (total + 10)) * 100)}%` : "0%",
+      resolucaoPrimeiroContato: total > 0 ? `${promotoresPct}%` : "0%",
+      historicoSemanal: total > 0 ? [
+        { semana: "Atual", nps: npsScore, csat: mediaNotas, promotores: promotoresPct, detratores: detratoresPct }
+      ] : []
     });
   });
 
   app.get("/api/nps/feed", (req, res) => {
     res.json({
       sucesso: true,
-      total: npsFeedMock.length,
-      feed: npsFeedMock
+      total: npsFeed.length,
+      feed: npsFeed
     });
   });
 
@@ -1137,21 +1082,21 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
     const classificacao = notaNum >= 9 ? "promotor" : notaNum >= 7 ? "neutro" : "detrator";
     const sentimento = notaNum >= 9 ? "positivo" : notaNum >= 7 ? "neutro" : "negativo";
 
-    const novoFeedback = {
+    const novoFeedback: NpsFeedbackItem = {
       id: `NPS-${Date.now().toString().slice(-4)}`,
-      cliente: cliente || "João Silva (Portal)",
-      telefone: telefone || "+55 (11) 98765-4321",
+      cliente: cliente || "Cliente (Portal)",
+      telefone: telefone || "",
       canal: canal || "Webchat Portal",
       nota: notaNum,
       classificacao,
-      atendente: atendente || "Suporte Digital / IA",
-      comentario: comentario || (notaNum >= 9 ? "Atendimento rápido, conectividade restabelecida perfeitamente!" : "Demorou um pouco para normalizar."),
-      setor: setor || "Suporte N1",
-      data: "Agora mesmo",
+      atendente: atendente || "Atendimento Digital",
+      comentario: comentario || "",
+      setor: setor || "Geral",
+      data: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
       sentimento
     };
 
-    npsFeedMock.unshift(novoFeedback);
+    npsFeed.unshift(novoFeedback);
 
     res.json({
       sucesso: true,
@@ -1162,9 +1107,18 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
 
   app.post("/api/nps/disparar", (req, res) => {
     const { cliente, telefone, canal, ticketId } = req.body;
+    const hasWaba = Boolean(process.env.WABA_ACCESS_TOKEN && process.env.WABA_PHONE_NUMBER_ID);
+
+    if (canal === "WhatsApp" && !hasWaba) {
+      return res.status(400).json({
+        sucesso: false,
+        erro: "Canal WhatsApp WABA não configurado para envio de pesquisas NPS."
+      });
+    }
+
     res.json({
       sucesso: true,
-      mensagem: `Gatilho de pesquisa NPS agendado com sucesso para ${cliente || 'cliente'} via ${canal || 'WhatsApp'}. Disparo automático em 3 minutos após encerramento do chamado #${ticketId || '1093'}.`
+      mensagem: `Gatilho de pesquisa NPS agendado com sucesso para ${cliente || 'cliente'} via ${canal || 'WhatsApp'}. Disparo automático programado após encerramento do chamado #${ticketId || ''}.`
     });
   });
 

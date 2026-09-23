@@ -19,19 +19,19 @@ export class Customer360Store {
   public c6BankConfig: C6BankConfig = {
     id: 'c6_bank_primary',
     bankName: 'C6 Bank S.A. (336)',
-    ispName: 'DJD Telecom Provedor Fibra',
-    pixKey: '12.345.678/0001-90',
-    pixKeyType: 'cnpj',
-    clientId: 'c6_client_live_89172401',
-    clientSecretMasked: '••••••••••••••••••••••••c6sec',
-    webhookUrl: 'https://ais-dev-yp5je5zs6omogetmqdpfub-289190228687.us-east1.run.app/api/payments/webhook',
-    mtlsCertificateUploaded: true,
-    mtlsCertificateName: 'c6_mtls_prod_2026.crt',
-    mtlsCertificateExpiry: '2027-08-30T23:59:59Z',
-    environment: 'production',
-    status: 'connected',
-    lastHealthCheck: new Date().toISOString(),
-    latencyMs: 42
+    ispName: process.env.ISP_NAME || 'Provedor Telecom',
+    pixKey: process.env.C6_PIX_KEY || '',
+    pixKeyType: (process.env.C6_PIX_KEY_TYPE as any) || 'cnpj',
+    clientId: process.env.C6_CLIENT_ID || '',
+    clientSecretMasked: process.env.C6_CLIENT_SECRET ? '••••••••••••••••••••••••' : '',
+    webhookUrl: process.env.C6_WEBHOOK_URL || '',
+    mtlsCertificateUploaded: Boolean(process.env.C6_MTLS_CERT || process.env.C6_CERT_PATH),
+    mtlsCertificateName: (process.env.C6_MTLS_CERT || process.env.C6_CERT_PATH) ? 'c6_mtls.crt' : undefined,
+    mtlsCertificateExpiry: undefined,
+    environment: (process.env.C6_ENV as any) || 'sandbox',
+    status: (process.env.C6_CLIENT_ID && (process.env.C6_MTLS_CERT || process.env.C6_CERT_PATH)) ? 'testing' : 'unconfigured',
+    lastHealthCheck: undefined,
+    latencyMs: undefined
   };
   public customers: Map<number, NapCustomer360> = new Map();
   public invoices: Map<number, NapInvoice> = new Map();
@@ -250,10 +250,10 @@ export class Customer360Store {
         lastInteractionDate: new Date().toISOString()
       },
       noc: {
-        availabilityPercent: 99.9,
-        activeAlerts: 0,
-        latencyMs: 3.5,
-        packetLossPercent: 0.0
+        availabilityPercent: null,
+        activeAlerts: null,
+        latencyMs: null,
+        packetLossPercent: null
       },
       timeline: []
     };
@@ -268,7 +268,7 @@ export class Customer360Store {
       const faturasErp = await adapter.buscarFaturasEmAberto(erpCliente.id);
       if (faturasErp && faturasErp.length > 0) {
         for (const f of faturasErp) {
-          const invId = Date.now() % 100000 + Math.floor(Math.random() * 100);
+          const invId = Number(f.id) || (Date.now() % 100000);
           const invoiceItem: NapInvoice = {
             id: invId,
             napInvoiceId: `inv_erp_${f.id}`,

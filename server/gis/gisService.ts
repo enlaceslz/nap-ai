@@ -80,35 +80,6 @@ export class GisService {
   private syncEcosystem() {
     // 1. Sincroniza topologia base (OLT Manager)
     this.syncOltDataToGis();
-
-    let hasChanges = false;
-
-    // 2. Simulação de Integração SGP (ERP/Financeiro)
-    // Se o cliente estiver bloqueado financeiramente, reflete no GIS
-    this.data.features.forEach(f => {
-      if (f.layer_id === 'layer-ont') {
-        // Mock: Digamos que a ONT 04 (Padaria) está com fatura atrasada no SGP
-        if (f.properties.external_id === 'onu-04' && f.properties.status !== 'blocked_sgp') {
-          f.properties.status = 'blocked_sgp';
-          f.properties.description += ' (Bloqueio Financeiro)';
-          hasChanges = true;
-        }
-      }
-      
-      // 3. Simulação de Integração Zabbix 7.0 LTS (Telemetria/Alarmes)
-      // Se um equipamento crítico falhar, injeta o trigger do Zabbix
-      if (f.layer_id === 'layer-olt' && f.properties.external_id === 'olt-zte-pop01') {
-        if (!f.properties.zabbix_trigger) {
-          f.properties.zabbix_trigger = 'Loss of signal (LOS)';
-          f.properties.status = 'warning';
-          hasChanges = true;
-        }
-      }
-    });
-
-    if (hasChanges) {
-      this.saveDatabase();
-    }
   }
   
   public getFeatures(layerId?: string): GisFeature[] {
@@ -297,7 +268,7 @@ export class GisService {
       best_option: viableOptions.length > 0 ? viableOptions[0] : null,
       alternatives: viableOptions.slice(1, 4), // Top 3 alternativas
       viable: viableOptions.length > 0 && viableOptions[0].score >= 60,
-      confidence: 'ALTA', // Mock
+      confidence: viableOptions.length > 0 ? (viableOptions[0].score >= 80 ? 'ALTA' : 'MEDIA') : 'BAIXA',
       data_quality: ['Coordenada validada', 'CTO documentada', 'Porta disponível']
     };
   }

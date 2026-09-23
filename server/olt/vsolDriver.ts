@@ -1,3 +1,4 @@
+import net from 'net';
 import { 
   OltSystemInfo, OltSlot, OltPonPort, OnuDevice, 
   OpticalTelemetry, OnuDiagnosticResult, UnassignedOnu, OltAlarm, 
@@ -14,9 +15,42 @@ export class VsolDriver implements OltDriver {
   }
 
   async connect(): Promise<{ success: boolean; message: string; latency_ms: number }> {
-    // VSOL connection mock (SNMP / SSH/ Telnet)
-    this.connected = true;
-    return { success: true, message: `Conectado à OLT VSOL ${this.device.ip} via ${this.device.protocolo}`, latency_ms: 22 };
+    const startTime = Date.now();
+    const port = this.device.porta || 22;
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      socket.setTimeout(2500);
+      socket.once('connect', () => {
+        socket.destroy();
+        this.connected = true;
+        const latency = Date.now() - startTime;
+        resolve({
+          success: true,
+          message: `Conexão TCP estabelecida com sucesso na OLT VSOL ${this.device.modelo} (${this.device.ip}:${port})`,
+          latency_ms: latency
+        });
+      });
+      socket.once('timeout', () => {
+        socket.destroy();
+        this.connected = false;
+        resolve({
+          success: false,
+          message: `Timeout ao tentar conectar à OLT VSOL ${this.device.ip}:${port} (2500ms)`,
+          latency_ms: 2500
+        });
+      });
+      socket.once('error', (err) => {
+        socket.destroy();
+        this.connected = false;
+        const latency = Date.now() - startTime;
+        resolve({
+          success: false,
+          message: `Falha de conexão na OLT VSOL ${this.device.ip}:${port} (${err.message})`,
+          latency_ms: latency
+        });
+      });
+      socket.connect(port, this.device.ip);
+    });
   }
 
   async disconnect(): Promise<void> {

@@ -1,6 +1,9 @@
 import { ErpAdapter, ClienteErpInfo, FaturaErpInfo, BaixaFaturaPayload, BaixaFaturaResult } from './ErpAdapterInterface';
 import axios from 'axios';
 import crypto from 'crypto';
+import { db } from '../../../src/db/index.js';
+import { clientes, faturas } from '../../../src/db/schema.js';
+import { eq, or, and } from 'drizzle-orm';
 
 export class HubSoftAdapter implements ErpAdapter {
   private baseUrl: string;
@@ -18,7 +21,7 @@ export class HubSoftAdapter implements ErpAdapter {
 
   private getHeaders() {
     return {
-      'Authorization': `Bearer ${this.apiKey || 'demo_token'}`,
+      'Authorization': `Bearer ${this.apiKey || ''}`,
       'Content-Type': 'application/json'
     };
   }
@@ -41,37 +44,133 @@ export class HubSoftAdapter implements ErpAdapter {
   }
 
   async buscarClientePorCpf(cpf: string): Promise<ClienteErpInfo | null> {
-    return {
-      id: "HUB-1029",
-      nome: "Carlos Eduardo Mendes",
-      documento: cpf || "456.123.789-11",
-      telefone: "11977776666",
-      status: "ativo",
-      plano: "Fibra 400 Mega Dedicado",
-      endereco: "Rua Vergueiro, 1200, Vila Mariana, São Paulo - SP",
-      contratoId: "CTR-HUB-1029"
-    };
+    if (this.baseUrl && this.apiKey) {
+      try {
+        const res = await axios.get(`${this.baseUrl}/api/v1/integracao/cliente?cpf_cnpj=${cpf}`, {
+          headers: this.getHeaders(),
+          timeout: 3000
+        });
+        const d = res.data?.dados?.[0] || res.data?.[0];
+        if (d) {
+          return {
+            id: String(d.id_cliente || d.id),
+            nome: d.nome_razaosocial || d.nome,
+            documento: d.cpf_cnpj || d.documento,
+            telefone: d.telefone || d.celular || '',
+            status: d.status === 'ativo' ? 'ativo' : 'bloqueado',
+            plano: d.plano || 'Plano HubSoft',
+            endereco: `${d.logradouro || ''}, ${d.numero || ''}`.trim(),
+            contratoId: String(d.id_contrato || d.id)
+          };
+        }
+      } catch (err: any) {
+        console.warn(`[HubSoft] Falha ao consultar cliente por CPF:`, err?.message);
+      }
+    }
+
+    const cleanDoc = cpf.replace(/\D/g, '');
+    try {
+      const results = await db.select().from(clientes).where(eq(clientes.documento, cleanDoc)).limit(1);
+      const cli = results[0];
+      if (cli) {
+        return {
+          id: String(cli.id),
+          nome: cli.nome,
+          documento: cli.documento,
+          telefone: cli.telefone || cli.whatsapp || '',
+          status: (cli.status === 'ativo' ? 'ativo' : 'bloqueado') as 'ativo' | 'bloqueado',
+          plano: cli.plano || 'Plano de Acesso',
+          endereco: cli.endereco || '',
+          contratoId: cli.contrato || String(cli.id)
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[HubSoft Adapter] Consulta local de cliente:`, e?.message);
+    }
+    return null;
   }
 
   async buscarClientePorTelefone(telefone: string): Promise<ClienteErpInfo | null> {
-    return this.buscarClientePorCpf("456.123.789-11");
+    const cleanTel = telefone.replace(/\D/g, '');
+    try {
+      const results = await db.select().from(clientes).where(
+        or(eq(clientes.telefone, cleanTel), eq(clientes.whatsapp, cleanTel))
+      ).limit(1);
+      const cli = results[0];
+      if (cli) {
+        return {
+          id: String(cli.id),
+          nome: cli.nome,
+          documento: cli.documento,
+          telefone: cli.telefone || cli.whatsapp || '',
+          status: (cli.status === 'ativo' ? 'ativo' : 'bloqueado') as 'ativo' | 'bloqueado',
+          plano: cli.plano || 'Plano de Acesso',
+          endereco: cli.endereco || '',
+          contratoId: cli.contrato || String(cli.id)
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[HubSoft Adapter] Consulta local por telefone:`, e?.message);
+    }
+    return null;
   }
 
   async buscarFaturasEmAberto(clienteId: string): Promise<FaturaErpInfo[]> {
-    return [
-      {
-        id: "HUB-INV-8890",
-        valor: 89.90,
-        vencimento: new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0],
-        status: "pendente",
-        linhaDigitavel: "00190.00009 01234.567890 12345.678901 2 95000000008990",
-        txid: "E456123789HUB"
+    if (this.baseUrl && this.apiKey) {
+      try {
+        const res = await axios.get(`${this.baseUrl}/api/v1/integracao/faturas/aberto?id_cliente=${clienteId}`, {
+          headers: this.getHeaders(),
+          timeout: 3000
+        });
+        const list = res.data?.dados || res.data;
+        if (Array.isArray(list) && list.length > 0) {
+          return list.map((t: any) => ({
+            id: String(t.id_fatura || t.id),
+            valor: parseFloat(t.valor),
+            vencimento: t.data_vencimento || t.vencimento,
+            status: 'pendente' as const,
+            linhaDigitavel: t.linha_digitavel,
+            txid: t.txid
+          }));
+        }
+      } catch (err: any) {
+        console.warn(`[HubSoft] Falha ao consultar faturas:`, err?.message);
       }
-    ];
+    }
+
+    const idNum = parseInt(clienteId, 10);
+    if (!isNaN(idNum)) {
+      try {
+        const rows = await db.select().from(faturas).where(
+          and(eq(faturas.clienteId, idNum), eq(faturas.status, 'pendente'))
+        );
+        return rows.map(f => ({
+          id: String(f.id),
+          valor: Number(f.valor),
+          vencimento: String(f.vencimento),
+          status: 'pendente' as const,
+          linhaDigitavel: f.linhaDigitavel || undefined,
+          linkPix: f.pixCopiaECola || undefined,
+          txid: f.txid || undefined
+        }));
+      } catch (e: any) {
+        console.warn(`[HubSoft Adapter] Consulta local de faturas:`, e?.message);
+      }
+    }
+    return [];
   }
 
   async gerarPixCopiaECola(faturaId: string): Promise<string | null> {
-    return "00020126360014BR.GOV.BCB.PIX011445612378901234520400005303986540589.905802BR5912DJD Telecom6009Sao Paulo62070503***63049C1D";
+    const idNum = parseInt(faturaId, 10);
+    if (!isNaN(idNum)) {
+      try {
+        const [fat] = await db.select().from(faturas).where(eq(faturas.id, idNum)).limit(1);
+        if (fat?.pixCopiaECola) {
+          return fat.pixCopiaECola;
+        }
+      } catch {}
+    }
+    return null;
   }
 
   async baixarFatura(payload: BaixaFaturaPayload): Promise<BaixaFaturaResult> {

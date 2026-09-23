@@ -25,47 +25,8 @@ export class CrmService {
   private memoryContatos: any[] = []; // Fallback for Sandbox
 
   private constructor() {
-    this.memoryDeals = [
-      {
-        id: 2001,
-        titulo: 'Sinal Óptico Fraco - LOS',
-        estagio: 'Novo Chamado',
-        pipeline: 'Suporte',
-        contato: 'João Silva',
-        telefone: '5511999990001',
-        endereco: 'Rua das Flores, 123',
-        plano: 'Fibra 500MB',
-        prioridade: 1,
-        criado_em: new Date(Date.now() - 3600000).toISOString(),
-        contexto_ia: 'IA identificou perda de sinal (LOS) via OLT. Sugerido envio de técnico.'
-      },
-      {
-        id: 2002,
-        titulo: 'Upgrade para 1GB',
-        estagio: 'Novo Lead',
-        pipeline: 'Vendas',
-        contato: 'Maria Oliveira',
-        telefone: '5511999990002',
-        endereco: 'Av Paulista, 1000',
-        plano: 'Fibra 500MB',
-        valor: 149.90,
-        prioridade: 2,
-        criado_em: new Date(Date.now() - 86400000).toISOString(),
-        contexto_ia: 'Cliente perguntou sobre roteador Wi-Fi 6 no WhatsApp.'
-      }
-    ];
-
-    this.memoryContatos = [
-      {
-        id: 1,
-        cpf_cnpj: '12345678900',
-        nome: 'João Silva (Local)',
-        telefone: '5511999990001',
-        plano: 'Fibra 500MB',
-        status_cliente: 'ativo',
-        endereco: 'Rua das Flores, 123'
-      }
-    ];
+    this.memoryDeals = [];
+    this.memoryContatos = [];
   }
 
   public static getInstance(): CrmService {
@@ -115,62 +76,17 @@ export class CrmService {
     }
   }
 
-  public async syncContatosFromErp(): Promise<{ success: boolean, count: number }> {
-    console.log("[SGP Sync] Iniciando sincronização simulada do ERP...");
-    
-    // Simula uma resposta do SGP (ERP)
-    const mockSgpData = [
-      { nome: 'Empresa Alpha Ltda', documento: '11111111000199', telefone: '11999990001', plano: 'Fibra 1GB Corp', status: 'ativo' },
-      { nome: 'Carlos Eduardo', documento: '22222222222', telefone: '11999990002', plano: 'Fibra 500MB', status: 'ativo' },
-      { nome: 'Ana Beatriz', documento: '33333333333', telefone: '11999990003', plano: 'Fibra 300MB', status: 'bloqueado' },
-      { nome: 'Farmácia Central', documento: '44444444000188', telefone: '11999990004', plano: 'Fibra 500MB', status: 'ativo' },
-      { nome: 'Julio Cesar', documento: '55555555555', telefone: '11999990005', plano: 'Fibra 200MB', status: 'cancelado' },
-      { nome: 'Padaria Doce Pão', documento: '66666666000177', telefone: '11999990006', plano: 'Fibra 300MB Corp', status: 'ativo' },
-      { nome: 'Roberto Alves', documento: '77777777777', telefone: '11999990007', plano: 'Fibra 100MB', status: 'bloqueado' },
-      { nome: 'Clinica Saúde+', documento: '88888888000166', telefone: '11999990008', plano: 'Fibra 1GB Corp', status: 'ativo' }
-    ];
-
-    try {
-      let count = 0;
-      for (const cliente of mockSgpData) {
-        await db.insert(clientes).values({
-          nome: cliente.nome,
-          documento: cliente.documento,
-          telefone: cliente.telefone,
-          plano: cliente.plano,
-          status: cliente.status
-        }).onConflictDoUpdate({
-          target: clientes.documento,
-          set: {
-            nome: cliente.nome,
-            telefone: cliente.telefone,
-            plano: cliente.plano,
-            status: cliente.status
-          }
-        });
-        count++;
-      }
-      return { success: true, count };
-    } catch(e) {
-      console.log("[Info] Sincronização SGP via Fallback (Memória)");
-      mockSgpData.forEach((c, idx) => {
-        const index = this.memoryContatos.findIndex(m => m.cpf_cnpj === c.documento);
-        if (index > -1) {
-          this.memoryContatos[index] = { ...this.memoryContatos[index], ...c, cpf_cnpj: c.documento, status_cliente: c.status };
-        } else {
-          this.memoryContatos.push({
-            id: 1000 + idx,
-            nome: c.nome,
-            cpf_cnpj: c.documento,
-            telefone: c.telefone,
-            plano: c.plano,
-            status_cliente: c.status as any,
-            endereco: 'Endereço Sincronizado SGP'
-          });
-        }
-      });
-      return { success: true, count: mockSgpData.length };
+  public async syncContatosFromErp(): Promise<{ success: boolean, count: number, message?: string }> {
+    const adapter = ErpFactory.getAdapter();
+    const isOnline = await adapter.ping();
+    if (!isOnline) {
+      return { 
+        success: false, 
+        count: 0, 
+        message: `Serviço do ERP (${adapter.getName()}) offline ou credenciais não configuradas no ambiente.` 
+      };
     }
+    return { success: true, count: 0, message: `Conexão com ${adapter.getName()} validada.` };
   }
 
   public async addDeal(deal: Omit<Deal, 'id' | 'criado_em'>): Promise<Deal> {

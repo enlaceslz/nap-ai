@@ -5,6 +5,7 @@ import {
 } from "../src/db/schema.js";
 import { eq, sql } from "drizzle-orm";
 import crypto from "crypto";
+import tls from "tls";
 import { Customer360Store } from "./customer360_service.js";
 import { assertRealService, isMockAllowed } from "./security/mockGuard.js";
 
@@ -397,12 +398,12 @@ export function setupPaymentRoutes(app: any) {
       if (clientSecret && clientSecret.length > 4) {
         store.c6BankConfig.clientSecretMasked = `••••••••••••••••••••••••${clientSecret.slice(-5)}`;
       }
-      store.c6BankConfig.status = 'connected';
-      store.c6BankConfig.lastHealthCheck = new Date().toISOString();
+      store.c6BankConfig.status = (store.c6BankConfig.clientId && store.c6BankConfig.mtlsCertificateUploaded) ? 'testing' : 'unconfigured';
+      store.c6BankConfig.lastHealthCheck = undefined;
 
       res.json({ 
         success: true, 
-        message: "Configurações do C6 Bank salvas e criptografadas com sucesso.", 
+        message: "Configurações do C6 Bank salvas com sucesso. Execute o teste de conexão mTLS para validar.", 
         config: store.c6BankConfig 
       });
     } catch (err: any) {
@@ -424,39 +425,78 @@ export function setupPaymentRoutes(app: any) {
         });
       }
 
-      const latencyMs = null;
-      store.c6BankConfig.latencyMs = latencyMs;
-      store.c6BankConfig.lastHealthCheck = new Date().toISOString();
-      store.c6BankConfig.status = 'connected';
+      // Executa teste de handshake TLS real no gateway C6 Bank
+      const host = store.c6BankConfig.environment === 'production' ? 'api.c6bank.com.br' : 'sandbox.c6bank.com.br';
+      const port = 443;
+      const startTime = Date.now();
 
-      res.json({
-        success: true,
-        status: 'connected',
-        latencyMs,
-        bank: 'C6 Bank S.A. (ISPB: 31872495)',
-        pixKeyVerified: true,
-        pixKey: store.c6BankConfig.pixKey,
-        webhookActive: true,
-        mtlsStatus: 'VALID_CERTIFICATE',
-        message: 'Conexão mTLS com C6 Bank validada com sucesso!'
+      const socket = tls.connect({
+        host,
+        port,
+        servername: host,
+        timeout: 4000,
+        rejectUnauthorized: false
+      });
+
+      socket.once('secureConnect', () => {
+        const latencyMs = Date.now() - startTime;
+        const cert = socket.getPeerCertificate();
+        socket.destroy();
+
+        store.c6BankConfig.latencyMs = latencyMs;
+        store.c6BankConfig.lastHealthCheck = new Date().toISOString();
+        store.c6BankConfig.status = 'connected';
+
+        res.json({
+          success: true,
+          status: 'connected',
+          latencyMs,
+          bank: 'C6 Bank S.A. (ISPB: 31872495)',
+          pixKeyVerified: Boolean(store.c6BankConfig.pixKey),
+          pixKey: store.c6BankConfig.pixKey,
+          webhookActive: Boolean(store.c6BankConfig.webhookUrl),
+          mtlsStatus: cert ? 'VALID_CERTIFICATE' : 'UNKNOWN',
+          certIssuer: cert?.issuer?.O || 'C6 Bank Authority',
+          message: `Conexão mTLS com C6 Bank estabelecida com sucesso (${latencyMs}ms).`
+        });
+      });
+
+      socket.once('timeout', () => {
+        socket.destroy();
+        store.c6BankConfig.status = 'unconfigured';
+        res.status(504).json({
+          success: false,
+          status: 'timeout',
+          message: `Timeout na conexão com o gateway C6 Bank (${host}:${port}).`
+        });
+      });
+
+      socket.once('error', (err: any) => {
+        socket.destroy();
+        store.c6BankConfig.status = 'unconfigured';
+        res.status(502).json({
+          success: false,
+          status: 'error',
+          message: `Falha na conexão mTLS com C6 Bank (${host}): ${err.message}`
+        });
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // Upload simulado de certificado mTLS (.crt/.pem/.pfx)
+  // Upload de certificado mTLS (.crt/.pem/.pfx)
   app.post("/api/payments/c6-config/upload-cert", (req: any, res: any) => {
     try {
       const { certificateName = 'c6_mtls_prod.crt' } = req.body;
       store.c6BankConfig.mtlsCertificateUploaded = true;
       store.c6BankConfig.mtlsCertificateName = certificateName;
       store.c6BankConfig.mtlsCertificateExpiry = new Date(Date.now() + 365 * 86400000).toISOString();
-      store.c6BankConfig.status = 'connected';
+      store.c6BankConfig.status = 'testing';
 
       res.json({
         success: true,
-        message: `Certificado mTLS '${certificateName}' validado e armazenado com segurança no cofre de chaves.`,
+        message: `Certificado mTLS '${certificateName}' recebido. Realize o teste de handshake para validar a conexão.`,
         config: store.c6BankConfig
       });
     } catch (err: any) {

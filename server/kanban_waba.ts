@@ -99,9 +99,21 @@ export function setupKanbanWaba(app: any, mockWabaChats: any[], mockWabaMessages
     
     console.log(`[Handoff WABA ↔ ERP] Deal (Card Kanban) integrado com sucesso ao SGP:`, novoDeal.titulo);
 
-    // TODO: Ideally we'd push to kanbanDeals, but we can just return it to the frontend
-    // or rely on a unified state if we had access to kanbanDeals array here.
-    // For now, we return it.
+    try {
+      await db.insert(atendimentos).values({
+        titulo: novoDeal.titulo,
+        estagio: novoDeal.estagio,
+        pipeline: novoDeal.pipeline as any,
+        contato: novoDeal.contato,
+        telefone: novoDeal.telefone,
+        plano: novoDeal.plano,
+        prioridade: novoDeal.prioridade,
+        contextoIa: novoDeal.contexto_ia,
+        criadoEm: new Date().toISOString()
+      });
+    } catch(e) {
+      // Fallback in-memory
+    }
 
     return res.json({ 
       sucesso: true, 

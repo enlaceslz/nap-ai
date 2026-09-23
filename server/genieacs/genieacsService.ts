@@ -1,21 +1,21 @@
 export interface GenieAcsDevice {
   _id: string;
   serialNumber: string;
-  mac: string;
-  model: string;
-  vendor: string;
-  ip: string;
+  mac: string | null;
+  model: string | null;
+  vendor: string | null;
+  ip: string | null;
   status: 'online' | 'offline';
-  uptime: string;
-  ssid: string;
+  uptime: string | null;
+  ssid: string | null;
   wifiPassword?: string;
-  wifiChannel: number;
-  lanClients: number;
-  firmwareVersion: string;
-  rssi: number;
-  tempLaser: string;
-  vccVolts: string;
-  lastInform: string;
+  wifiChannel: number | null;
+  lanClients: number | null;
+  firmwareVersion: string | null;
+  rssi: number | null;
+  tempLaser: string | null;
+  vccVolts: string | null;
+  lastInform: string | null;
   rxBytes: number;
   txBytes: number;
 }
@@ -33,18 +33,27 @@ export class GenieacsService {
   }
 
   /**
-   * Consulta dispositivos reais a partir da API NBI do GenieACS.
-   * Se o GenieACS estiver inacessível ou não configurado, retorna lista vazia.
+   * Consulta status e dispositivos da API NBI do GenieACS.
+   * Diferencia explicitamente 0 CPEs (status online, lista vazia []) de serviço indisponível (devices: null).
    */
-  public async getDevices(): Promise<GenieAcsDevice[]> {
+  public async queryDevices(): Promise<{
+    status: 'online' | 'unavailable' | 'not_configured';
+    devices: GenieAcsDevice[] | null;
+    error?: string;
+  }> {
     const nbiUrl = process.env.GENIEACS_URL;
-    if (!nbiUrl) {
-      return [];
+    const user = process.env.GENIEACS_USER;
+    const pass = process.env.GENIEACS_PASSWORD;
+
+    if (!nbiUrl || !user || !pass) {
+      return {
+        status: 'not_configured',
+        devices: null,
+        error: 'GENIEACS_URL ou credenciais não configuradas'
+      };
     }
 
     try {
-      const user = process.env.GENIEACS_USER || "admin";
-      const pass = process.env.GENIEACS_PASSWORD || "admin";
       const auth = Buffer.from(`${user}:${pass}`).toString('base64');
       const timeoutCtrl = new AbortController();
       const timeoutId = setTimeout(() => timeoutCtrl.abort(), 3000);
@@ -59,57 +68,89 @@ export class GenieacsService {
       clearTimeout(timeoutId);
 
       if (!res.ok) {
-        return [];
+        return {
+          status: 'unavailable',
+          devices: null,
+          error: `HTTP ${res.status} ${res.statusText}`
+        };
       }
 
       const raw = await res.json() as any[];
-      if (!Array.isArray(raw)) return [];
+      if (!Array.isArray(raw)) {
+        return {
+          status: 'unavailable',
+          devices: null,
+          error: 'Formato de resposta inválido'
+        };
+      }
 
-      return raw.map((d: any) => {
+      const mappedDevices: GenieAcsDevice[] = raw.map((d: any) => {
         const di = d['Device.DeviceInfo'] || d['InternetGatewayDevice.DeviceInfo'] || {};
         const wan = d['Device.WANDevice'] || d['InternetGatewayDevice.WANDevice'] || {};
         const optical = d['Device.Optical'] || {};
         const wlan = d['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1'] || {};
 
-        let rssi = -25;
-        if (optical?.['OpticalSignalLevel']) rssi = parseFloat(optical['OpticalSignalLevel']) / 100;
+        let rssi: number | null = null;
+        if (optical?.['OpticalSignalLevel']) {
+          const parsed = parseFloat(optical['OpticalSignalLevel']) / 100;
+          if (!isNaN(parsed)) rssi = parsed;
+        }
 
-        const isOnline = d._lastInform && (Date.now() - new Date(d._lastInform).getTime() < 900000);
+        const hasLastInform = Boolean(d._lastInform);
+        const isOnline = hasLastInform && (Date.now() - new Date(d._lastInform).getTime() < 900000);
 
         return {
           _id: d._id || '',
           serialNumber: di['SerialNumber'] || d._id || '',
-          mac: di['MACAddress'] || 'Desconhecido',
-          model: di['ModelName'] || di['ProductClass'] || 'Desconhecido',
-          vendor: di['Manufacturer'] || 'Desconhecido',
-          ip: wan['1.WANConnectionDevice.1.WANIPConnection.1.ExternalIPAddress'] || '0.0.0.0',
+          mac: di['MACAddress'] || null,
+          model: di['ModelName'] || di['ProductClass'] || null,
+          vendor: di['Manufacturer'] || null,
+          ip: wan['1.WANConnectionDevice.1.WANIPConnection.1.ExternalIPAddress'] || null,
           status: isOnline ? 'online' : 'offline',
-          uptime: di['UpTime'] ? `${Math.floor(parseInt(di['UpTime']) / 86400)} dias` : 'Desconhecido',
-          ssid: wlan['SSID'] || 'N/A',
-          wifiChannel: parseInt(wlan['Channel']) || 0,
-          lanClients: 0,
-          firmwareVersion: di['SoftwareVersion'] || 'N/A',
+          uptime: di['UpTime'] ? `${Math.floor(parseInt(di['UpTime']) / 86400)} dias` : null,
+          ssid: wlan['SSID'] || null,
+          wifiChannel: wlan['Channel'] ? parseInt(wlan['Channel']) : null,
+          lanClients: null,
+          firmwareVersion: di['SoftwareVersion'] || null,
           rssi: rssi,
-          tempLaser: optical['Temperature'] ? `${parseFloat(optical['Temperature']) / 100}°C` : 'N/A',
-          vccVolts: optical['Voltage'] ? `${parseFloat(optical['Voltage']) / 1000}V` : 'N/A',
-          lastInform: d._lastInform || new Date().toISOString(),
+          tempLaser: optical['Temperature'] ? `${parseFloat(optical['Temperature']) / 100}°C` : null,
+          vccVolts: optical['Voltage'] ? `${parseFloat(optical['Voltage']) / 1000}V` : null,
+          lastInform: d._lastInform || null,
           rxBytes: parseInt(wan['1.WANCommonInterfaceConfig.TotalBytesReceived']) || 0,
           txBytes: parseInt(wan['1.WANCommonInterfaceConfig.TotalBytesSent']) || 0
         };
       });
-    } catch {
-      return [];
+
+      return {
+        status: 'online',
+        devices: mappedDevices
+      };
+    } catch (err: any) {
+      return {
+        status: 'unavailable',
+        devices: null,
+        error: err.message || 'Erro de conexão com GenieACS'
+      };
     }
+  }
+
+  /**
+   * Consulta dispositivos reais a partir da API NBI do GenieACS.
+   */
+  public async getDevices(): Promise<GenieAcsDevice[]> {
+    const result = await this.queryDevices();
+    return result.devices || [];
   }
 
   public async rebootDevice(deviceId: string): Promise<{ success: boolean; message: string }> {
     const nbiUrl = process.env.GENIEACS_URL;
-    if (!nbiUrl) {
-      return { success: false, message: "GenieACS URL não configurada" };
+    const user = process.env.GENIEACS_USER;
+    const pass = process.env.GENIEACS_PASSWORD;
+
+    if (!nbiUrl || !user || !pass) {
+      return { success: false, message: "GenieACS não configurado (GENIEACS_URL ou credenciais ausentes)" };
     }
     try {
-      const user = process.env.GENIEACS_USER || "admin";
-      const pass = process.env.GENIEACS_PASSWORD || "admin";
       const auth = Buffer.from(`${user}:${pass}`).toString('base64');
       const res = await fetch(`${nbiUrl}/devices/${encodeURIComponent(deviceId)}/tasks?connection_request`, {
         method: 'POST',
@@ -119,7 +160,7 @@ export class GenieacsService {
         },
         body: JSON.stringify({ name: 'reboot' })
       });
-      return { success: res.ok, message: res.ok ? "Comando de reboot enviado" : "Falha ao enviar reboot" };
+      return { success: res.ok, message: res.ok ? "Comando de reboot enviado" : `Falha ao enviar reboot: HTTP ${res.status}` };
     } catch (err: any) {
       return { success: false, message: err.message };
     }

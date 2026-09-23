@@ -18,7 +18,7 @@ export class FieldService {
   private workOrders: WorkOrder[] = [];
 
   private constructor() {
-    this.seedMockOS();
+    this.workOrders = [];
   }
 
   public static getInstance(): FieldService {
@@ -26,32 +26,6 @@ export class FieldService {
       FieldService.instance = new FieldService();
     }
     return FieldService.instance;
-  }
-
-  private seedMockOS() {
-    this.workOrders = [
-      {
-        id: randomUUID(),
-        osNumber: 'OS-000182',
-        priority: 'critical',
-        status: 'pending',
-        problem: 'Rompimento Estimado de Fibra (OTDR a 1250m)',
-        location: { lat: -2.529, lng: -44.302, address: 'CTO-032, Região Cohab' },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      },
-      {
-        id: randomUUID(),
-        osNumber: 'OS-000183',
-        priority: 'high',
-        status: 'dispatched',
-        assignedTo: 'tecnico_n2_silva',
-        problem: 'LOS na ONT - Cliente corporativo',
-        location: { lat: -2.522, lng: -44.298, address: 'Centro Comercial Delta' },
-        createdAt: new Date(Date.now() - 3600000).toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-    ];
   }
 
   public getWorkOrders(): WorkOrder[] {

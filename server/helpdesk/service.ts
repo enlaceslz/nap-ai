@@ -12,27 +12,13 @@ export class HelpDeskService {
 
   constructor() {
     this.adapter = new ZammadAdapter();
-    // Seed memory with a fake ticket so it's not empty
-    this.memoryTickets.push({
-      id: 1,
-      external_id: 'NAP-T-MOCK',
-      backend_id: 'Z-MOCK',
-      backend_type: 'zammad',
-      title: 'Sistema operando em Fallback (Memória)',
-      description: 'O banco de dados PostgreSQL não está acessível.',
-      status: 'novo',
-      priority: 'alta',
-      source: 'manual',
-      created_at: new Date(),
-      updated_at: new Date()
-    });
   }
 
   // --- TICKETS ---
   async createTicket(data: Partial<NapTicket>, actorId: string = 'system') {
-    let backendId = 'mock-zammad-id';
+    let backendId: string | null = null;
     try {
-      // 1. Send to Zammad
+      // 1. Send to Zammad if configured
       backendId = await this.adapter.createTicket({
         title: data.title || 'Sem Título',
         description: data.description || '',
@@ -41,7 +27,7 @@ export class HelpDeskService {
         source: data.source || 'manual'
       });
     } catch(e) {
-      console.warn("Zammad mock failed, continuing");
+      console.warn("[Helpdesk] Zammad indisponível, gerando ticket localmente.");
     }
 
     const newTicket = {

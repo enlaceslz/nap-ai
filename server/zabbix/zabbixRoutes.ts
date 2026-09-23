@@ -1,4 +1,5 @@
 import express from 'express';
+import os from 'os';
 import { ZabbixService } from './zabbixService';
 import { isMockAllowed } from '../security/mockGuard';
 import crypto from 'crypto';
@@ -7,8 +8,11 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
   const router = express.Router();
   const zabbixService = ZabbixService.getInstance();
 
-  router.get('/status', (req, res) => {
+  router.get('/status', async (req, res) => {
     try {
+      if (process.env.ZABBIX_URL && process.env.ZABBIX_TOKEN) {
+        await zabbixService.syncWithZabbix();
+      }
       res.json({
         hosts: zabbixService.getHosts(),
         problems: zabbixService.getProblems()
@@ -19,11 +23,15 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
   });
 
   router.get('/health', (req, res) => {
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMemPct = Math.round(((totalMem - freeMem) / totalMem) * 100);
+    const cpuLoad = Math.round(os.loadavg()[0] * 10) / 10;
     res.json({
       server: {
-        cpu: 12,
-        ram: 34,
-        disk: 45
+        cpu: cpuLoad,
+        ram: usedMemPct,
+        disk: null
       }
     });
   });

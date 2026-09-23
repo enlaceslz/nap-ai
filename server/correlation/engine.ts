@@ -77,8 +77,7 @@ export class CorrelationEngine {
     const { host, trigger, severity } = alarmData;
 
     // 2. Localizar no NSoT / OLT Manager
-    // Ex: Host "OLT-03" -> 500 clientes afetados
-    const affectedCustomers = 500; // Mock
+    const affectedCustomers = Number(alarmData.affectedCount) || 0;
 
     // 3. Gerar Ticket Massivo no Zammad via NAP Help Desk
     const ticketData = {

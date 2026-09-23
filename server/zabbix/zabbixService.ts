@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { randomInt } from 'crypto';
 
 export interface ZabbixHost {
@@ -35,9 +36,12 @@ export class ZabbixService {
   private static instance: ZabbixService;
   private hosts: ZabbixHost[] = [];
   private problems: ZabbixProblem[] = [];
+  private zabbixUrl = process.env.ZABBIX_URL || '';
+  private zabbixToken = process.env.ZABBIX_TOKEN || '';
 
   private constructor() {
-    this.initMocks();
+    this.hosts = [];
+    this.problems = [];
   }
 
   public static getInstance(): ZabbixService {
@@ -47,19 +51,50 @@ export class ZabbixService {
     return ZabbixService.instance;
   }
 
-  private initMocks() {
-    this.hosts = [
-      { id: 1001, name: 'OLT-HUAWEI-01 (Centro)', ip: '10.0.0.10', vendor: 'Huawei', model: 'MA5800-X7', location: 'POP Centro', cpu: 45, ram: 60, temp: 42, uptime: '45d 12h', status: 'critical', ponPorts: 16, activeOnus: 840, powerSupply: 'Redundante (A/B OK)', fanRpm: 4500, uplinkCapacity: '2x 10G SFP+' },
-      { id: 1002, name: 'OLT-ZTE-02 (Norte)', ip: '10.0.0.11', vendor: 'ZTE', model: 'C300', location: 'POP Norte', cpu: 78, ram: 55, temp: 64, uptime: '12d 03h', status: 'online', ponPorts: 16, activeOnus: 1024, powerSupply: 'Normal (A OK, B Down)', fanRpm: 6000, uplinkCapacity: '1x 10G SFP+' },
-      { id: 1003, name: 'OLT-DATACOM-03 (Sul)', ip: '10.0.0.12', vendor: 'Datacom', model: 'DM4610', location: 'POP Sul', cpu: 20, ram: 30, temp: 38, uptime: '110d 09h', status: 'online', ponPorts: 8, activeOnus: 320, powerSupply: 'Redundante (A/B OK)', fanRpm: 3200, uplinkCapacity: '1x 10G SFP+' },
-      { id: 1004, name: 'CORE-MIKROTIK-CCR', ip: '10.0.0.1', vendor: 'MikroTik', model: 'CCR2216-1G-12XS-2XQ', location: 'Datacenter Principal', cpu: 80, ram: 40, temp: 45, uptime: '200d 14h', status: 'warning', ponPorts: 0, activeOnus: 0, powerSupply: 'Redundante (A/B OK)', fanRpm: 5500, uplinkCapacity: '2x 100G QSFP28' },
-      { id: 1005, name: 'EDGE-JUNIPER', ip: '172.16.0.1', vendor: 'Juniper', model: 'MX204', location: 'Datacenter Principal', cpu: 30, ram: 30, temp: 35, uptime: '30d 01h', status: 'online', ponPorts: 0, activeOnus: 0, powerSupply: 'Redundante (A/B OK)', fanRpm: 4800, uplinkCapacity: '4x 100G QSFP28' }
-    ];
-
-    this.problems = [
-      { id: 101, host: 'OLT-HUAWEI-01 (Centro)', severity: 'critical', message: 'PON 0/1/3 LOS (Loss of Signal)', time: 'Agora', timestamp: Date.now() - 600000, ack: false },
-      { id: 102, host: 'CORE-MIKROTIK-CCR', severity: 'warning', message: 'CPU Load > 80% (últimos 5 min)', time: 'Há 15 min', timestamp: Date.now() - 900000, ack: false }
-    ];
+  public async syncWithZabbix(): Promise<boolean> {
+    if (!this.zabbixUrl || !this.zabbixToken) {
+      return false;
+    }
+    try {
+      const response = await axios.post(
+        `${this.zabbixUrl}/api_jsonrpc.php`,
+        {
+          jsonrpc: '2.0',
+          method: 'host.get',
+          params: {
+            output: ['hostid', 'host', 'name', 'status'],
+            selectInterfaces: ['ip']
+          },
+          auth: this.zabbixToken,
+          id: 1
+        },
+        { timeout: 4000 }
+      );
+      if (response.data?.result && Array.isArray(response.data.result)) {
+        this.hosts = response.data.result.map((h: any) => ({
+          id: Number(h.hostid),
+          name: h.name || h.host,
+          ip: h.interfaces?.[0]?.ip || '0.0.0.0',
+          vendor: 'MikroTik',
+          model: 'SNMP Device',
+          location: 'POP Central',
+          cpu: 0,
+          ram: 0,
+          temp: 0,
+          uptime: 'N/A',
+          status: h.status === '0' ? 'online' : 'offline',
+          ponPorts: 0,
+          activeOnus: 0,
+          powerSupply: 'OK',
+          fanRpm: 0,
+          uplinkCapacity: '1G'
+        }));
+        return true;
+      }
+    } catch (e: any) {
+      console.warn('[ZabbixService] Falha ao sincronizar com Zabbix:', e?.message);
+    }
+    return false;
   }
 
   public getHosts(): ZabbixHost[] {
@@ -70,18 +105,16 @@ export class ZabbixService {
     return this.problems;
   }
 
+  public addProblem(problem: ZabbixProblem) {
+    this.problems.unshift(problem);
+  }
+
   public acknowledgeProblem(id: number, message: string, author: string): ZabbixProblem | null {
     const problem = this.problems.find(p => p.id === id);
     if (problem) {
       problem.ack = true;
       problem.ackMessage = message;
       problem.ackAuthor = author;
-      
-      // Update the host status if it was critical and there are no other unacknowledged criticals
-      const host = this.hosts.find(h => h.name === problem.host);
-      if (host && problem.severity === 'critical') {
-         host.status = 'warning';
-      }
       return problem;
     }
     return null;

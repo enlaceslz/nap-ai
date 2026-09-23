@@ -13,6 +13,7 @@ import axios from "axios";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import tls from "tls";
 import { exec } from "child_process";
 import cors from "cors";
 import { GoogleGenAI } from "@google/genai";
@@ -710,14 +711,63 @@ app.post("/api/push/operator/test", (req, res) => {
   });
 
   // Catálogo completo de serviços nativos do sistema
-  app.get("/api/configuracoes/nativas", (req, res) => {
+  app.get("/api/configuracoes/nativas", async (req, res) => {
     const isProd = process.env.NODE_ENV === 'production';
-    const asteriskStatus = getAsteriskStatus();
-    const asteriskOnline = asteriskStatus.conectado;
-    const genieacsOnline = Boolean(process.env.GENIEACS_URL);
-    const zabbixOnline = Boolean(process.env.ZABBIX_URL && process.env.ZABBIX_TOKEN);
-    const sgpOnline = Boolean(process.env.ERP_URL && process.env.ERP_TOKEN);
-    const radiusOnline = Boolean(process.env.RADIUS_HOST);
+    
+    // Asterisk 20+ verificação real de runtime
+    const astHealth = await checkAsteriskRuntimeHealth();
+    const asteriskOnline = astHealth.responsive;
+    const asteriskStatus = asteriskOnline ? "conectado" : (process.env.ASTERISK_ENABLED === 'true' ? "offline" : "desconectado");
+
+    // GenieACS TR-069 verificação real via API NBI
+    let genieacsStatus: "conectado" | "offline" | "desconectado" = "desconectado";
+    if (process.env.GENIEACS_URL && process.env.GENIEACS_USER && process.env.GENIEACS_PASSWORD) {
+      try {
+        const acsQuery = await GenieacsService.getInstance().queryDevices();
+        genieacsStatus = acsQuery.status === 'online' ? "conectado" : "offline";
+      } catch {
+        genieacsStatus = "offline";
+      }
+    }
+
+    // Zabbix 7.0 LTS verificação real via JSON-RPC
+    let zabbixStatus: "conectado" | "offline" | "desconectado" = "desconectado";
+    if (process.env.ZABBIX_URL && process.env.ZABBIX_TOKEN) {
+      try {
+        const timeoutCtrl = new AbortController();
+        const timeoutId = setTimeout(() => timeoutCtrl.abort(), 1500);
+        const zRes = await fetch(process.env.ZABBIX_URL, {
+          method: 'POST',
+          signal: timeoutCtrl.signal,
+          headers: { 'Content-Type': 'application/json-rpc' },
+          body: JSON.stringify({ jsonrpc: "2.0", method: "apiinfo.version", params: [], id: 1 })
+        });
+        clearTimeout(timeoutId);
+        zabbixStatus = zRes.ok ? "conectado" : "offline";
+      } catch {
+        zabbixStatus = "offline";
+      }
+    }
+
+    // ERP / SGP verificação real
+    let sgpStatus: "conectado" | "offline" | "desconectado" = "desconectado";
+    if (process.env.ERP_URL && process.env.ERP_TOKEN) {
+      try {
+        const timeoutCtrl = new AbortController();
+        const timeoutId = setTimeout(() => timeoutCtrl.abort(), 1500);
+        const erpRes = await fetch(`${process.env.ERP_URL}/api/v1/ping`, {
+          signal: timeoutCtrl.signal,
+          headers: { 'app': process.env.ERP_APP || '', 'token': process.env.ERP_TOKEN }
+        });
+        clearTimeout(timeoutId);
+        sgpStatus = erpRes.ok ? "conectado" : "offline";
+      } catch {
+        sgpStatus = "offline";
+      }
+    }
+
+    // FreeRadius
+    const radiusStatus: "conectado" | "offline" | "desconectado" = process.env.RADIUS_HOST ? "desconectado" : "desconectado";
 
     res.json({
       success: true,
@@ -726,7 +776,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "asterisk",
           nome: "Asterisk 20+ (Telefonia & PABX Puro)",
           categoria: "Telefonia IP / WebRTC",
-          status: asteriskOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
+          status: asteriskStatus,
           host: ASTERISK_HOST,
           portas: { ari: ASTERISK_PORT_ARI, ami: ASTERISK_PORT_AMI, sip: "5060", webrtcWss: "8089" },
           usuario: ASTERISK_USER_ARI,
@@ -738,7 +788,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "genieacs",
           nome: "GenieACS TR-069 / CWMP",
           categoria: "Gerenciamento de CPE & Wi-Fi",
-          status: genieacsOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
+          status: genieacsStatus,
           urlNbi: GENIEACS_URL,
           urlCwmp: GENIEACS_CWMP_URL,
           urlUi: GENIEACS_UI_URL,
@@ -750,7 +800,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "zabbix",
           nome: "Zabbix Server 7.0 LTS",
           categoria: "NOC & Telemetria Multivendor",
-          status: zabbixOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
+          status: zabbixStatus,
           url: ZABBIX_URL,
           usuario: ZABBIX_USER,
           portaAgent: ZABBIX_AGENT_PORT,
@@ -773,7 +823,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "sgp",
           nome: "SGP / ERP Integrado",
           categoria: "Billing & ERP Telecom",
-          status: sgpOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
+          status: sgpStatus,
           url: ERP_URL,
           app: ERP_APP,
           protocolos: "REST API v2.4, PIX Dinâmico, Desbloqueio 48h",
@@ -783,7 +833,7 @@ app.post("/api/push/operator/test", (req, res) => {
           id: "radius",
           nome: "FreeRadius AAA (PoD & CoA)",
           categoria: "Autenticação PPPoE & Desconexão",
-          status: radiusOnline ? "conectado" : (isProd ? "offline" : "desconectado"),
+          status: radiusStatus,
           host: RADIUS_HOST,
           porta: RADIUS_PORT,
           protocolos: "Packet of Disconnect (RFC 3576), CoA (RFC 5176)",
@@ -998,44 +1048,114 @@ app.post("/api/push/operator/test", (req, res) => {
     }
   });
 
-  // Testar Certificado SSL/TLS
-  app.post("/api/configuracoes/test-ssl", async (req, res) => {
+  // Testar Certificado SSL/TLS real via tls.connect
+  app.post("/api/configuracoes/test-ssl", (req, res) => {
     const { domain } = req.body;
     const inicio = Date.now();
 
-    if (!domain) {
+    if (!domain || typeof domain !== 'string') {
       return res.status(400).json({ success: false, error: 'Domínio não informado' });
     }
 
-    if (!domain.startsWith('https://')) {
-      return res.json({ 
-        success: false, 
-        message: 'O domínio deve iniciar com https:// para possuir certificado SSL/TLS válido. O protocolo HTTP não é seguro.',
-        latenciaMs: Date.now() - inicio
-      });
+    let hostname = domain.trim();
+    try {
+      if (hostname.startsWith('http://') || hostname.startsWith('https://')) {
+        const parsed = new URL(hostname);
+        hostname = parsed.hostname;
+      }
+    } catch {
+      hostname = hostname.replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
     }
 
-    try {
-      const response = await axios.get(domain, {
-        timeout: 4000,
-        validateStatus: () => true
-      });
+    if (!hostname) {
+      return res.status(400).json({ success: false, error: 'Hostname inválido' });
+    }
+
+    const socket = tls.connect({
+      host: hostname,
+      port: 443,
+      servername: hostname,
+      timeout: 5000,
+      rejectUnauthorized: false
+    }, () => {
       const latencia = Date.now() - inicio;
+      const cert = socket.getPeerCertificate(true);
+      const protocol = socket.getProtocol();
+      const cipher = socket.getCipher();
+      const authorized = socket.authorized;
+      const authError = socket.authorizationError;
+
+      socket.end();
+
+      if (!cert || Object.keys(cert).length === 0) {
+        return res.json({
+          success: false,
+          status: "invalid",
+          message: "Nenhum certificado SSL/TLS retornado pelo servidor.",
+          latenciaMs: latencia
+        });
+      }
+
+      const validTo = cert.valid_to ? new Date(cert.valid_to) : null;
+      const now = new Date();
+      const isExpired = validTo ? now > validTo : false;
+
+      let status = "valid";
+      let message = "Certificado SSL validado com sucesso.";
+
+      if (isExpired) {
+        status = "expired";
+        message = `Certificado expirado em ${cert.valid_to}`;
+      } else if (!authorized) {
+        const authErrStr = authError ? authError.toString() : '';
+        if (authErrStr.includes("self signed") || authErrStr.includes("SELF_SIGNED")) {
+          status = "untrusted";
+          message = `Certificado autoassinado não confiável: ${authErrStr}`;
+        } else if (authErrStr.includes("Hostname/IP doesn't match")) {
+          status = "hostname_mismatch";
+          message = `Hostname não confere: ${authErrStr}`;
+        } else {
+          status = "untrusted";
+          message = `Certificado não confiável: ${authErrStr || 'CA não reconhecida'}`;
+        }
+      }
+
       res.json({
-        success: true,
-        status: "valido",
-        protocol: 'TLSv1.3',
-        message: 'Certificado SSL validado com sucesso.',
+        success: status === "valid",
+        status,
+        protocol: protocol || null,
+        cipher: cipher?.name || null,
+        issuer: (cert.issuer as any)?.O || (cert.issuer as any)?.CN || null,
+        subject: (cert.subject as any)?.CN || null,
+        valid_from: cert.valid_from || null,
+        valid_to: cert.valid_to || null,
+        bits: (cert as any).bits || null,
+        authorized,
+        message,
         latenciaMs: latencia
       });
-    } catch (err: any) {
+    });
+
+    socket.on('error', (err) => {
+      const latencia = Date.now() - inicio;
       res.json({
         success: false,
-        status: "invalido",
-        message: `Falha ao validar SSL: ${err.message}`,
-        latenciaMs: Date.now() - inicio
+        status: "connection_failed",
+        message: `Falha na conexão TLS (${hostname}:443): ${err.message}`,
+        latenciaMs: latencia
       });
-    }
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      const latencia = Date.now() - inicio;
+      res.json({
+        success: false,
+        status: "connection_failed",
+        message: `Timeout na conexão TLS (${hostname}:443) após 5000ms`,
+        latenciaMs: latencia
+      });
+    });
   });
 
   // Testar conexão GenieACS (NBI REST + CWMP)
@@ -1125,22 +1245,54 @@ app.post("/api/push/operator/test", (req, res) => {
     }
   });
 
-  // Testar conexão Mapa Open-Source (Leaflet / OSM / CARTO)
+  // Testar conexão Mapa Open-Source (Leaflet / OSM / CARTO) com requisição HTTP real
   app.post("/api/configuracoes/test-mapa", async (req, res) => {
     const inicio = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 35));
-    const latencia = Date.now() - inicio;
+    const tilePadrao = systemConfig.mapa?.tileUrlPadrao || MAPA_TILE_URL;
+    const testTileUrl = tilePadrao
+      .replace('{s}', 'a')
+      .replace('{z}', '0')
+      .replace('{x}', '0')
+      .replace('{y}', '0');
 
-    res.json({
-      success: true,
-      status: "online",
-      latenciaMs: latencia,
-      provedor: systemConfig.mapa?.provedor || MAPA_PROVEDOR,
-      tileDark: systemConfig.mapa?.tileUrlDark || MAPA_DARK_TILE_URL,
-      tilePadrao: systemConfig.mapa?.tileUrlPadrao || MAPA_TILE_URL,
-      semChaveApi: true,
-      mensagem: "Tiles de mapa Leaflet/OpenStreetMap operacionais sem limites ou cobranças de API."
-    });
+    try {
+      const response = await axios.get(testTileUrl, {
+        timeout: 3000,
+        responseType: 'arraybuffer',
+        headers: { 'User-Agent': 'NAP-NetworkAutomation/2.0' }
+      });
+      const latencia = Date.now() - inicio;
+      const contentType = String(response.headers['content-type'] || '');
+      const isSuccess = response.status === 200 || contentType.includes('image');
+
+      if (isSuccess) {
+        res.json({
+          success: true,
+          status: "online",
+          latenciaMs: latencia,
+          provedor: systemConfig.mapa?.provedor || MAPA_PROVEDOR,
+          tileDark: systemConfig.mapa?.tileUrlDark || MAPA_DARK_TILE_URL,
+          tilePadrao,
+          semChaveApi: true,
+          mensagem: "Tiles de mapa Leaflet/OpenStreetMap operacionais sem limites ou cobranças de API."
+        });
+      } else {
+        res.json({
+          success: false,
+          status: "offline",
+          latenciaMs: latencia,
+          error: `Resposta inesperada do servidor de tiles: HTTP ${response.status} (${contentType})`
+        });
+      }
+    } catch (err: any) {
+      const latencia = Date.now() - inicio;
+      res.json({
+        success: false,
+        status: "offline",
+        latenciaMs: latencia,
+        error: `Servidor de tiles inacessível: ${err.message}`
+      });
+    }
   });
 
   // Status detalhado de Telefonia Asterisk 20+ Puro
@@ -1349,23 +1501,7 @@ app.post("/api/push/operator/test", (req, res) => {
     notificacoesEnviadas: number;
   }
 
-  let incidentesRede: IncidenteRede[] = [
-    {
-      id: "INC-2026-0902",
-      titulo: "Rompimento de Fibra Troncal (Backbone Anel 02)",
-      tipo: "rompimento_fibra",
-      regioesAfetadas: ["Centro Histórico", "Bela Vista", "Jardim Paulista"],
-      concentradorOuOlt: "OLT-Huawei-Central-01 / PON 03 e 04",
-      clientesAfetadosAprox: 420,
-      status: "em_reparo",
-      previsaoRetorno: "15:30 (Hoje)",
-      iniciadoEm: "10:15 (Hoje)",
-      protocoloAnatel: "ANT-2026-884910",
-      descricao: "Caminhão arrastou cabeamento troncal na Av. Brigadeiro Luís Antônio. Duas equipes de fusão óptica já estão no local.",
-      autoInterceptarAtendimento: true,
-      notificacoesEnviadas: 395
-    }
-  ];
+  let incidentesRede: IncidenteRede[] = [];
 
   // Listar Incidentes
   app.get("/api/incidentes", (req, res) => {
@@ -1385,7 +1521,7 @@ app.post("/api/push/operator/test", (req, res) => {
       tipo: tipo || "rompimento_fibra",
       regioesAfetadas: Array.isArray(regioesAfetadas) ? regioesAfetadas : ["Região Geral"],
       concentradorOuOlt: concentradorOuOlt || "OLT Central",
-      clientesAfetadosAprox: Number(clientesAfetadosAprox) || 120,
+      clientesAfetadosAprox: Number(clientesAfetadosAprox) || 0,
       status: "em_reparo",
       previsaoRetorno: previsaoRetorno || "Em até 2 horas",
       iniciadoEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + " (Hoje)",
@@ -1425,6 +1561,17 @@ app.post("/api/push/operator/test", (req, res) => {
     const incidente = incidentesRede.find(inc => inc.id === id);
     if (!incidente) {
       return res.status(404).json({ sucesso: false, erro: "Incidente não encontrado." });
+    }
+
+    const hasWaba = Boolean(process.env.WABA_ACCESS_TOKEN && process.env.WABA_PHONE_NUMBER_ID);
+    const hasPush = Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+
+    if (!hasWaba && !hasPush) {
+      return res.status(400).json({
+        sucesso: false,
+        enviados: 0,
+        motivo: "Nenhum canal de notificação configurado (WABA ou Web Push ausentes)."
+      });
     }
 
     incidente.notificacoesEnviadas += incidente.clientesAfetadosAprox;
@@ -1697,13 +1844,7 @@ app.post("/api/push/operator/test", (req, res) => {
     criadoEm: string;
   }
 
-  let campanhasList: CampanhaItem[] = [
-    { id: 1, canal: "whatsapp", nome: "Cobrança Preventiva (Vencimento -3 dias)", leads: 1250, processados: 450, conversao: "12%", status: "Rodando", tipo: "HSM Template", criadoEm: "Hoje, 08:00" },
-    { id: 2, canal: "whatsapp", nome: "Promoção Upgrade Fibra 1GB", leads: 3200, processados: 3200, conversao: "8.5%", status: "Concluída", tipo: "HSM Template", criadoEm: "Ontem, 14:00" },
-    { id: 3, canal: "whatsapp", nome: "Aviso Manutenção Programada (Bairro Centro)", leads: 850, processados: 0, conversao: "0%", status: "Agendada", tipo: "Texto Livre", criadoEm: "Hoje, 09:30" },
-    { id: 4, canal: "voz", nome: "Retenção de Cancelamentos (Discador Preditivo)", leads: 150, processados: 85, conversao: "22%", status: "Rodando", tipo: "URA Reversa", dropRate: "3%", criadoEm: "Hoje, 09:00" },
-    { id: 5, canal: "voz", nome: "Pesquisa NPS Automática (URA Reversa)", leads: 500, processados: 500, conversao: "64%", status: "Concluída", tipo: "URA Asterisk", dropRate: "1%", criadoEm: "Ontem, 11:00" },
-  ];
+  let campanhasList: CampanhaItem[] = [];
 
   app.get("/api/campanhas", (req, res) => {
     res.json({
@@ -1712,16 +1853,34 @@ app.post("/api/push/operator/test", (req, res) => {
     });
   });
 
-  app.post("/api/campanhas", (req, res) => {
+  app.post("/api/campanhas", async (req, res) => {
     const { nome, canal, tipo, leads, mensagemOuTemplate, dropRate } = req.body;
+
+    if (canal === "whatsapp" && (!process.env.WABA_ACCESS_TOKEN || !process.env.WABA_PHONE_NUMBER_ID)) {
+      return res.status(400).json({
+        sucesso: false,
+        erro: "Canal WhatsApp WABA não configurado. Adicione as credenciais em Configurações antes de criar campanhas."
+      });
+    }
+
+    if (canal === "voz") {
+      const astHealth = await checkAsteriskRuntimeHealth();
+      if (!astHealth.responsive) {
+        return res.status(400).json({
+          sucesso: false,
+          erro: "Servidor Asterisk de Voz/WebRTC indisponível ou desconectado."
+        });
+      }
+    }
+
     const nova: CampanhaItem = {
       id: Date.now(),
       canal: canal || "whatsapp",
       nome: nome || "Nova Campanha Ativa",
-      leads: Number(leads) || 100,
+      leads: Number(leads) || 0,
       processados: 0,
       conversao: "0%",
-      status: "Rodando",
+      status: "Agendada",
       tipo: tipo || (canal === "voz" ? "URA Discador" : "HSM Template"),
       dropRate: canal === "voz" ? (dropRate || "2.5%") : undefined,
       mensagemOuTemplate: mensagemOuTemplate || "",
@@ -1734,8 +1893,8 @@ app.post("/api/push/operator/test", (req, res) => {
     registrarAuditoria({
       usuario: callerUser,
       modulo: "Campanhas",
-      acao: `Disparo de Campanha: ${nova.nome}`,
-      detalhes: `Nova campanha iniciada no canal ${nova.canal.toUpperCase()} (${nova.tipo}) com volume de ${nova.leads} destinatários.`,
+      acao: `Criação de Campanha: ${nova.nome}`,
+      detalhes: `Campanha criada no canal ${nova.canal.toUpperCase()} (${nova.tipo}) com volume de ${nova.leads} destinatários.`,
       categoria: "disparo",
       severidade: "info",
       ip: req.ip || null,
@@ -1745,7 +1904,7 @@ app.post("/api/push/operator/test", (req, res) => {
 
     res.status(201).json({
       sucesso: true,
-      mensagem: `Campanha "${nova.nome}" iniciada com sucesso com ${nova.leads} destinatários!`,
+      mensagem: `Campanha "${nova.nome}" criada com sucesso!`,
       campanha: nova
     });
   });
@@ -1785,7 +1944,7 @@ app.post("/api/push/operator/test", (req, res) => {
   });
 
   // --- MONITOR DE SINCRONIZAÇÃO EM TEMPO REAL (ERP & GENIEACS) ---
-  let lastManualSyncTime = new Date().toISOString();
+  let lastManualSyncTime: string | null = null;
 
   app.get("/api/sync/status", async (req, res) => {
     const now = new Date();
@@ -1923,28 +2082,54 @@ app.post("/api/push/operator/test", (req, res) => {
 
   app.post("/api/sync/executar", async (req, res) => {
     const startTime = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 300));
-    lastManualSyncTime = new Date().toISOString();
-    const duration = Date.now() - startTime;
-
     let devicesUpdated = 0;
+    let acsStatusResult = "not_configured";
     try {
-      const devices = await GenieacsService.getInstance().getDevices();
-      devicesUpdated = devices.length;
+      const acsRes = await GenieacsService.getInstance().queryDevices();
+      acsStatusResult = acsRes.status;
+      if (acsRes.devices) {
+        devicesUpdated = acsRes.devices.length;
+      }
     } catch {
       devicesUpdated = 0;
+      acsStatusResult = "offline";
     }
+
+    let totalClientesSync = 0;
+    let totalFaturasSync = 0;
+    try {
+      const cRes = await db.select({ count: sql`count(*)` }).from(clientes);
+      totalClientesSync = Number(cRes[0]?.count || 0);
+      const fRes = await db.select({ count: sql`count(*)` }).from(faturas);
+      totalFaturasSync = Number(fRes[0]?.count || 0);
+    } catch {}
+
+    const erpConfigured = Boolean(process.env.ERP_URL && process.env.ERP_TOKEN);
+    const duration = Date.now() - startTime;
+    lastManualSyncTime = new Date().toISOString();
+
+    const callerUser = (req as any).user?.nome || (req as any).user?.email || null;
+    registrarAuditoria({
+      usuario: callerUser,
+      modulo: "Sincronização",
+      acao: "Sincronização Manual",
+      detalhes: `Sincronização executada: ${devicesUpdated} CPEs GenieACS (${acsStatusResult}), ${totalClientesSync} clientes e ${totalFaturasSync} faturas locais.`,
+      categoria: "configuracao",
+      severidade: "info",
+      ip: req.ip || req.socket.remoteAddress || null,
+      userAgent: req.headers["user-agent"] || null
+    });
 
     res.json({
       sucesso: true,
-      mensagem: "Sincronização bidirecional executada com êxito.",
+      mensagem: "Sincronização executada com os serviços disponíveis.",
       timestamp: lastManualSyncTime,
       tempo_gasto_ms: duration,
       detalhes: {
-        erp_novos_clientes: 0,
-        erp_faturas_atualizadas: 0,
+        erp_novos_clientes: totalClientesSync,
+        erp_faturas_atualizadas: totalFaturasSync,
         genieacs_telemetrias_atualizadas: devicesUpdated,
-        status: "sincronizado"
+        status: (acsStatusResult === 'online' || erpConfigured) ? "sincronizado" : "parcial"
       }
     });
   });

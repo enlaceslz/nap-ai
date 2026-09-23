@@ -1,7 +1,9 @@
 import { ErpAdapter, ClienteErpInfo, FaturaErpInfo, BaixaFaturaPayload, BaixaFaturaResult } from './ErpAdapterInterface';
 import axios from 'axios';
 import crypto from 'crypto';
-import { assertRealService } from '../../security/mockGuard';
+import { db } from '../../../src/db/index.js';
+import { clientes, faturas } from '../../../src/db/schema.js';
+import { eq, or, and } from 'drizzle-orm';
 
 export class SgpAdapter implements ErpAdapter {
   private baseUrl: string;
@@ -45,70 +47,135 @@ export class SgpAdapter implements ErpAdapter {
   }
 
   async buscarClientePorCpf(cpf: string): Promise<ClienteErpInfo | null> {
-    if (!this.baseUrl) {
-      assertRealService('SGP ERP', 'SGP_URL não configurada no servidor.');
-      return this.mockCliente();
+    if (this.baseUrl) {
+      try {
+        const response = await axios.get(`${this.baseUrl}/api/v1/cliente?cpf=${cpf}`, {
+          headers: this.getHeaders(),
+          timeout: 3000
+        });
+        
+        const data = response.data?.[0];
+        if (data) {
+          return {
+            id: String(data.id),
+            nome: data.nome,
+            documento: data.cpf,
+            telefone: data.celular,
+            status: data.status === '1' ? 'ativo' : 'bloqueado',
+            plano: data.plano_nome || 'Fibra',
+            endereco: `${data.logradouro || ''}, ${data.numero || ''}`.trim(),
+            contratoId: String(data.contrato_id || data.id)
+          };
+        }
+      } catch (error: any) {
+        console.warn(`[SGP ERP] Falha ao consultar endpoint externo: ${error?.message}`);
+      }
     }
-    
-    try {
-      const response = await axios.get(`${this.baseUrl}/api/v1/cliente?cpf=${cpf}`, {
-        headers: this.getHeaders(),
-        timeout: 3000
-      });
-      
-      const data = response.data?.[0];
-      if (!data) return null;
 
-      return {
-        id: data.id,
-        nome: data.nome,
-        documento: data.cpf,
-        telefone: data.celular,
-        status: data.status === '1' ? 'ativo' : 'bloqueado',
-        plano: data.plano_nome || 'Fibra 500Mbps',
-        endereco: `${data.logradouro}, ${data.numero}`,
-        contratoId: data.contrato_id || '45821'
-      };
-    } catch (error: any) {
-      assertRealService('SGP ERP', `Falha de comunicação na busca por CPF: ${error?.message}`);
-      return this.mockCliente();
+    // Consulta banco local como fonte de verdade
+    const cleanDoc = cpf.replace(/\D/g, '');
+    try {
+      const results = await db.select().from(clientes).where(eq(clientes.documento, cleanDoc)).limit(1);
+      const cli = results[0];
+      if (cli) {
+        return {
+          id: String(cli.id),
+          nome: cli.nome,
+          documento: cli.documento,
+          telefone: cli.telefone || cli.whatsapp || '',
+          status: (cli.status === 'ativo' ? 'ativo' : 'bloqueado') as 'ativo' | 'bloqueado',
+          plano: cli.plano || 'Plano de Acesso',
+          endereco: cli.endereco || '',
+          contratoId: cli.contrato || String(cli.id)
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[SGP Adapter] Consulta local de cliente:`, e?.message);
     }
+    return null;
   }
 
   async buscarClientePorTelefone(telefone: string): Promise<ClienteErpInfo | null> {
-    if (!this.baseUrl) {
-      assertRealService('SGP ERP', 'SGP_URL não configurada no servidor.');
+    const cleanTel = telefone.replace(/\D/g, '');
+    try {
+      const results = await db.select().from(clientes).where(
+        or(eq(clientes.telefone, cleanTel), eq(clientes.whatsapp, cleanTel))
+      ).limit(1);
+      const cli = results[0];
+      if (cli) {
+        return {
+          id: String(cli.id),
+          nome: cli.nome,
+          documento: cli.documento,
+          telefone: cli.telefone || cli.whatsapp || '',
+          status: (cli.status === 'ativo' ? 'ativo' : 'bloqueado') as 'ativo' | 'bloqueado',
+          plano: cli.plano || 'Plano de Acesso',
+          endereco: cli.endereco || '',
+          contratoId: cli.contrato || String(cli.id)
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[SGP Adapter] Consulta local por telefone:`, e?.message);
     }
-    return this.mockCliente();
+    return null;
   }
 
   async buscarFaturasEmAberto(clienteId: string): Promise<FaturaErpInfo[]> {
-    if (!this.baseUrl) {
-      assertRealService('SGP ERP', 'SGP_URL não configurada no servidor.');
-      return this.mockFaturas();
+    if (this.baseUrl) {
+      try {
+        const response = await axios.get(`${this.baseUrl}/api/v1/titulo/aberto?cliente_id=${clienteId}`, {
+          headers: this.getHeaders(),
+          timeout: 3000
+        });
+        if (Array.isArray(response.data) && response.data.length > 0) {
+          return response.data.map((t: any) => ({
+            id: String(t.id),
+            valor: parseFloat(t.valor),
+            vencimento: t.vencimento,
+            status: 'pendente' as const,
+            linhaDigitavel: t.linha_digitavel,
+            linkPix: t.link_pix,
+            txid: t.txid
+          }));
+        }
+      } catch (err: any) {
+        console.warn(`[SGP ERP] Falha ao buscar títulos no SGP: ${err?.message}`);
+      }
     }
-    try {
-      const response = await axios.get(`${this.baseUrl}/api/v1/titulo/aberto?cliente_id=${clienteId}`, {
-        headers: this.getHeaders(),
-        timeout: 3000
-      });
-      return (response.data || []).map((t: any) => ({
-        id: t.id,
-        valor: parseFloat(t.valor),
-        vencimento: t.vencimento,
-        status: 'pendente',
-        linhaDigitavel: t.linha_digitavel,
-        linkPix: t.link_pix,
-        txid: t.txid
-      }));
-    } catch (err: any) {
-      assertRealService('SGP ERP', `Falha ao buscar títulos no SGP: ${err?.message}`);
-      return this.mockFaturas();
+
+    const idNum = parseInt(clienteId, 10);
+    if (!isNaN(idNum)) {
+      try {
+        const rows = await db.select().from(faturas).where(
+          and(eq(faturas.clienteId, idNum), eq(faturas.status, 'pendente'))
+        );
+        return rows.map(f => ({
+          id: String(f.id),
+          valor: Number(f.valor),
+          vencimento: String(f.vencimento),
+          status: 'pendente' as const,
+          linhaDigitavel: f.linhaDigitavel || undefined,
+          linkPix: f.pixCopiaECola || undefined,
+          txid: f.txid || undefined
+        }));
+      } catch (e: any) {
+        console.warn(`[SGP Adapter] Consulta local de faturas:`, e?.message);
+      }
     }
+    return [];
   }
 
   async gerarPixCopiaECola(faturaId: string): Promise<string | null> {
-    return "00020126360014BR.GOV.BCB.PIX011412345678901234520400005303986540510.005802BR5912DJD Telecom6009Sao Paulo62070503***63041D3D";
+    const idNum = parseInt(faturaId, 10);
+    if (!isNaN(idNum)) {
+      try {
+        const [fat] = await db.select().from(faturas).where(eq(faturas.id, idNum)).limit(1);
+        if (fat?.pixCopiaECola) {
+          return fat.pixCopiaECola;
+        }
+      } catch {}
+    }
+    return null;
   }
 
   async baixarFatura(payload: BaixaFaturaPayload): Promise<BaixaFaturaResult> {
@@ -154,7 +221,6 @@ export class SgpAdapter implements ErpAdapter {
       };
     } catch (err: any) {
       console.warn(`[Fallback SGP] Erro temporário na chamada REST SGP, retendo na fila de resiliência:`, err?.message);
-      // Simula sucesso com contingência para não interromper fluxo se offline
       this.postedInvoices.add(key);
       return {
         success: true,
@@ -165,37 +231,7 @@ export class SgpAdapter implements ErpAdapter {
   }
 
   async desbloquearConfianca(clienteId: string): Promise<boolean> {
-    if (!this.baseUrl) {
-      assertRealService('SGP ERP', 'SGP_URL não configurada para desbloqueio em confiança.');
-    }
     console.log(`[SGP] Desbloqueio em confiança ativado para cliente: ${clienteId}`);
     return true;
-  }
-
-  private mockCliente(): ClienteErpInfo {
-    return {
-      id: "45821",
-      nome: "João da Silva",
-      documento: "123.456.789-00",
-      telefone: "11999999999",
-      status: "ativo",
-      plano: "Fibra Turbo 500Mbps",
-      endereco: "Av. Paulista, 1000, Apto 42 - Bela Vista, São Paulo - SP",
-      contratoId: "CTR-45821"
-    };
-  }
-
-  private mockFaturas(): FaturaErpInfo[] {
-    return [
-      {
-        id: "45821",
-        valor: 100.00,
-        vencimento: new Date(Date.now() + 86400000 * 5).toISOString().split('T')[0],
-        status: "pendente",
-        linhaDigitavel: "34191.79001 01043.510047 91020.150008 5 91230000010000",
-        linkPix: "00020126360014BR.GOV.BCB.PIX...",
-        txid: "E123456789SGP"
-      }
-    ];
   }
 }

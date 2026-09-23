@@ -5,12 +5,21 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
   const router = express.Router();
 
   const callGenieAcs = async (endpoint: string, options: any = {}) => {
-    const url = `${process.env.GENIEACS_URL || "http://127.0.0.1:7557"}${endpoint}`;
-    const user = process.env.GENIEACS_USER || "admin";
-    const pass = process.env.GENIEACS_PASSWORD || "admin";
+    const url = process.env.GENIEACS_URL;
+    const user = process.env.GENIEACS_USER;
+    const pass = process.env.GENIEACS_PASSWORD;
+
+    if (!url) {
+      throw new Error("GenieACS URL não configurada (GENIEACS_URL ausente)");
+    }
+    if (!user || !pass) {
+      throw new Error("Credenciais do GenieACS não configuradas (GENIEACS_USER/GENIEACS_PASSWORD ausentes)");
+    }
+
+    const fullUrl = `${url.replace(/\/$/, '')}${endpoint}`;
     const auth = Buffer.from(`${user}:${pass}`).toString('base64');
   
-    const res = await fetch(url, {
+    const res = await fetch(fullUrl, {
       ...options,
       headers: {
         ...options.headers,
@@ -28,38 +37,44 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
     const optical = raw['Device.Optical'] || {};
     const wlan = raw['InternetGatewayDevice.LANDevice.1.WLANConfiguration.1'] || {};
 
-    let rssi = -25;
-    if (optical?.['OpticalSignalLevel']) rssi = parseFloat(optical['OpticalSignalLevel']) / 100;
+    let rssi: number | null = null;
+    if (optical?.['OpticalSignalLevel']) {
+      const parsed = parseFloat(optical['OpticalSignalLevel']) / 100;
+      if (!isNaN(parsed)) rssi = parsed;
+    }
     
+    const hasLastInform = Boolean(raw._lastInform);
+    const isOnline = hasLastInform && (Date.now() - new Date(raw._lastInform).getTime()) < 900000;
+
     return {
-      _id: raw._id,
-      serialNumber: di['SerialNumber'] || raw._id,
-      mac: di['MACAddress'] || 'Desconhecido',
-      model: di['ModelName'] || di['ProductClass'] || 'Desconhecido',
-      vendor: di['Manufacturer'] || 'Desconhecido',
-      ip: wan['1.WANConnectionDevice.1.WANIPConnection.1.ExternalIPAddress'] || '0.0.0.0',
-      status: (new Date().getTime() - new Date(raw._lastInform).getTime()) < 900000 ? 'online' : 'offline',
-      uptime: di['UpTime'] ? `${Math.floor(parseInt(di['UpTime']) / 86400)} dias` : 'Desconhecido',
-      ssid: wlan['SSID'] || 'N/A',
-      wifiChannel: parseInt(wlan['Channel']) || 0,
-      lanClients: 2, 
-      firmwareVersion: di['SoftwareVersion'] || 'N/A',
+      _id: raw._id || '',
+      serialNumber: di['SerialNumber'] || raw._id || '',
+      mac: di['MACAddress'] || null,
+      model: di['ModelName'] || di['ProductClass'] || null,
+      vendor: di['Manufacturer'] || null,
+      ip: wan['1.WANConnectionDevice.1.WANIPConnection.1.ExternalIPAddress'] || null,
+      status: isOnline ? 'online' : 'offline',
+      uptime: di['UpTime'] ? `${Math.floor(parseInt(di['UpTime']) / 86400)} dias` : null,
+      ssid: wlan['SSID'] || null,
+      wifiChannel: wlan['Channel'] ? parseInt(wlan['Channel']) : null,
+      lanClients: null, 
+      firmwareVersion: di['SoftwareVersion'] || null,
       rssi: rssi,
-      tempLaser: optical['Temperature'] ? `${parseFloat(optical['Temperature']) / 100}°C` : 'N/A',
-      vccVolts: optical['Voltage'] ? `${parseFloat(optical['Voltage']) / 1000}V` : 'N/A',
-      lastInform: raw._lastInform,
+      tempLaser: optical['Temperature'] ? `${parseFloat(optical['Temperature']) / 100}°C` : null,
+      vccVolts: optical['Voltage'] ? `${parseFloat(optical['Voltage']) / 1000}V` : null,
+      lastInform: raw._lastInform || null,
       rxBytes: parseInt(wan['1.WANCommonInterfaceConfig.TotalBytesReceived']) || 0,
       txBytes: parseInt(wan['1.WANCommonInterfaceConfig.TotalBytesSent']) || 0
     };
   };
 
   router.get("/health", async (req, res) => {
-    const isCustomConfigured = Boolean(process.env.GENIEACS_URL);
+    const isCustomConfigured = Boolean(process.env.GENIEACS_URL && process.env.GENIEACS_USER && process.env.GENIEACS_PASSWORD);
     if (!isCustomConfigured) {
       return res.status(503).json({
         success: false,
-        status: "unavailable",
-        reason: "GENIEACS_URL não configurado",
+        status: "not_configured",
+        reason: "GENIEACS_URL ou credenciais não configuradas",
         latenciaMs: null,
         modo: "desconectado"
       });
@@ -71,36 +86,44 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
       const latenciaMs = Date.now() - start;
       res.json({ success: true, status: "conectado", latenciaMs, modo: "Nativo API" });
     } catch (err: any) {
-      res.status(503).json({ success: false, status: "desconectado", erro: err.message, latenciaMs: null });
+      res.status(503).json({ success: false, status: "unavailable", erro: err.message, latenciaMs: null });
     }
   });
 
   router.get("/devices", async (req, res) => {
     try {
-      if (!process.env.GENIEACS_URL) {
+      if (!process.env.GENIEACS_URL || !process.env.GENIEACS_USER || !process.env.GENIEACS_PASSWORD) {
         return res.status(503).json({
           success: false,
-          status: "unavailable",
-          reason: "GENIEACS_URL não configurado",
-          devices: []
+          status: "not_configured",
+          reason: "GENIEACS_URL ou credenciais não configuradas",
+          devices: null
         });
       }
       const rawDevices = await callGenieAcs('/devices?projection=_id,_lastInform,Device.DeviceInfo,InternetGatewayDevice.DeviceInfo,Device.WANDevice,InternetGatewayDevice.WANDevice,Device.Optical,InternetGatewayDevice.LANDevice');
-      const formatted = (rawDevices as any[]).map(mapGenieAcsDeviceToAppFormat);
-      res.json({ success: true, devices: formatted });
+      if (!Array.isArray(rawDevices)) {
+        return res.status(502).json({
+          success: false,
+          status: "unavailable",
+          error: "Resposta inválida da API NBI",
+          devices: null
+        });
+      }
+      const formatted = rawDevices.map(mapGenieAcsDeviceToAppFormat);
+      res.json({ success: true, status: "online", devices: formatted });
     } catch (err: any) {
-      res.status(503).json({ success: false, status: "unavailable", error: err.message, devices: [] });
+      res.status(503).json({ success: false, status: "unavailable", error: err.message, devices: null });
     }
   });
 
   router.post("/devices/:id/reboot", async (req, res) => {
     const { id } = req.params;
     try {
-      if (!process.env.GENIEACS_URL) {
+      if (!process.env.GENIEACS_URL || !process.env.GENIEACS_USER || !process.env.GENIEACS_PASSWORD) {
         return res.status(503).json({
           success: false,
-          status: "unavailable",
-          error: "GenieACS não configurado ou inacessível (GENIEACS_URL ausente)."
+          status: "not_configured",
+          error: "GenieACS não configurado ou credenciais ausentes."
         });
       }
       await callGenieAcs(`/devices/${encodeURIComponent(id)}/tasks?connection_request`, {
@@ -109,14 +132,14 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
       });
       if (registrarAuditoria) {
         registrarAuditoria({
-          usuario: req.headers["x-user-email"] || "Operador NOC",
+          usuario: (req as any).user?.email || req.headers["x-user-email"] || null,
           modulo: "GenieACS (TR-069)",
           acao: "Reboot Remoto (Nativo)",
           detalhes: `Comando de Reboot enviado para CPE: ${id}`,
           categoria: "suporte",
           severidade: "critico",
-          ip: req.ip || null,
-          userAgent: req.headers["user-agent"] || "GenieACS TR-069 API"
+          ip: req.ip || req.socket.remoteAddress || null,
+          userAgent: req.headers["user-agent"] || null
         });
       }
       res.json({ success: true, mensagem: "Comando de Reboot transmitido com sucesso." });
@@ -128,11 +151,11 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
   router.post("/devices/:id/factory-reset", async (req, res) => {
     const { id } = req.params;
     try {
-      if (!process.env.GENIEACS_URL) {
+      if (!process.env.GENIEACS_URL || !process.env.GENIEACS_USER || !process.env.GENIEACS_PASSWORD) {
         return res.status(503).json({
           success: false,
-          status: "unavailable",
-          error: "GenieACS não configurado ou inacessível (GENIEACS_URL ausente)."
+          status: "not_configured",
+          error: "GenieACS não configurado ou credenciais ausentes."
         });
       }
       await callGenieAcs(`/devices/${encodeURIComponent(id)}/tasks?connection_request`, {
@@ -141,14 +164,14 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
       });
       if (registrarAuditoria) {
         registrarAuditoria({
-          usuario: req.headers["x-user-email"] || "Operador NOC",
+          usuario: (req as any).user?.email || req.headers["x-user-email"] || null,
           modulo: "GenieACS (TR-069)",
           acao: "Factory Reset Remoto",
           detalhes: `Comando de Factory Reset disparado para a ONT ${id}`,
           categoria: "suporte",
           severidade: "critico",
-          ip: req.ip || null,
-          userAgent: req.headers["user-agent"] || "GenieACS TR-069 API"
+          ip: req.ip || req.socket.remoteAddress || null,
+          userAgent: req.headers["user-agent"] || null
         });
       }
       res.json({ success: true, mensagem: "Comando Factory Reset transmitido com sucesso." });
@@ -161,11 +184,11 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
     const { id } = req.params;
     const { ssid, wifiPassword, wifiChannel } = req.body;
     try {
-      if (!process.env.GENIEACS_URL) {
+      if (!process.env.GENIEACS_URL || !process.env.GENIEACS_USER || !process.env.GENIEACS_PASSWORD) {
         return res.status(503).json({
           success: false,
-          status: "unavailable",
-          error: "GenieACS não configurado ou inacessível (GENIEACS_URL ausente)."
+          status: "not_configured",
+          error: "GenieACS não configurado ou credenciais ausentes."
         });
       }
       const parameterValues = [];
@@ -178,14 +201,14 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
       });
       if (registrarAuditoria) {
         registrarAuditoria({
-          usuario: req.headers["x-user-email"] || "Operador NOC",
+          usuario: (req as any).user?.email || req.headers["x-user-email"] || null,
           modulo: "GenieACS (TR-069)",
           acao: "Alteração Wi-Fi Remota",
           detalhes: `Senha e/ou SSID Wi-Fi alterados remotamente para ONT: ${id}`,
           categoria: "configuracao",
           severidade: "medio",
-          ip: req.ip || null,
-          userAgent: req.headers["user-agent"] || "GenieACS"
+          ip: req.ip || req.socket.remoteAddress || null,
+          userAgent: req.headers["user-agent"] || null
         });
       }
       res.json({ success: true, mensagem: "Configurações Wi-Fi aplicadas via TR-069" });
@@ -197,11 +220,11 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
   router.get("/devices/:id/diagnostics", async (req, res) => {
     const { id } = req.params;
     try {
-      if (!process.env.GENIEACS_URL) {
+      if (!process.env.GENIEACS_URL || !process.env.GENIEACS_USER || !process.env.GENIEACS_PASSWORD) {
         return res.status(503).json({
           success: false,
-          status: "unavailable",
-          reason: "GENIEACS_URL não configurado"
+          status: "not_configured",
+          reason: "GENIEACS_URL ou credenciais não configuradas"
         });
       }
       const rawDevices = await callGenieAcs(`/devices?query=${encodeURIComponent(JSON.stringify({_id: id}))}`);
@@ -212,9 +235,14 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
         success: true,
         device,
         telemetria: {
-          historicoSinalRx: [{ hora: "Agora", rx: device.rssi }],
-          perdaPacotesLan: "0%", perdaPacotesWan: "0%", pingDnsPrimario: "N/A", pingGateway: "N/A",
-          temperaturaLaser: device.tempLaser, voltagem: device.vccVolts, clientesConectados: device.lanClients
+          historicoSinalRx: device.rssi !== null ? [{ hora: "Agora", rx: device.rssi }] : [],
+          perdaPacotesLan: null,
+          perdaPacotesWan: null,
+          pingDnsPrimario: null,
+          pingGateway: null,
+          temperaturaLaser: device.tempLaser,
+          voltagem: device.vccVolts,
+          clientesConectados: device.lanClients
         }
       });
     } catch (err: any) {
@@ -226,11 +254,11 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
     const { id } = req.params;
     const host = req.body.host || "8.8.8.8";
     try {
-      if (!process.env.GENIEACS_URL) {
+      if (!process.env.GENIEACS_URL || !process.env.GENIEACS_USER || !process.env.GENIEACS_PASSWORD) {
         return res.status(503).json({
           success: false,
-          status: "unavailable",
-          error: "GenieACS não configurado ou inacessível (GENIEACS_URL ausente)."
+          status: "not_configured",
+          error: "GenieACS não configurado ou credenciais ausentes."
         });
       }
       await callGenieAcs(`/devices/${encodeURIComponent(id)}/tasks?connection_request`, {
@@ -256,13 +284,15 @@ export const setupGenieacsRoutes = (app: express.Express, { registrarAuditoria }
   router.post("/devices/:id/provision", async (req, res) => {
     const { id } = req.params;
     try {
-      if (process.env.GENIEACS_URL) {
+      if (process.env.GENIEACS_URL && process.env.GENIEACS_USER && process.env.GENIEACS_PASSWORD) {
         await callGenieAcs(`/devices/${encodeURIComponent(id)}/tasks?connection_request`, {
           method: 'POST',
           body: JSON.stringify({ name: 'refreshObject', objectName: 'InternetGatewayDevice.WANDevice' })
         });
+        res.json({ success: true, mensagem: "Reprovisionamento TR-069 acionado." });
+      } else {
+        res.status(503).json({ success: false, status: "not_configured", error: "GenieACS não configurado" });
       }
-      res.json({ success: true, mensagem: "Reprovisionamento TR-069 acionado." });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
