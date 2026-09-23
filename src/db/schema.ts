@@ -465,6 +465,37 @@ export const campanhas_execucoes = pgTable('campanhas_execucoes', {
 });
 
 /**
+ * 14.1 REGISTRO REAL DE CHAMADAS DE VOZ / ASTERISK (TELEFONIA ISP)
+ * Atende às diretrizes de auditoria com rastreabilidade por canal, duração e causa de hangup.
+ */
+export const campanhas_chamadas_voz = pgTable('campanhas_chamadas_voz', {
+  id: serial('id').primaryKey(),
+  campaignId: integer('campaign_id').references(() => campanhas.id).notNull(),
+  recipientId: integer('recipient_id').references(() => campanhas_destinatarios.id).notNull(),
+  telefone: varchar('telefone', { length: 50 }).notNull(),
+  asteriskChannelId: varchar('asterisk_channel_id', { length: 150 }),
+  status: varchar('status', { length: 50 }).default('queued').notNull(), // 'queued', 'originating', 'ringing', 'answered', 'no_answer', 'busy', 'failed', 'cancelled'
+  startedAt: timestamp('started_at'),
+  answeredAt: timestamp('answered_at'),
+  endedAt: timestamp('ended_at'),
+  durationSeconds: integer('duration_seconds').default(0),
+  hangupCause: varchar('hangup_cause', { length: 100 }),
+  result: varchar('result', { length: 50 }),
+  errorCode: varchar('error_code', { length: 100 }),
+  errorMessage: text('error_message'),
+  idempotencyKey: varchar('idempotency_key', { length: 255 }).unique(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    chamadaCampIdx: index('idx_chamadas_voz_campaign_id').on(table.campaignId),
+    chamadaDestIdx: index('idx_chamadas_voz_recipient_id').on(table.recipientId),
+    chamadaStatusIdx: index('idx_chamadas_voz_status').on(table.status),
+    chamadaChannelIdx: index('idx_chamadas_voz_channel_id').on(table.asteriskChannelId)
+  };
+});
+
+/**
  * 15. PERSISTÊNCIA DE WEB PUSH (SUBSCRIPTIONS)
  */
 export const push_subscriptions = pgTable('push_subscriptions', {

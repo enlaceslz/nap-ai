@@ -1702,14 +1702,25 @@ app.use("/api/ai", aiRoutes);
   app.use("/api/v1/correlation", setupCorrelationRoutes());
   app.get("/api/gis/features", (req, res) => { res.json({ success: true, features: [] }) });
   
-  // BLOQUEADOR 3: NOC Security Alerts com fonte real (Zabbix) e zero dados fabricados
-  app.get("/api/noc/security-alerts", (req, res) => {
-    const zabbixService = ZabbixService.getInstance();
-    const secResult = zabbixService.getSecurityAlerts();
-    if (secResult.status === "unavailable") {
-      return res.status(503).json(secResult);
+  // BLOQUEADOR CRÍTICO 02: NOC Security Alerts com consulta real ao Zabbix 7.0 LTS (zero alertas inventados)
+  app.get("/api/noc/security-alerts", async (req, res) => {
+    try {
+      const zabbixService = ZabbixService.getInstance();
+      const secResult = await zabbixService.getSecurityAlertsReal();
+      if (secResult.status === "unavailable") {
+        return res.status(503).json(secResult);
+      }
+      if (secResult.status === "error") {
+        return res.status(502).json(secResult);
+      }
+      return res.json(secResult);
+    } catch (err: any) {
+      return res.status(503).json({
+        status: "unavailable",
+        alerts: [],
+        error: err.message
+      });
     }
-    return res.json(secResult.alerts);
   });
 
   // IPAM & NSoT

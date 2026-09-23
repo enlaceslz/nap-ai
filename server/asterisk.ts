@@ -3,10 +3,10 @@ import net from 'net';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { db } from "../src/db/index.js";
-import { clientes } from "../src/db/schema.js";
-import { eq } from "drizzle-orm";
-import { assertRealService } from "./security/mockGuard.js";
+import { db } from "../src/db/index";
+import { clientes, campanhas_chamadas_voz } from "../src/db/schema";
+import { eq, and } from "drizzle-orm";
+import { assertRealService } from "./security/mockGuard";
 
 const ARI_URL = process.env.ARI_URL || process.env.ASTERISK_ARI_URL || (process.env.ASTERISK_HOST ? `http://${process.env.ASTERISK_HOST}:${process.env.ASTERISK_PORT_ARI || '8088'}` : '');
 const ARI_USER = process.env.ARI_USER || process.env.ASTERISK_USER_ARI || '';
@@ -254,6 +254,346 @@ export async function checkAsteriskRuntimeHealth(): Promise<{
     ariPortOpen,
     error: (!amiPortOpen && !ariPortOpen) ? `Portas Asterisk AMI (${amiPort}) e ARI (${ariPort}) não respondem em ${host}` : undefined
   };
+}
+
+export interface OriginateCallParams {
+  campaignId: number;
+  recipientId: number;
+  telefone: string;
+  idempotencyKey: string;
+  audioText?: string;
+  timeoutSeconds?: number;
+}
+
+export interface OriginateCallResult {
+  status: 'queued' | 'originating' | 'ringing' | 'answered' | 'no_answer' | 'busy' | 'failed' | 'cancelled';
+  asteriskChannelId?: string;
+  startedAt?: Date;
+  answeredAt?: Date;
+  endedAt?: Date;
+  durationSeconds?: number;
+  hangupCause?: string;
+  result?: string;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+/**
+ * BLOQUEADOR CRÍTICO 01: Originação e Acompanhamento Real de Chamadas de Voz no Asterisk 20+
+ * Regra: Asterisk conectado != chamada realizada.
+ * Ciclo de vida estrito: queued -> originating -> ringing -> answered | no_answer | busy | failed
+ * Persistência append-only no PostgreSQL (campanhas_chamadas_voz).
+ */
+export async function originateCampaignVoiceCall(params: OriginateCallParams): Promise<OriginateCallResult> {
+  const { campaignId, recipientId, telefone, idempotencyKey, audioText, timeoutSeconds = 30 } = params;
+
+  // 1. Verificação de Idempotência: não duplicar chamadas em execução ou já atendidas
+  try {
+    const existing = await db.select().from(campanhas_chamadas_voz)
+      .where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey))
+      .limit(1);
+
+    if (existing.length > 0) {
+      const reg = existing[0];
+      if (reg.status === 'answered' || reg.status === 'originating' || reg.status === 'ringing') {
+        console.log(`[Asterisk Voz] Idempotência ativa para chave ${idempotencyKey}: status=${reg.status}`);
+        return {
+          status: reg.status as any,
+          asteriskChannelId: reg.asteriskChannelId || undefined,
+          startedAt: reg.startedAt || undefined,
+          answeredAt: reg.answeredAt || undefined,
+          endedAt: reg.endedAt || undefined,
+          durationSeconds: reg.durationSeconds || 0,
+          hangupCause: reg.hangupCause || undefined,
+          result: reg.result || undefined,
+          errorCode: reg.errorCode || undefined,
+          errorMessage: reg.errorMessage || undefined
+        };
+      }
+    }
+  } catch (dbErr: any) {
+    console.warn(`[Asterisk Voz] Aviso ao consultar idempotência: ${dbErr.message}`);
+  }
+
+  // 2. Sanitização estrita do telefone
+  const cleanPhone = (telefone || '').replace(/\D/g, '');
+  if (!cleanPhone || cleanPhone.length < 10) {
+    const errResult: OriginateCallResult = {
+      status: 'failed',
+      errorCode: 'INVALID_PHONE_NUMBER',
+      errorMessage: `Número telefônico inválido para originação SIP: "${telefone}".`
+    };
+    try {
+      await db.insert(campanhas_chamadas_voz).values({
+        campaignId,
+        recipientId,
+        telefone: cleanPhone || telefone,
+        status: 'failed',
+        result: 'failed',
+        errorCode: errResult.errorCode,
+        errorMessage: errResult.errorMessage,
+        idempotencyKey,
+        updatedAt: new Date()
+      }).onConflictDoUpdate({
+        target: campanhas_chamadas_voz.idempotencyKey,
+        set: { status: 'failed', result: 'failed', errorCode: errResult.errorCode, errorMessage: errResult.errorMessage, updatedAt: new Date() }
+      });
+    } catch {}
+    return errResult;
+  }
+
+  // 3. Verificação de Runtime do Asterisk
+  const health = await checkAsteriskRuntimeHealth();
+  if (!health.responsive) {
+    const errResult: OriginateCallResult = {
+      status: 'failed',
+      errorCode: 'ASTERISK_UNAVAILABLE',
+      errorMessage: health.error || 'Servidor Asterisk de Voz/WebRTC indisponível ou inacessível nas portas de telefonia.'
+    };
+    try {
+      await db.insert(campanhas_chamadas_voz).values({
+        campaignId,
+        recipientId,
+        telefone: cleanPhone,
+        status: 'failed',
+        result: 'failed',
+        errorCode: errResult.errorCode,
+        errorMessage: errResult.errorMessage,
+        idempotencyKey,
+        updatedAt: new Date()
+      }).onConflictDoUpdate({
+        target: campanhas_chamadas_voz.idempotencyKey,
+        set: { status: 'failed', result: 'failed', errorCode: errResult.errorCode, errorMessage: errResult.errorMessage, updatedAt: new Date() }
+      });
+    } catch {}
+    return errResult;
+  }
+
+  // Se ARI não estiver conectado mas as portas estão ativas, tenta reconectar
+  if (!isConnected || !ariInstance) {
+    await connectARI();
+  }
+
+  if (!isConnected || !ariInstance) {
+    const errResult: OriginateCallResult = {
+      status: 'failed',
+      errorCode: 'ARI_NOT_CONNECTED',
+      errorMessage: 'Conexão Asterisk ARI não autenticada no servidor.'
+    };
+    try {
+      await db.insert(campanhas_chamadas_voz).values({
+        campaignId,
+        recipientId,
+        telefone: cleanPhone,
+        status: 'failed',
+        result: 'failed',
+        errorCode: errResult.errorCode,
+        errorMessage: errResult.errorMessage,
+        idempotencyKey,
+        updatedAt: new Date()
+      }).onConflictDoUpdate({
+        target: campanhas_chamadas_voz.idempotencyKey,
+        set: { status: 'failed', result: 'failed', errorCode: errResult.errorCode, errorMessage: errResult.errorMessage, updatedAt: new Date() }
+      });
+    } catch {}
+    return errResult;
+  }
+
+  // 4. Registro inicial no banco: queued -> originating
+  const startedAt = new Date();
+  try {
+    await db.insert(campanhas_chamadas_voz).values({
+      campaignId,
+      recipientId,
+      telefone: cleanPhone,
+      status: 'originating',
+      startedAt,
+      idempotencyKey,
+      updatedAt: new Date()
+    }).onConflictDoUpdate({
+      target: campanhas_chamadas_voz.idempotencyKey,
+      set: { status: 'originating', startedAt, updatedAt: new Date() }
+    });
+  } catch (e: any) {
+    console.warn(`[Asterisk Voz] Falha ao registrar início da chamada no PostgreSQL: ${e.message}`);
+  }
+
+  // 5. Originação Real no ARI
+  const trunk = process.env.ASTERISK_SIP_TRUNK || 'trunk_isp';
+  const endpoint = `PJSIP/${cleanPhone}@${trunk}`;
+  const callerId = process.env.ASTERISK_CALLERID || 'NAP Telecom';
+
+  return new Promise<OriginateCallResult>((resolve) => {
+    let callResolved = false;
+    let answeredAt: Date | undefined = undefined;
+    let asteriskChannelId: string | undefined = undefined;
+
+    const timeoutTimer = setTimeout(async () => {
+      if (callResolved) return;
+      callResolved = true;
+      const endedAt = new Date();
+      const result: OriginateCallResult = {
+        status: 'no_answer',
+        asteriskChannelId,
+        startedAt,
+        answeredAt,
+        endedAt,
+        durationSeconds: 0,
+        hangupCause: 'TIMEOUT_NO_ANSWER',
+        result: 'no_answer',
+        errorMessage: `Tempo limite de chamada expirado (${timeoutSeconds}s) sem atendimento.`
+      };
+
+      try {
+        await db.update(campanhas_chamadas_voz).set({
+          status: 'no_answer',
+          result: 'no_answer',
+          endedAt,
+          hangupCause: result.hangupCause,
+          errorMessage: result.errorMessage,
+          updatedAt: new Date()
+        }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey));
+      } catch {}
+
+      resolve(result);
+    }, timeoutSeconds * 1000);
+
+    try {
+      ariInstance.channels.originate({
+        endpoint,
+        app: 'ura_maia',
+        callerId,
+        timeout: timeoutSeconds
+      }, (err: any, channel: any) => {
+        if (err || !channel) {
+          clearTimeout(timeoutTimer);
+          if (callResolved) return;
+          callResolved = true;
+          const errMsg = err?.message || 'Rejeição de originação pelo Asterisk ARI';
+          const failedResult: OriginateCallResult = {
+            status: 'failed',
+            startedAt,
+            errorCode: 'ORIGINATE_REJECTED',
+            errorMessage: errMsg,
+            result: 'failed'
+          };
+
+          db.update(campanhas_chamadas_voz).set({
+            status: 'failed',
+            result: 'failed',
+            errorCode: failedResult.errorCode,
+            errorMessage: errMsg,
+            updatedAt: new Date()
+          }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
+
+          return resolve(failedResult);
+        }
+
+        asteriskChannelId = channel.id;
+
+        // Atualiza channel_id no banco
+        db.update(campanhas_chamadas_voz).set({
+          asteriskChannelId,
+          status: 'originating',
+          updatedAt: new Date()
+        }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
+
+        // Monitorar eventos reais do canal
+        channel.on('ChannelStateChange', async (event: any) => {
+          const state = (event.channel?.state || channel.state || '').toLowerCase();
+
+          if (state === 'ringing' && !callResolved) {
+            db.update(campanhas_chamadas_voz).set({
+              status: 'ringing',
+              updatedAt: new Date()
+            }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
+          } else if (state === 'up' && !callResolved) {
+            answeredAt = new Date();
+            db.update(campanhas_chamadas_voz).set({
+              status: 'answered',
+              answeredAt,
+              updatedAt: new Date()
+            }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
+
+            // Se fornecido texto para a URA, reproduz o áudio real no canal
+            if (audioText) {
+              playAudioOnAsterisk(channel, audioText).catch(() => {});
+            }
+          }
+        });
+
+        channel.on('ChannelDestroyed', async (event: any) => {
+          clearTimeout(timeoutTimer);
+          if (callResolved) return;
+          callResolved = true;
+
+          const endedAt = new Date();
+          const cause = Number(event.cause || 0);
+          const causeTxt = event.cause_txt || `ISDN-${cause}`;
+
+          let finalStatus: 'answered' | 'no_answer' | 'busy' | 'failed' = 'failed';
+          let durationSeconds = 0;
+
+          if (answeredAt) {
+            finalStatus = 'answered';
+            durationSeconds = Math.max(1, Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000));
+          } else if (cause === 17) {
+            finalStatus = 'busy'; // User busy
+          } else if (cause === 19 || cause === 18) {
+            finalStatus = 'no_answer'; // No answer / no user responding
+          } else {
+            finalStatus = 'failed';
+          }
+
+          const callResult: OriginateCallResult = {
+            status: finalStatus,
+            asteriskChannelId,
+            startedAt,
+            answeredAt,
+            endedAt,
+            durationSeconds,
+            hangupCause: causeTxt,
+            result: finalStatus
+          };
+
+          try {
+            await db.update(campanhas_chamadas_voz).set({
+              status: finalStatus,
+              answeredAt,
+              endedAt,
+              durationSeconds,
+              hangupCause: causeTxt,
+              result: finalStatus,
+              updatedAt: new Date()
+            }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey));
+          } catch (updateErr: any) {
+            console.warn(`[Asterisk Voz] Falha ao persistir encerramento de chamada: ${updateErr.message}`);
+          }
+
+          resolve(callResult);
+        });
+      });
+    } catch (launchErr: any) {
+      clearTimeout(timeoutTimer);
+      if (callResolved) return;
+      callResolved = true;
+      const failedResult: OriginateCallResult = {
+        status: 'failed',
+        startedAt,
+        errorCode: 'ORIGINATE_EXCEPTION',
+        errorMessage: launchErr.message,
+        result: 'failed'
+      };
+      db.update(campanhas_chamadas_voz).set({
+        status: 'failed',
+        result: 'failed',
+        errorCode: failedResult.errorCode,
+        errorMessage: launchErr.message,
+        updatedAt: new Date()
+      }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
+      resolve(failedResult);
+    }
+  });
 }
 
 

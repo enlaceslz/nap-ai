@@ -1,11 +1,32 @@
 import express from 'express';
 import { db, isDatabaseConnected } from '../../src/db/index';
-import { campanhas, campanhas_destinatarios, campanhas_execucoes, clientes, conversas, mensagens } from '../../src/db/schema';
+import { campanhas, campanhas_destinatarios, campanhas_execucoes, campanhas_chamadas_voz, clientes, conversas, mensagens } from '../../src/db/schema';
 import { eq, desc, and, sql } from 'drizzle-orm';
-import { checkAsteriskRuntimeHealth } from '../asterisk';
+import { checkAsteriskRuntimeHealth, originateCampaignVoiceCall } from '../asterisk';
 
 export const setupCampanhasRoutes = (app: express.Express, { registrarAuditoria }: any = {}) => {
   const router = express.Router();
+
+  // Recuperação de integridade pós-restart: limpa execuções órfãs sem inventar sucesso
+  (async () => {
+    try {
+      const orphanExecs = await db.select().from(campanhas_execucoes)
+        .where(eq(campanhas_execucoes.status, 'running'));
+      for (const orphan of orphanExecs) {
+        await db.update(campanhas_execucoes).set({
+          status: 'failed',
+          finalizadoEm: new Date(),
+          detalhes: 'Execução interrompida por reinício do servidor. Nenhuma chamada fictícia foi completada.'
+        }).where(eq(campanhas_execucoes.id, orphan.id));
+        await db.update(campanhas).set({
+          status: 'paused',
+          updatedAt: new Date()
+        }).where(eq(campanhas.id, orphan.campanhaId));
+      }
+    } catch (err: any) {
+      console.warn(`[Campanhas] Verificação de integridade pós-restart: ${err.message}`);
+    }
+  })();
 
   // 1. Listar Campanhas (PostgreSQL)
   router.get('/campanhas', async (req, res) => {
@@ -268,19 +289,42 @@ export const setupCampanhasRoutes = (app: express.Express, { registrarAuditoria 
                 }
               }
             } else if (camp.canal === 'voz') {
-              const astHealth = await checkAsteriskRuntimeHealth();
               for (const dest of destinatarios) {
-                if (!astHealth.responsive) {
+                const idempotencyKey = `call_${execucao.id}_${dest.id}_${camp.id}`;
+                
+                // Marca destinatário em processamento
+                await db.update(campanhas_destinatarios)
+                  .set({ status: 'sending', tentativas: dest.tentativas + 1 })
+                  .where(eq(campanhas_destinatarios.id, dest.id));
+
+                const callRes = await originateCampaignVoiceCall({
+                  campaignId: id,
+                  recipientId: dest.id,
+                  telefone: dest.destinatario,
+                  idempotencyKey,
+                  audioText: camp.mensagemOuTemplate || `Comunicado oficial do seu provedor de internet sobre ${camp.nome}.`,
+                  timeoutSeconds: 25
+                });
+
+                if (callRes.status === 'answered') {
                   await db.update(campanhas_destinatarios)
-                    .set({ status: 'failed', erro: 'Servidor Asterisk de Voz desconectado', tentativas: 1 })
-                    .where(eq(campanhas_destinatarios.id, dest.id));
-                  falhas++;
-                } else {
-                  // Asterisk conectado: marcaria envio pelo canal ARI/AMI
-                  await db.update(campanhas_destinatarios)
-                    .set({ status: 'sent', enviadoEm: new Date() })
+                    .set({
+                      status: 'sent',
+                      providerMessageId: callRes.asteriskChannelId || null,
+                      enviadoEm: callRes.answeredAt || new Date()
+                    })
                     .where(eq(campanhas_destinatarios.id, dest.id));
                   sucessos++;
+                } else {
+                  // Estados reais do canal telefônico: no_answer, busy, failed, etc.
+                  const motivoErro = callRes.errorMessage || callRes.hangupCause || callRes.errorCode || callRes.status;
+                  await db.update(campanhas_destinatarios)
+                    .set({
+                      status: 'failed',
+                      erro: `Chamada ${callRes.status}: ${motivoErro}`
+                    })
+                    .where(eq(campanhas_destinatarios.id, dest.id));
+                  falhas++;
                 }
               }
             }

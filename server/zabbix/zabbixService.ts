@@ -32,12 +32,30 @@ export interface ZabbixProblem {
   ackAuthor?: string;
 }
 
+export interface NocSecurityAlert {
+  id: string;
+  source: string; // 'zabbix'
+  source_event_id: string; // ID real rastreável do evento no Zabbix
+  host_id: string;
+  host_name: string;
+  severity: 'info' | 'warning' | 'average' | 'high' | 'disaster';
+  category: 'ddos' | 'brute_force' | 'intrusion' | 'firewall' | 'port_scan' | 'authentication' | 'availability' | 'other';
+  name: string;
+  description: string;
+  started_at: string;
+  updated_at: string;
+  status: 'active' | 'resolved' | 'acknowledged';
+  acknowledged: boolean;
+}
+
+export type ZabbixConnectionStatus = 'not_configured' | 'configured' | 'connecting' | 'connected' | 'unavailable' | 'error';
+
 export class ZabbixService {
   private static instance: ZabbixService;
   private hosts: ZabbixHost[] = [];
   private problems: ZabbixProblem[] = [];
-  private zabbixUrl = process.env.ZABBIX_URL || '';
-  private zabbixToken = process.env.ZABBIX_TOKEN || '';
+  private _customUrl?: string;
+  private _customToken?: string;
 
   private constructor() {
     this.hosts = [];
@@ -49,6 +67,29 @@ export class ZabbixService {
       ZabbixService.instance = new ZabbixService();
     }
     return ZabbixService.instance;
+  }
+
+  public configure(url?: string, token?: string) {
+    this._customUrl = url;
+    this._customToken = token;
+  }
+
+  private get zabbixUrl(): string {
+    return this._customUrl !== undefined ? this._customUrl : (process.env.ZABBIX_URL || '');
+  }
+
+  private get zabbixToken(): string {
+    return this._customToken !== undefined ? this._customToken : (process.env.ZABBIX_TOKEN || '');
+  }
+
+  public getConnectionStatus(): ZabbixConnectionStatus {
+    if (!this.zabbixUrl && !this.zabbixToken) {
+      return 'not_configured';
+    }
+    if (!this.zabbixUrl || !this.zabbixToken) {
+      return 'configured';
+    }
+    return 'configured';
   }
 
   public async syncWithZabbix(): Promise<boolean> {
@@ -142,26 +183,156 @@ export class ZabbixService {
     return newProblem;
   }
 
+  /**
+   * Classifica eventos reais obtidos do Zabbix nas categorias homologadas de segurança do NAP.
+   * Não fabrica eventos: apenas classifica ocorrências que contenham termos comprováveis.
+   */
+  private classifySecurityEvent(name: string, tags: any[] = []): 'ddos' | 'brute_force' | 'intrusion' | 'firewall' | 'port_scan' | 'authentication' | 'availability' | 'other' | null {
+    const text = `${name} ${tags.map(t => `${t.tag}:${t.value}`).join(' ')}`.toLowerCase();
+
+    if (text.includes('ddos') || text.includes('flood') || text.includes('syn-flood') || text.includes('udp flood') || text.includes('icmp flood')) {
+      return 'ddos';
+    }
+    if (text.includes('brute') || text.includes('ssh brute') || text.includes('failed password') || text.includes('tentativas de login') || text.includes('bruteforce')) {
+      return 'brute_force';
+    }
+    if (text.includes('intrusion') || text.includes('snort') || text.includes('suricata') || text.includes('malware') || text.includes('exploit')) {
+      return 'intrusion';
+    }
+    if (text.includes('firewall') || text.includes('drop') || text.includes('wan reject') || text.includes('iptables') || text.includes('nftables') || text.includes('bloqueio')) {
+      return 'firewall';
+    }
+    if (text.includes('port scan') || text.includes('portscan') || text.includes('nmap') || text.includes('varredura')) {
+      return 'port_scan';
+    }
+    if (text.includes('auth') || text.includes('unauthorized') || text.includes('permissao') || text.includes('radius failure') || text.includes('autenticacao')) {
+      return 'authentication';
+    }
+    if (text.includes('unreachable') || text.includes('link down') || text.includes('host down') || text.includes('interface down') || text.includes('bgp down')) {
+      return 'availability';
+    }
+
+    // Se possui tag explícita de segurança
+    if (tags.some(t => (t.tag || '').toLowerCase() === 'security' || (t.tag || '').toLowerCase() === 'seguranca')) {
+      return 'other';
+    }
+
+    return null;
+  }
+
+  private mapZabbixSeverity(sev: string | number): 'info' | 'warning' | 'average' | 'high' | 'disaster' {
+    const n = Number(sev);
+    switch (n) {
+      case 5: return 'disaster';
+      case 4: return 'high';
+      case 3: return 'average';
+      case 2: return 'warning';
+      default: return 'info';
+    }
+  }
+
+  /**
+   * BLOQUEADOR CRÍTICO 02: Consulta Real de Alertas de Segurança via API Zabbix 7.0 LTS (problem.get)
+   * Regras:
+   * 1. Zabbix API é a fonte exclusiva. Não fabrica alertas.
+   * 2. Rastreabilidade com source_event_id.
+   * 3. Diferenciação semântica: not_configured, connected, unavailable, error.
+   * 4. Se conectado e sem alertas de segurança: status "connected" com alerts [].
+   */
+  public async getSecurityAlertsReal(): Promise<{
+    status: ZabbixConnectionStatus;
+    alerts: NocSecurityAlert[];
+    error?: string;
+  }> {
+    if (!this.zabbixUrl || !this.zabbixToken) {
+      return { status: 'not_configured', alerts: [] };
+    }
+
+    try {
+      const response = await axios.post(
+        `${this.zabbixUrl}/api_jsonrpc.php`,
+        {
+          jsonrpc: '2.0',
+          method: 'problem.get',
+          params: {
+            output: ['eventid', 'name', 'severity', 'clock', 'r_clock', 'acknowledged'],
+            selectAcknowledges: ['clock', 'message', 'alias'],
+            selectTags: 'extend',
+            recent: true,
+            sortfield: ['eventid'],
+            sortorder: 'DESC',
+            limit: 100
+          },
+          auth: this.zabbixToken,
+          id: Date.now()
+        },
+        { timeout: 4500 }
+      );
+
+      if (response.data?.error) {
+        console.warn('[ZabbixService] Erro retornado pela API Zabbix:', response.data.error);
+        return {
+          status: 'error',
+          alerts: [],
+          error: response.data.error.data || response.data.error.message || 'Erro na API Zabbix'
+        };
+      }
+
+      const problems = response.data?.result;
+      if (!Array.isArray(problems)) {
+        return { status: 'error', alerts: [], error: 'Formato de resposta inesperado do Zabbix' };
+      }
+
+      const securityAlerts: NocSecurityAlert[] = [];
+
+      for (const p of problems) {
+        const category = this.classifySecurityEvent(p.name || '', p.tags || []);
+        if (!category) {
+          // Ignora problemas que não são de segurança operacional
+          continue;
+        }
+
+        const startedAt = p.clock ? new Date(Number(p.clock) * 1000).toISOString() : new Date().toISOString();
+        const updatedAt = p.r_clock && Number(p.r_clock) > 0 ? new Date(Number(p.r_clock) * 1000).toISOString() : startedAt;
+        const isAck = p.acknowledged === '1' || p.acknowledged === true;
+        const isResolved = Boolean(p.r_clock && Number(p.r_clock) > 0);
+
+        securityAlerts.push({
+          id: `sec_${p.eventid}`,
+          source: 'zabbix',
+          source_event_id: String(p.eventid),
+          host_id: p.hostid ? String(p.hostid) : 'unknown',
+          host_name: p.hostname || (this.hosts.find(h => String(h.id) === String(p.hostid))?.name) || 'Zabbix Gateway',
+          severity: this.mapZabbixSeverity(p.severity),
+          category,
+          name: p.name,
+          description: `Evento real registrado no Zabbix [EventID #${p.eventid}]. Severidade: ${p.severity}`,
+          started_at: startedAt,
+          updated_at: updatedAt,
+          status: isResolved ? 'resolved' : (isAck ? 'acknowledged' : 'active'),
+          acknowledged: isAck
+        });
+      }
+
+      return {
+        status: 'connected',
+        alerts: securityAlerts
+      };
+    } catch (err: any) {
+      console.warn(`[ZabbixService] Indisponibilidade de conexão com Zabbix em ${this.zabbixUrl}: ${err.message}`);
+      return {
+        status: 'unavailable',
+        alerts: [],
+        error: `Servidor Zabbix inacessível: ${err.message}`
+      };
+    }
+  }
+
+  // Método síncrono mantido para compatibilidade, direcionando para o status real
   public getSecurityAlerts(): { status: string; alerts: any[] } {
     if (!this.zabbixUrl || !this.zabbixToken) {
-      return { status: "unavailable", alerts: [] };
+      return { status: "not_configured", alerts: [] };
     }
-    const secProblems = this.problems.filter(p => {
-      const msg = (p.message || '').toLowerCase();
-      return msg.includes('ddos') || msg.includes('attack') || msg.includes('flood') || 
-             msg.includes('firewall') || msg.includes('security') || msg.includes('scan') ||
-             msg.includes('brute') || msg.includes('intrusion');
-    });
-
-    return {
-      status: "connected",
-      alerts: secProblems.map(p => ({
-        id: p.id,
-        type: p.message,
-        source: p.host,
-        severity: p.severity,
-        time: p.time
-      }))
-    };
+    return { status: "unavailable", alerts: [] };
   }
 }
