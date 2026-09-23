@@ -37,23 +37,28 @@ export default function PortalContratoModal({
 
  if (!isOpen) return null;
 
- const handleAssinar = () => {
+ const handleAssinar = async () => {
  if (!aceitouTermos) return;
  setAssinando(true);
- setTimeout(() => {
+ try {
  const now = new Date();
  const formatada = `${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR')}`;
- const fakeHash = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
- 
+ const payload = `CONTRATO-${cliente.contrato}-${cliente.nome}-${cliente.cpf}-${now.toISOString()}`;
+ const encoder = new TextEncoder();
+ const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(payload));
+ const hashArray = Array.from(new Uint8Array(hashBuffer));
+ const realHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
  localStorage.setItem(storageKey, 'true');
  localStorage.setItem(`${storageKey}_data`, formatada);
- localStorage.setItem(`${storageKey}_hash`, fakeHash);
+ localStorage.setItem(`${storageKey}_hash`, realHash);
 
  setAssinado(true);
  setDataAssinatura(formatada);
- setHashAssinatura(fakeHash);
+ setHashAssinatura(realHash);
+ } finally {
  setAssinando(false);
- }, 1200);
+ }
  };
 
  const handleImprimir = () => {

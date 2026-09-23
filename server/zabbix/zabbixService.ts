@@ -4,20 +4,20 @@ import { randomInt } from 'crypto';
 export interface ZabbixHost {
   id: number;
   name: string;
-  ip: string;
-  vendor: 'Huawei' | 'ZTE' | 'Datacom' | 'Fiberhome' | 'MikroTik' | 'Juniper';
-  model: string;
-  location: string;
-  cpu: number;
-  ram: number;
-  temp: number;
-  uptime: string;
-  status: 'online' | 'warning' | 'critical' | 'offline';
-  ponPorts: number;
-  activeOnus: number;
-  powerSupply: string;
-  fanRpm: number;
-  uplinkCapacity: string;
+  ip: string | null;
+  vendor: string | null;
+  model: string | null;
+  location: string | null;
+  cpu: number | null;
+  ram: number | null;
+  temp: number | null;
+  uptime: string | null;
+  status: 'online' | 'warning' | 'critical' | 'offline' | 'unknown';
+  ponPorts: number | null;
+  activeOnus: number | null;
+  powerSupply: string | null;
+  fanRpm: number | null;
+  uplinkCapacity: string | null;
 }
 
 export interface ZabbixProblem {
@@ -74,20 +74,20 @@ export class ZabbixService {
         this.hosts = response.data.result.map((h: any) => ({
           id: Number(h.hostid),
           name: h.name || h.host,
-          ip: h.interfaces?.[0]?.ip || '0.0.0.0',
-          vendor: 'MikroTik',
-          model: 'SNMP Device',
-          location: 'POP Central',
-          cpu: 0,
-          ram: 0,
-          temp: 0,
-          uptime: 'N/A',
-          status: h.status === '0' ? 'online' : 'offline',
-          ponPorts: 0,
-          activeOnus: 0,
-          powerSupply: 'OK',
-          fanRpm: 0,
-          uplinkCapacity: '1G'
+          ip: h.interfaces?.[0]?.ip || null,
+          vendor: null,
+          model: null,
+          location: null,
+          cpu: null,
+          ram: null,
+          temp: null,
+          uptime: null,
+          status: h.status === '0' ? 'online' : (h.status === '1' ? 'offline' : 'unknown'),
+          ponPorts: null,
+          activeOnus: null,
+          powerSupply: null,
+          fanRpm: null,
+          uplinkCapacity: null
         }));
         return true;
       }

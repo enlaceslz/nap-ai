@@ -38,6 +38,8 @@ export default function PortalDashboard() {
  const { triggerTestPush, permission, requestPermission } = usePushNotifications();
  const { isInstallable, isInstalled } = usePWAInstall();
  const [faturas, setFaturas] = useState<any[]>([]);
+ const [faturasLoading, setFaturasLoading] = useState(true);
+ const [faturasError, setFaturasError] = useState<string | null>(null);
  const [loadingPix, setLoadingPix] = useState(false);
  const [loadingBoleto, setLoadingBoleto] = useState(false);
  const [pixCode, setPixCode] = useState<string | null>(null);
@@ -95,14 +97,25 @@ export default function PortalDashboard() {
  }
  }
 
- if (clientData.faturas && Array.isArray(clientData.faturas) && clientData.faturas.length > 0) {
- setFaturas(clientData.faturas);
+ const fetchFaturasReal = async () => {
+ setFaturasLoading(true);
+ setFaturasError(null);
+ try {
+ const res = await fetch('/api/erp/faturas');
+ if (!res.ok) throw new Error("Falha ao consultar faturas");
+ const data = await res.json();
+ if (Array.isArray(data)) {
+ setFaturas(data);
  } else {
- fetch('/api/erp/faturas')
- .then(res => res.json())
- .then(data => setFaturas(data))
- .catch(() => {});
+ setFaturasError("Não foi possível consultar suas faturas no momento.");
  }
+ } catch {
+ setFaturasError("Não foi possível consultar suas faturas no momento.");
+ } finally {
+ setFaturasLoading(false);
+ }
+ };
+ fetchFaturasReal();
 
  fetch('/api/portal/wifi')
  .then(res => res.json())
@@ -348,7 +361,16 @@ export default function PortalDashboard() {
  <AlertCircle size={16} className="text-blue-300" />
  <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Próximo Vencimento</p>
  </div>
- {faturaPendente ? (
+ {faturasLoading ? (
+ <div className="mt-4 text-sm text-blue-200 flex items-center gap-2">
+ <Loader2 size={16} className="animate-spin" /> Carregando faturas...
+ </div>
+ ) : faturasError ? (
+ <div className="mt-4">
+ <h2 className="text-xl font-bold mb-1 text-foreground font-outfit">Faturas Indisponíveis</h2>
+ <p className="text-blue-200 text-xs">{faturasError}</p>
+ </div>
+ ) : faturaPendente ? (
  <>
  <h2 className="text-4xl md:text-5xl font-bold mb-2 text-foreground font-outfit tracking-tight">
  <span className="text-xl md:text-2xl text-blue-300">R$</span> {faturaPendente.valor.toFixed(2).replace('.', ',')}

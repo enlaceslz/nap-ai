@@ -94,33 +94,16 @@ export default function NocMonitoramento() {
  try {
  const res = await fetch(`/api/zabbix/traffic?range=${range}`);
  const data = await res.json();
- if (data.success && data.points) {
+ if (data.success && Array.isArray(data.points) && data.points.length > 0) {
  setTrafficData(data.points);
- setPeakTraffic(data.peakGbps ? data.peakGbps.toString() : '14.8');
+ setPeakTraffic(data.peakGbps ? data.peakGbps.toString() : null);
+ } else {
+ setTrafficData([]);
+ setPeakTraffic(null);
  }
  } catch {
- // Fallback
- if (range === '7d') {
- setTrafficData([
- { time: 'Seg', tx: 11.2, rx: 3.4, ixbr: 6.8, cdn: 4.8, transit: 3.0 },
- { time: 'Ter', tx: 12.1, rx: 3.6, ixbr: 7.2, cdn: 5.2, transit: 3.3 },
- { time: 'Qua', tx: 13.0, rx: 3.9, ixbr: 7.9, cdn: 5.6, transit: 3.4 },
- { time: 'Qui', tx: 13.5, rx: 4.1, ixbr: 8.2, cdn: 5.9, transit: 3.5 },
- { time: 'Sex', tx: 14.8, rx: 4.8, ixbr: 9.1, cdn: 6.5, transit: 4.0 },
- { time: 'Sáb', tx: 15.6, rx: 5.2, ixbr: 9.8, cdn: 7.2, transit: 3.8 },
- { time: 'Dom', tx: 15.2, rx: 5.0, ixbr: 9.4, cdn: 7.0, transit: 3.8 },
- ]);
- } else {
- setTrafficData([
- { time: '00:00', tx: 4.2, rx: 1.1, ixbr: 2.4, cdn: 2.1, transit: 0.8 },
- { time: '04:00', tx: 2.1, rx: 0.8, ixbr: 1.2, cdn: 1.1, transit: 0.6 },
- { time: '08:00', tx: 5.8, rx: 2.4, ixbr: 3.5, cdn: 2.6, transit: 2.1 },
- { time: '12:00', tx: 8.9, rx: 3.2, ixbr: 5.2, cdn: 4.1, transit: 2.8 },
- { time: '16:00', tx: 10.2, rx: 3.9, ixbr: 6.1, cdn: 4.8, transit: 3.2 },
- { time: '20:00', tx: 14.8, rx: 5.3, ixbr: 9.2, cdn: 6.7, transit: 4.2 },
- { time: '23:59', tx: 11.2, rx: 4.1, ixbr: 6.9, cdn: 5.1, transit: 3.3 },
- ]);
- }
+ setTrafficData([]);
+ setPeakTraffic(null);
  }
  };
 

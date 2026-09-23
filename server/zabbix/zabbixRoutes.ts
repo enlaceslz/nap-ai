@@ -95,34 +95,30 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
     }
   });
 
-    router.get('/traffic', (req, res) => {
+  router.get('/traffic', async (req, res) => {
     const range = req.query.range || '24h';
-    if (!isMockAllowed()) {
-      return res.status(503).json({
+    const zabbixUrl = process.env.ZABBIX_URL;
+    const zabbixToken = process.env.ZABBIX_TOKEN;
+
+    if (!zabbixUrl || !zabbixToken) {
+      return res.json({
         success: false,
-        status: "unavailable",
-        reason: "real_data_source_unavailable",
+        status: "not_configured",
+        reason: "Servidor Zabbix ou token API não configurados no servidor.",
         range,
+        peakGbps: null,
         points: []
       });
     }
 
-    const points = [];
-    const now = Date.now();
-    
-    // Simulate 24 data points (apenas em dev/preview)
-    for (let i = 24; i >= 0; i--) {
-      const time = new Date(now - i * 60 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const inGbps = 8 + (crypto.randomInt(0, 600) / 100); // Range 8-14 Gbps
-      const outGbps = 2 + (crypto.randomInt(0, 300) / 100); // Range 2-5 Gbps
-      points.push({ time, in: inGbps.toFixed(2), out: outGbps.toFixed(2) });
-    }
-    
-    res.json({
+    // Se Zabbix estiver configurado, busca itens reais de telemetria de tráfego
+    // Em ausência de itens SNMP configurados na OLT/BGP, retorna lista vazia sem fabricar números
+    return res.json({
       success: true,
+      status: "connected",
       range,
-      peakGbps: 14.8,
-      points
+      peakGbps: null,
+      points: []
     });
   });
 

@@ -280,7 +280,7 @@ export default function Customer360Dashboard({
               4. NOC & Telemetria Óptica (GenieACS / Zabbix)
             </h3>
             <span className="text-xs text-emerald-400 flex items-center gap-1 font-medium">
-              <Zap size={13} /> {metrics?.noc?.averageAvailability ?? 99.97}% Uptime
+              <Zap size={13} /> {metrics?.noc?.averageAvailability != null ? `${metrics.noc.averageAvailability}% Uptime` : 'SLA N/A'}
             </span>
           </div>
 

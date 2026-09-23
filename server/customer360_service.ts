@@ -596,7 +596,7 @@ export class Customer360Store {
         offlineCustomers: allCustomers.filter(c => c.technical.onuState === 'offline' || c.technical.onuState === 'los').length,
         offlineOnus: allCustomers.filter(c => c.technical.onuState === 'offline').length,
         criticalAlerts: allCustomers.reduce((acc, c) => acc + c.noc.activeAlerts, 0),
-        averageAvailability: 99.97
+        averageAvailability: null
       }
     };
   }

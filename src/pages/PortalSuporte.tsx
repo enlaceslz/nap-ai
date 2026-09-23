@@ -137,16 +137,18 @@ export default function PortalSuporte() {
  };
 
  useEffect(() => {
- // Busca chamados de suporte
+ // Busca chamados de suporte do cliente autenticado
  fetch('/api/deals')
  .then(res => res.json())
  .then((data: Deal[]) => {
- // Simular filtro do cliente logado "João Silva"
- const clienteChamados = data.filter(d => d.pipeline === 'Suporte' && d.contato === 'João Silva');
+ if (Array.isArray(data)) {
+ const clienteChamados = data.filter(d => d.pipeline === 'Suporte' && (d.contato === clientData.nome || d.telefone === clientData.telefone));
  setChamados(clienteChamados);
+ }
  setLoading(false);
- });
- }, []);
+ })
+ .catch(() => setLoading(false));
+ }, [clientData.nome, clientData.telefone]);
 
  const handleCriarChamado = async (e: React.FormEvent) => {
  e.preventDefault();
@@ -161,10 +163,10 @@ export default function PortalSuporte() {
  body: JSON.stringify({
  titulo: novoCategoria,
  pipeline: 'Suporte',
- contato: 'João Silva',
- telefone: '(11) 98765-4321',
- endereco: 'Rua das Flores, 123 - Centro Histórico',
- plano: 'Fibra 500MB',
+ contato: clientData.nome || 'Assinante',
+ telefone: clientData.telefone || '',
+ endereco: clientData.endereco || 'Endereço Cadastrado no ERP',
+ plano: clientData.plano || 'Fibra Óptica',
  prioridade: novoCategoria.includes('Sem Acesso') ? 1 : 2,
  contexto_ia: `${novoDescricao} | Preferência de retorno: ${novoPreferencia}.${coordenadas}`
  })

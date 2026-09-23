@@ -406,3 +406,61 @@ export const ipam_reservations = pgTable('ipam_reservations', {
   purpose: varchar('purpose', { length: 100 }),
   created_at: timestamp('created_at').defaultNow().notNull(),
 });
+
+/**
+ * 14. OPERAÇÃO ATIVA & CAMPANHAS ISP (WABA, VOZ/URA, PUSH)
+ */
+export const campanhas = pgTable('campanhas', {
+  id: serial('id').primaryKey(),
+  nome: varchar('nome', { length: 255 }).notNull(),
+  canal: varchar('canal', { length: 50 }).notNull(), // 'whatsapp', 'voz', 'push'
+  tipo: varchar('tipo', { length: 100 }).notNull(),
+  status: varchar('status', { length: 50 }).default('draft').notNull(), // 'draft', 'scheduled', 'queued', 'running', 'completed', 'failed', 'cancelled'
+  leads: integer('leads').default(0).notNull(),
+  processados: integer('processados').default(0).notNull(),
+  dropRate: varchar('drop_rate', { length: 20 }),
+  mensagemOuTemplate: text('mensagem_ou_template'),
+  criadoEm: timestamp('criado_em').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    statusCampanhaIdx: index('idx_campanhas_status').on(table.status),
+    canalCampanhaIdx: index('idx_campanhas_canal').on(table.canal)
+  };
+});
+
+export const campanhas_destinatarios = pgTable('campanhas_destinatarios', {
+  id: serial('id').primaryKey(),
+  campanhaId: integer('campanha_id').references(() => campanhas.id).notNull(),
+  destinatario: varchar('destinatario', { length: 100 }).notNull(),
+  clienteId: integer('cliente_id').references(() => clientes.id),
+  status: varchar('status', { length: 50 }).default('queued').notNull(), // 'queued', 'sending', 'sent', 'delivered', 'failed'
+  providerMessageId: varchar('provider_message_id', { length: 255 }),
+  tentativas: integer('tentativas').default(0).notNull(),
+  erro: text('erro'),
+  enviadoEm: timestamp('enviado_em'),
+  entregueEm: timestamp('entregue_em'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    campanhaDestIdx: index('idx_destinatarios_campanha_id').on(table.campanhaId),
+    statusDestIdx: index('idx_destinatarios_status').on(table.status)
+  };
+});
+
+export const campanhas_execucoes = pgTable('campanhas_execucoes', {
+  id: serial('id').primaryKey(),
+  campanhaId: integer('campanha_id').references(() => campanhas.id).notNull(),
+  status: varchar('status', { length: 50 }).notNull(), // 'running', 'completed', 'failed', 'paused'
+  iniciadoEm: timestamp('iniciado_em').defaultNow().notNull(),
+  finalizadoEm: timestamp('finalizado_em'),
+  totalAlvos: integer('total_alvos').default(0).notNull(),
+  sucessoCount: integer('sucesso_count').default(0).notNull(),
+  falhaCount: integer('falha_count').default(0).notNull(),
+  detalhes: text('detalhes')
+}, (table) => {
+  return {
+    campanhaExecIdx: index('idx_execucoes_campanha_id').on(table.campanhaId)
+  };
+});
+

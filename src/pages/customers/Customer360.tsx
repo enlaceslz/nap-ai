@@ -22,10 +22,10 @@ export default function Customer360() {
   const [selectedCustomer, setSelectedCustomer] = useState<NapCustomer360 | null>(null);
   
   const [metrics, setMetrics] = useState({
-    customers: { total: 3, active: 3, blocked: 0, defaulters: 1 },
-    financial: { openChargesCount: 1, openChargesAmount: 119.90, pixReceivedCount: 2, pixReceivedAmount: 189.90, pendingErpBaixasCount: 1, reconciledCount: 2, divergencesCount: 0 },
-    support: { openTickets: 1, delayedTickets: 0, whatsappInteractions: 8, asteriskCalls: 3 },
-    noc: { offlineCustomers: 0, offlineOnus: 0, criticalAlerts: 0, averageAvailability: 99.97 }
+    customers: { total: 0, active: 0, blocked: 0, defaulters: 0 },
+    financial: { openChargesCount: 0, openChargesAmount: 0, pixReceivedCount: 0, pixReceivedAmount: 0, pendingErpBaixasCount: 0, reconciledCount: 0, divergencesCount: 0 },
+    support: { openTickets: 0, delayedTickets: 0, whatsappInteractions: 0, asteriskCalls: 0 },
+    noc: { offlineCustomers: 0, offlineOnus: 0, criticalAlerts: 0, averageAvailability: null as number | null }
   });
 
   const [isLoading, setIsLoading] = useState(true);

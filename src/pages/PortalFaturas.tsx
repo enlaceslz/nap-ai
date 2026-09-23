@@ -4,6 +4,7 @@ import { FileText, CheckCircle2, Clock, Download, QrCode, Loader2, Copy, Zap, Sh
 export default function PortalFaturas() {
  const [faturas, setFaturas] = useState<any[]>([]);
  const [loading, setLoading] = useState(true);
+ const [error, setError] = useState<string | null>(null);
  const [desbloqueioLoading, setDesbloqueioLoading] = useState(false);
  const [desbloqueioAtivo, setDesbloqueioAtivo] = useState(false);
  const [desbloqueioMsg, setDesbloqueioMsg] = useState<string | null>(null);
@@ -13,40 +14,28 @@ export default function PortalFaturas() {
  const [actionStates, setActionStates] = useState<Record<number, { type: 'pix' | 'boleto', status: 'loading' | 'success', data?: string }>>({});
 
  useEffect(() => {
- const authData = localStorage.getItem('@nap_client_auth');
- if (authData) {
+ const fetchFaturasReal = async () => {
+ setLoading(true);
+ setError(null);
  try {
- const client = JSON.parse(authData);
- if (client.faturas && Array.isArray(client.faturas) && client.faturas.length > 0) {
- setFaturas(client.faturas);
- setLoading(false);
+ const res = await fetch('/api/erp/faturas');
+ if (!res.ok) {
+ throw new Error('Falha ao consultar faturas no ERP/Banco.');
+ }
+ const data = await res.json();
+ if (Array.isArray(data)) {
+ setFaturas(data);
  } else {
- fetch('/api/erp/faturas')
- .then(res => res.json())
- .then(data => {
- setFaturas(data);
- setLoading(false);
- })
- .catch(() => setLoading(false));
+ setError("Não foi possível consultar suas faturas no momento. Tente novamente mais tarde.");
  }
- } catch (e) {
- fetch('/api/erp/faturas')
- .then(res => res.json())
- .then(data => {
- setFaturas(data);
+ } catch (err) {
+ setError("Não foi possível consultar suas faturas no momento. Tente novamente mais tarde.");
+ } finally {
  setLoading(false);
- })
- .catch(() => setLoading(false));
  }
- } else {
- fetch('/api/erp/faturas')
- .then(res => res.json())
- .then(data => {
- setFaturas(data);
- setLoading(false);
- })
- .catch(() => setLoading(false));
- }
+ };
+
+ fetchFaturasReal();
 
  // Checar se já há desbloqueio ativo salvo na sessão
  const salvo = localStorage.getItem('nap_desbloqueio_24h') || localStorage.getItem('nap_desbloqueio_48h');
@@ -111,10 +100,13 @@ export default function PortalFaturas() {
  };
 
  const handleCopyLinhaDigitavel = (id: number) => {
- const linha = "03399.87654 32100.000000 12345.678901 1 99990000009990";
+ const fatura = faturas.find(f => f.id === id || String(f.id) === String(id));
+ const linha = fatura?.linhaDigitavel || fatura?.pixCopiaECola || '';
+ if (linha) {
  navigator.clipboard.writeText(linha);
  setCopiedLinha(id);
  setTimeout(() => setCopiedLinha(null), 2500);
+ }
  };
 
  const [pixCopiedLocal, setPixCopiedLocal] = useState(false);
@@ -177,9 +169,16 @@ export default function PortalFaturas() {
  </div>
  )}
 
+ {error && (
+ <div className="mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-center gap-3">
+ <AlertCircle size={20} className="shrink-0" />
+ <span>{error}</span>
+ </div>
+ )}
+
  {loading ? (
  <div className="flex justify-center p-8 text-muted-foreground">Carregando faturas...</div>
- ) : (
+ ) : error ? null : (
  <div className="bg-card rounded-3xl border border-border overflow-hidden relative">
  <div className="divide-y divide-slate-200 relative z-10">
  {faturas.map(fatura => (

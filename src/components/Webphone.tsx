@@ -328,39 +328,8 @@ export default function Webphone({
  }
  } else {
  if (clientMode) {
- // Simulação: 20% de chance do operador estar ocupado
- const isOperatorBusy = Math.random() > 0.8;
- if (isOperatorBusy) {
- const playVoice = () => {
- const msg = new SpeechSynthesisUtterance("Desculpe, todos os nossos operadores estão ocupados no momento. Por favor, tente novamente em instantes ou mande uma mensagem no chat.");
- msg.lang = 'pt-BR';
- msg.rate = 1.05;
- msg.pitch = 1.25;
- 
- const voices = window.speechSynthesis.getVoices();
- const preferred = ['Francisca', 'Luciana', 'Vitoria', 'Raquel', 'Maju', 'Google português do Brasil', 'Google pt-BR'];
- let voice = voices.find(v => v.lang.includes('pt-BR') && preferred.some(p => v.name.includes(p)));
- if (!voice) voice = voices.find(v => v.lang.includes('pt-BR'));
- if (voice) msg.voice = voice;
- 
- window.speechSynthesis.cancel();
- window.speechSynthesis.speak(msg);
- };
-
- if (window.speechSynthesis.getVoices().length > 0) {
- playVoice();
- } else {
- window.speechSynthesis.onvoiceschanged = () => {
- playVoice();
- window.speechSynthesis.onvoiceschanged = null;
- };
- }
- console.warn('Asterisk SIP: 486 Busy Here - Operadores ocupados.');
- return;
- } else {
- setDialNumber(incomingCallData?.motivo || 'Fila de Atendimento');
- setOnCall(true);
- }
+  setDialNumber(incomingCallData?.motivo || 'Fila de Atendimento');
+  setOnCall(true);
  } else if (dialNumber.trim().length > 0) {
  setShowPostCallSummary(false);
  setSavedToSgp(false);
