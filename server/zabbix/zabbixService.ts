@@ -121,6 +121,9 @@ export class ZabbixService {
   }
 
   public simulateTrigger(hostId: number, severity: 'critical' | 'warning', message: string): ZabbixProblem | null {
+    if (process.env.NODE_ENV === 'production') {
+      return null;
+    }
     const host = this.hosts.find(h => h.id === hostId);
     if (!host) return null;
 
@@ -137,5 +140,28 @@ export class ZabbixService {
     this.problems.unshift(newProblem);
     host.status = severity;
     return newProblem;
+  }
+
+  public getSecurityAlerts(): { status: string; alerts: any[] } {
+    if (!this.zabbixUrl || !this.zabbixToken) {
+      return { status: "unavailable", alerts: [] };
+    }
+    const secProblems = this.problems.filter(p => {
+      const msg = (p.message || '').toLowerCase();
+      return msg.includes('ddos') || msg.includes('attack') || msg.includes('flood') || 
+             msg.includes('firewall') || msg.includes('security') || msg.includes('scan') ||
+             msg.includes('brute') || msg.includes('intrusion');
+    });
+
+    return {
+      status: "connected",
+      alerts: secProblems.map(p => ({
+        id: p.id,
+        type: p.message,
+        source: p.host,
+        severity: p.severity,
+        time: p.time
+      }))
+    };
   }
 }

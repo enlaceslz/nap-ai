@@ -63,6 +63,10 @@ import { setupGenieacsRoutes } from "./server/genieacs/genieacsRoutes";
 import { setupCommunicationsRoutes } from "./server/communications/communicationsRoutes";
 import { setupFieldRoutes } from "./server/field/fieldRoutes";
 import { setupWabaRoutes } from "./server/waba";
+import { setupOperatorPushRoutes } from "./server/push/operatorPushRoutes";
+import { setupCampanhasRoutes } from "./server/marketing/campanhasRoutes";
+import { setupIncidentesRoutes } from "./server/noc/incidentesRoutes";
+import { ZabbixService } from "./server/zabbix/zabbixService";
 import { setupHelpDeskRoutes } from "./server/helpdesk/routes";
 import { setupIpamRoutes } from "./server/ipam/routes";
 import { setupCorrelationRoutes } from "./server/correlation/routes";
@@ -473,15 +477,6 @@ app.get("/api/tecnicos/mapa", async (req, res) => {
       ordens_servico: []
     });
   }
-});
-
-// Push Notification de Teste para Membro da Equipe
-app.post("/api/push/operator/test", (req, res) => {
-  const { tipo, operador_nome, ramal } = req.body;
-  res.json({
-    sucesso: true,
-    mensagem: `Push transmitido com sucesso para ${operador_nome || 'Operador'} (${tipo || 'alerta'}) no ramal ${ramal || 'PWA'}`
-  });
 });
 
   // Restaurar todas as credenciais nativas de fábrica (Asterisk, GenieACS, Zabbix, Mapa, SGP, Radius)
@@ -1484,464 +1479,9 @@ app.post("/api/push/operator/test", (req, res) => {
     });
   });
 
-  // --- MÓDULO NOC OUTAGE SHIELD (GESTÃO DE INCIDENTES MASSIVOS E INTERCEPTAÇÃO DE IA) ---
-  interface IncidenteRede {
-    id: string;
-    titulo: string;
-    tipo: "rompimento_fibra" | "falha_energia_pop" | "degradacao_olt" | "manutencao_programada";
-    regioesAfetadas: string[];
-    concentradorOuOlt: string;
-    clientesAfetadosAprox: number;
-    status: "investigando" | "em_reparo" | "normalizado";
-    previsaoRetorno: string;
-    iniciadoEm: string;
-    protocoloAnatel: string;
-    descricao: string;
-    autoInterceptarAtendimento: boolean;
-    notificacoesEnviadas: number;
-  }
+  // --- MÓDULO RÉGUA INTELIGENTE DE COBRANÇA: Consolidado exclusivamente em ./server/marketing/reguaRoutes.ts ---
 
-  let incidentesRede: IncidenteRede[] = [];
-
-  // Listar Incidentes
-  app.get("/api/incidentes", (req, res) => {
-    res.json({
-      sucesso: true,
-      total: incidentesRede.length,
-      incidentes: incidentesRede
-    });
-  });
-
-  // Criar novo Incidente
-  app.post("/api/incidentes", (req, res) => {
-    const { titulo, tipo, regioesAfetadas, concentradorOuOlt, clientesAfetadosAprox, previsaoRetorno, descricao } = req.body;
-    const novoIncidente: IncidenteRede = {
-      id: `INC-${Date.now().toString().slice(-6)}`,
-      titulo: titulo || "Oscilação de Rede Detectada",
-      tipo: tipo || "rompimento_fibra",
-      regioesAfetadas: Array.isArray(regioesAfetadas) ? regioesAfetadas : ["Região Geral"],
-      concentradorOuOlt: concentradorOuOlt || "OLT Central",
-      clientesAfetadosAprox: Number(clientesAfetadosAprox) || 0,
-      status: "em_reparo",
-      previsaoRetorno: previsaoRetorno || "Em até 2 horas",
-      iniciadoEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + " (Hoje)",
-      protocoloAnatel: `ANT-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`,
-      descricao: descricao || "Manutenção corretiva em andamento.",
-      autoInterceptarAtendimento: true,
-      notificacoesEnviadas: 0
-    };
-
-    incidentesRede.unshift(novoIncidente);
-    res.status(201).json({ sucesso: true, incidente: novoIncidente });
-  });
-
-  // Atualizar Incidente (status, previsão)
-  app.patch("/api/incidentes/:id", (req, res) => {
-    const { id } = req.params;
-    const { status, previsaoRetorno, descricao } = req.body;
-
-    const index = incidentesRede.findIndex(inc => inc.id === id);
-    if (index === -1) {
-      return res.status(404).json({ sucesso: false, erro: "Incidente não encontrado." });
-    }
-
-    if (status) incidentesRede[index].status = status;
-    if (previsaoRetorno) incidentesRede[index].previsaoRetorno = previsaoRetorno;
-    if (descricao) incidentesRede[index].descricao = descricao;
-    if (typeof req.body.autoInterceptarAtendimento === 'boolean') {
-      incidentesRede[index].autoInterceptarAtendimento = req.body.autoInterceptarAtendimento;
-    }
-
-    res.json({ sucesso: true, incidente: incidentesRede[index] });
-  });
-
-  // Disparo em Massa de Alerta de Incidente para Clientes da Região
-  app.post("/api/incidentes/:id/notificar-massa", (req, res) => {
-    const { id } = req.params;
-    const incidente = incidentesRede.find(inc => inc.id === id);
-    if (!incidente) {
-      return res.status(404).json({ sucesso: false, erro: "Incidente não encontrado." });
-    }
-
-    const hasWaba = Boolean(process.env.WABA_ACCESS_TOKEN && process.env.WABA_PHONE_NUMBER_ID);
-    const hasPush = Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
-
-    if (!hasWaba && !hasPush) {
-      return res.status(400).json({
-        sucesso: false,
-        enviados: 0,
-        motivo: "Nenhum canal de notificação configurado (WABA ou Web Push ausentes)."
-      });
-    }
-
-    incidente.notificacoesEnviadas += incidente.clientesAfetadosAprox;
-
-    // Registra notificação push no histórico
-    pushNotificationsHistory.unshift({
-      id: `push_inc_${Date.now()}`,
-      titulo: `⚠️ Comunicado de Manutenção: ${incidente.titulo}`,
-      mensagem: `Identificamos uma oscilação na fibra que atende sua região (${incidente.regioesAfetadas.join(', ')}). Equipe técnica no local. Previsão de normalização: ${incidente.previsaoRetorno}.`,
-      categoria: "manutencao",
-      enviado_em: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-      destinatarios: incidente.clientesAfetadosAprox,
-      sucesso: true
-    });
-
-    res.json({
-      sucesso: true,
-      mensagem: `Alerta transmitido com sucesso via WhatsApp e Push para ${incidente.clientesAfetadosAprox} clientes afetados!`,
-      incidente
-    });
-  });
-
-  // Verificar se determinado cliente ou endereço está sob impacto de Incidente Ativo
-  app.get("/api/incidentes/verificar-cliente", (req, res) => {
-    const { bairro = "", cidade = "" } = req.query as { bairro?: string; cidade?: string };
-
-    const termoBairro = bairro.toLowerCase().trim();
-    const incidenteAtivo = incidentesRede.find(inc => 
-      inc.status !== "normalizado" &&
-      inc.autoInterceptarAtendimento &&
-      inc.regioesAfetadas.some(reg => reg.toLowerCase().includes(termoBairro) || termoBairro.includes(reg.toLowerCase()))
-    );
-
-    if (incidenteAtivo) {
-      return res.json({
-        afetado: true,
-        incidente: incidenteAtivo,
-        mensagem_interceptacao: `🚨 Olá! Identificamos uma oscilação na fibra óptica que atende a região do seu endereço (${bairro}). Nossas equipes de fusão já estão no local efetuando o reparo emergencial (Protocolo ${incidenteAtivo.protocoloAnatel}). Previsão de normalização: ${incidenteAtivo.previsaoRetorno}. Não é necessário aguardar em fila.`
-      });
-    }
-
-    res.json({ afetado: false });
-  });
-
-  // --- MÓDULO RÉGUA INTELIGENTE DE COBRANÇA (AUTO-BILLING & NEGOCIAÇÃO IA) ---
-  interface AssinanteFilaRegua {
-    id: string;
-    nome: string;
-    telefone: string;
-    cpf: string;
-    bairro: string;
-    plano: string;
-    valor: number;
-    vencimento: string;
-    fase: "d_menos_3" | "d_zero" | "d_mais_3" | "d_mais_7";
-    statusRadius: "ativo" | "bloqueio_parcial" | "normal";
-    statusEnvio: "pendente" | "enviado" | "erro";
-    ultimoEnvio?: string;
-    pixCopiaECola: string;
-    linkSegundaVia: string;
-  }
-
-  function getFilaAssinantesReal(): AssinanteFilaRegua[] {
-    try {
-      const store = Customer360Store.getInstance();
-      const customers = store.listCustomers();
-      const fila: AssinanteFilaRegua[] = [];
-      const now = new Date();
-
-      customers.forEach((c: any) => {
-        (c.financial?.invoices || []).forEach((inv: any) => {
-          if (inv.status === "open" || inv.status === "divergent") {
-            const dueDate = new Date(inv.dueDate);
-            const diffDays = Math.round((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-            let fase: "d_menos_3" | "d_zero" | "d_mais_3" | "d_mais_7" = "d_zero";
-            let vencimentoLabel = "Hoje";
-
-            if (diffDays >= 2 && diffDays <= 4) {
-              fase = "d_menos_3";
-              vencimentoLabel = `Em ${diffDays} dias`;
-            } else if (diffDays >= -1 && diffDays <= 1) {
-              fase = "d_zero";
-              vencimentoLabel = "Hoje";
-            } else if (diffDays <= -2 && diffDays >= -5) {
-              fase = "d_mais_3";
-              vencimentoLabel = `${Math.abs(diffDays)} dias atrás`;
-            } else if (diffDays <= -6) {
-              fase = "d_mais_7";
-              vencimentoLabel = `${Math.abs(diffDays)} dias atrás`;
-            }
-
-            fila.push({
-              id: `inv-${inv.id}`,
-              nome: c.name,
-              telefone: c.phone || "",
-              cpf: c.document,
-              bairro: c.address || "Centro",
-              plano: c.contract?.planName || "Fibra Óptica",
-              valor: Number(inv.amount || 0),
-              vencimento: vencimentoLabel,
-              fase,
-              statusRadius: c.status === "blocked" ? "bloqueio_parcial" : "ativo",
-              statusEnvio: "pendente",
-              pixCopiaECola: inv.pixCopiaECola || "",
-              linkSegundaVia: inv.napInvoiceId ? `/api/invoices/${inv.id}/pdf` : ""
-            });
-          }
-        });
-      });
-      return fila;
-    } catch {
-      return [];
-    }
-  }
-
-  let reguaCobrancaConfig = {
-    ativa: false,
-    horarioInicio: "08:30",
-    horarioFim: "19:30",
-    descontoPontualidade: 0.00,
-    diasAntesVencimento: 3,
-    notificarDiaVencimento: true,
-    diasAposVencimentoTolerancia: 3,
-    diasAposVencimentoBloqueio: 7,
-    gerarPixAutomatico: true,
-    canais: {
-      whatsapp: true,
-      sms: false,
-      push: false,
-      email: false
-    },
-    templates: {
-      d_menos_3: "Olá, {{nome_cliente}}! 💙 Passando para lembrar que sua fatura de {{plano}} no valor de R$ {{valor_fatura}} vence em 3 dias ({{data_vencimento}}). Pague agora via PIX:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}\n\n📄 2ª Via em PDF: {{link_segunda_via}}",
-      d_zero: "Olá, {{nome_cliente}}! 🚀 Sua mensalidade vence HOJE ({{data_vencimento}}). Para manter sua conexão rápida e sem interrupções, pague agora via PIX:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}\n\nPrecisa de 2ª via? Acesse: {{link_segunda_via}}",
-      d_mais_3: "Olá, {{nome_cliente}}. Não localizamos o pagamento da sua fatura vencida em {{data_vencimento}}.\n\nCaso precise regularizar, você pode pagar com o PIX abaixo:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}",
-      d_mais_7: "⚠️ AVISO URGENTE: Prezado(a) {{nome_cliente}}, sua fatura está com 7 dias de atraso. Evite a suspensão do serviço efetuando o pagamento via PIX:\n\n🔑 PIX:\n{{chave_pix}}"
-    },
-    estatisticas: {
-      totalDisparadosHoje: 0,
-      faturasRecuperadasPix: 0,
-      valorRecuperadoHoje: 0.00,
-      taxaConversaoPix: "0.0%"
-    },
-    historicoExecucoes: [] as any[],
-    filaAssinantes: [] as AssinanteFilaRegua[]
-  };
-
-  app.get("/api/cobranca/regua", (req, res) => {
-    if (reguaCobrancaConfig.filaAssinantes.length === 0) {
-      reguaCobrancaConfig.filaAssinantes = getFilaAssinantesReal();
-    }
-    res.json({
-      sucesso: true,
-      config: reguaCobrancaConfig
-    });
-  });
-
-  app.put("/api/cobranca/regua", (req, res) => {
-    reguaCobrancaConfig = {
-      ...reguaCobrancaConfig,
-      ...req.body
-    };
-    res.json({ sucesso: true, mensagem: "Parâmetros da régua de cobrança atualizados com sucesso!", config: reguaCobrancaConfig });
-  });
-
-  // Executar disparo em lote de uma das fases da régua
-  app.post("/api/cobranca/regua/executar", (req, res) => {
-    const { fase = "d_menos_3" } = req.body;
-
-    if (reguaCobrancaConfig.filaAssinantes.length === 0) {
-      reguaCobrancaConfig.filaAssinantes = getFilaAssinantesReal();
-    }
-
-    let nomeFase = "";
-    if (fase === "d_menos_3") {
-      nomeFase = "D-3 (Lembrete Preventivo Amigável)";
-    } else if (fase === "d_zero") {
-      nomeFase = "D0 (Vence Hoje)";
-    } else if (fase === "d_mais_3") {
-      nomeFase = "D+3 (Aviso de Tolerância e Desbloqueio 24h)";
-    } else {
-      nomeFase = "D+7 (Aviso de Suspensão MikroTik)";
-    }
-
-    const alvos = reguaCobrancaConfig.filaAssinantes.filter(ass => ass.fase === fase);
-    const totalDisparados = alvos.length;
-    const valorEstimado = alvos.reduce((sum, a) => sum + (a.valor || 0), 0);
-
-    // Marcar os assinantes dessa fase como enviados
-    alvos.forEach(ass => {
-      ass.statusEnvio = "enviado";
-      ass.ultimoEnvio = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-    });
-
-    reguaCobrancaConfig.estatisticas.totalDisparadosHoje += totalDisparados;
-    reguaCobrancaConfig.historicoExecucoes.unshift({
-      id: `exec-${Date.now()}`,
-      fase: nomeFase,
-      disparados: totalDisparados,
-      pixGerados: totalDisparados,
-      sucesso: totalDisparados,
-      data: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-    });
-
-    res.json({
-      sucesso: true,
-      fase: nomeFase,
-      totalDisparados,
-      valorTotal: valorEstimado,
-      mensagem: totalDisparados > 0 
-        ? `Disparo da régua "${nomeFase}" processado com sucesso! ${totalDisparados} clientes notificados via WABA.`
-        : `Nenhum cliente elegível na fase "${nomeFase}" para disparo no momento.`
-    });
-  });
-
-  app.post("/api/cobranca/regua/disparar-individual", (req, res) => {
-    const { id } = req.body;
-    const cliente = reguaCobrancaConfig.filaAssinantes.find(a => a.id === id);
-
-    if (!cliente) {
-      return res.status(404).json({ sucesso: false, mensagem: "Assinante não encontrado na régua." });
-    }
-
-    cliente.statusEnvio = "enviado";
-    cliente.ultimoEnvio = "Agora mesmo";
-    reguaCobrancaConfig.estatisticas.totalDisparadosHoje += 1;
-
-    res.json({
-      sucesso: true,
-      mensagem: `Notificação WhatsApp com PIX enviada com sucesso para ${cliente.nome} (${cliente.telefone})!`,
-      cliente
-    });
-  });
-
-  // Simular envio de teste de template de régua
-  app.post("/api/cobranca/regua/simular-teste", (req, res) => {
-    const { telefone = "(11) 99999-9999", fase = "d_menos_3" } = req.body;
-    const templateTexto = reguaCobrancaConfig.templates[fase as keyof typeof reguaCobrancaConfig.templates] || "";
-
-    const mensagemRenderizada = templateTexto
-      .replace(/{{nome_cliente}}/g, "João da Silva (Teste)")
-      .replace(/{{plano}}/g, "Fibra 500MB")
-      .replace(/{{valor_fatura}}/g, "99,90")
-      .replace(/{{data_vencimento}}/g, "15/10/2026")
-      .replace(/{{desconto_pontualidade}}/g, reguaCobrancaConfig.descontoPontualidade.toFixed(2).replace('.', ','))
-      .replace(/{{chave_pix}}/g, "00020126580014BR.GOV.BCB.PIX0136teste-nap@provedor.com.br520400005303986540599.905802BR5910JOAO SILVA6009SAO PAULO62070503***6304E8A1")
-      .replace(/{{link_segunda_via}}/g, "https://isp.provedor.com.br/faturas/teste");
-
-    res.json({
-      sucesso: true,
-      telefone,
-      fase,
-      mensagemRenderizada,
-      mensagem: `Simulação de envio para ${telefone} realizada com sucesso!`
-    });
-  });
-
-  // --- MÓDULO OPERAÇÃO ATIVA & GESTÃO DE CAMPANHAS ---
-  interface CampanhaItem {
-    id: number;
-    canal: "whatsapp" | "voz" | "push";
-    nome: string;
-    leads: number;
-    processados: number;
-    conversao: string;
-    status: "Rodando" | "Concluída" | "Agendada" | "Pausada";
-    tipo: string;
-    dropRate?: string;
-    mensagemOuTemplate?: string;
-    criadoEm: string;
-  }
-
-  let campanhasList: CampanhaItem[] = [];
-
-  app.get("/api/campanhas", (req, res) => {
-    res.json({
-      sucesso: true,
-      campanhas: campanhasList
-    });
-  });
-
-  app.post("/api/campanhas", async (req, res) => {
-    const { nome, canal, tipo, leads, mensagemOuTemplate, dropRate } = req.body;
-
-    if (canal === "whatsapp" && (!process.env.WABA_ACCESS_TOKEN || !process.env.WABA_PHONE_NUMBER_ID)) {
-      return res.status(400).json({
-        sucesso: false,
-        erro: "Canal WhatsApp WABA não configurado. Adicione as credenciais em Configurações antes de criar campanhas."
-      });
-    }
-
-    if (canal === "voz") {
-      const astHealth = await checkAsteriskRuntimeHealth();
-      if (!astHealth.responsive) {
-        return res.status(400).json({
-          sucesso: false,
-          erro: "Servidor Asterisk de Voz/WebRTC indisponível ou desconectado."
-        });
-      }
-    }
-
-    const nova: CampanhaItem = {
-      id: Date.now(),
-      canal: canal || "whatsapp",
-      nome: nome || "Nova Campanha Ativa",
-      leads: Number(leads) || 0,
-      processados: 0,
-      conversao: "0%",
-      status: "Agendada",
-      tipo: tipo || (canal === "voz" ? "URA Discador" : "HSM Template"),
-      dropRate: canal === "voz" ? (dropRate || "2.5%") : undefined,
-      mensagemOuTemplate: mensagemOuTemplate || "",
-      criadoEm: "Agora mesmo"
-    };
-
-    campanhasList.unshift(nova);
-
-    const callerUser = (req as any).user?.nome || (req as any).user?.email || "operador";
-    registrarAuditoria({
-      usuario: callerUser,
-      modulo: "Campanhas",
-      acao: `Criação de Campanha: ${nova.nome}`,
-      detalhes: `Campanha criada no canal ${nova.canal.toUpperCase()} (${nova.tipo}) com volume de ${nova.leads} destinatários.`,
-      categoria: "disparo",
-      severidade: "info",
-      ip: req.ip || null,
-      userAgent: (req.headers["user-agent"] as string) || null,
-      payloadDepois: { id: nova.id, nome: nova.nome, canal: nova.canal, leads: nova.leads }
-    });
-
-    res.status(201).json({
-      sucesso: true,
-      mensagem: `Campanha "${nova.nome}" criada com sucesso!`,
-      campanha: nova
-    });
-  });
-
-  app.post("/api/campanhas/:id/toggle", (req, res) => {
-    const id = Number(req.params.id);
-    const camp = campanhasList.find(c => c.id === id);
-    if (!camp) {
-      return res.status(404).json({ sucesso: false, erro: "Campanha não encontrada" });
-    }
-
-    const statusAnterior = camp.status;
-    if (camp.status === "Rodando") {
-      camp.status = "Pausada";
-    } else if (camp.status === "Pausada" || camp.status === "Agendada") {
-      camp.status = "Rodando";
-    }
-
-    const callerUser = (req as any).user?.nome || (req as any).user?.email || "operador";
-    registrarAuditoria({
-      usuario: callerUser,
-      modulo: "Campanhas",
-      acao: `Alteração de Status: ${camp.nome}`,
-      detalhes: `Campanha '${camp.nome}' teve status alterado de '${statusAnterior}' para '${camp.status}'.`,
-      categoria: "disparo",
-      severidade: "info",
-      ip: req.ip || null,
-      userAgent: (req.headers["user-agent"] as string) || null,
-      payloadAntes: { status: statusAnterior },
-      payloadDepois: { status: camp.status }
-    });
-
-    res.json({
-      sucesso: true,
-      campanha: camp
-    });
-  });
+  // --- MÓDULO OPERAÇÃO ATIVA & GESTÃO DE CAMPANHAS: Consolidado em ./server/marketing/campanhasRoutes.ts com PostgreSQL ---
 
   // --- MONITOR DE SINCRONIZAÇÃO EM TEMPO REAL (ERP & GENIEACS) ---
   let lastManualSyncTime: string | null = null;
@@ -2143,6 +1683,9 @@ setupOltRoutes(app, { registrarAuditoria });
 setupZabbixRoutes(app, { registrarAuditoria });
 setupCrmRoutes(app, { registrarAuditoria });
 setupReguaRoutes(app, { registrarAuditoria });
+setupOperatorPushRoutes(app);
+setupCampanhasRoutes(app, { registrarAuditoria });
+setupIncidentesRoutes(app, { registrarAuditoria });
 setupPortalRoutes(app);
 setupGenieacsRoutes(app, { registrarAuditoria });
 setupCommunicationsRoutes(app, { registrarAuditoria });
@@ -2158,7 +1701,16 @@ app.use("/api/ai", aiRoutes);
   // Event Engine & Correlation
   app.use("/api/v1/correlation", setupCorrelationRoutes());
   app.get("/api/gis/features", (req, res) => { res.json({ success: true, features: [] }) });
-  app.get("/api/noc/security-alerts", (req, res) => { res.json([{ id: 1, type: "DDoS Attempt", source: "192.168.1.100", severity: "high", time: new Date().toISOString() }]); });
+  
+  // BLOQUEADOR 3: NOC Security Alerts com fonte real (Zabbix) e zero dados fabricados
+  app.get("/api/noc/security-alerts", (req, res) => {
+    const zabbixService = ZabbixService.getInstance();
+    const secResult = zabbixService.getSecurityAlerts();
+    if (secResult.status === "unavailable") {
+      return res.status(503).json(secResult);
+    }
+    return res.json(secResult.alerts);
+  });
 
   // IPAM & NSoT
   app.use("/api/v1/ipam", setupIpamRoutes());
@@ -2286,7 +1838,26 @@ app.use("/api/ai", aiRoutes);
       return res.status(403).json({ error: eligibility.reason });
     }
 
-    const { adminEmail, adminPassword, sgpUrl, sgpApp, geminiApiKey, amiUser } = req.body;
+    // BLOQUEADOR 5: Rejeitar terminantemente qualquer secret de infraestrutura no body
+    const FORBIDDEN_SECRETS = [
+      'geminiApiKey', 'gemini_api_key', 'sgpToken', 'sgp_token', 'erpToken', 'erp_token',
+      'amiPassword', 'ami_password', 'genieacsPassword', 'genieacs_password',
+      'zabbixToken', 'zabbixPassword', 'wabaAccessToken', 'wabaVerifyToken',
+      'jwtSecret', 'databaseUrl', 'postgresPassword', 'redisUrl', 'radiusSecret',
+      'webhookSecret', 'privateKey', 'private_key', 'certificate'
+    ];
+
+    for (const key of Object.keys(req.body)) {
+      const lower = key.toLowerCase();
+      if (FORBIDDEN_SECRETS.includes(key) || lower.includes('secret') || (lower.includes('token') && lower !== 'csrftoken') || lower.includes('privatekey')) {
+        return res.status(400).json({
+          error: `Secrets de infraestrutura ('${key}') não podem ser fornecidos via Setup Wizard web. Devem ser injetados exclusivamente via variáveis de ambiente, Docker Secrets ou Vault.`,
+          code: 'INFRASTRUCTURE_SECRETS_PROHIBITED'
+        });
+      }
+    }
+
+    const { adminEmail, adminPassword, sgpUrl, sgpApp, amiUser } = req.body;
     
     if (!adminEmail || !adminPassword) {
       return res.status(400).json({ error: "Email e senha do administrador são obrigatórios" });
@@ -2315,25 +1886,22 @@ app.use("/api/ai", aiRoutes);
         }
       });
 
-      // 3. Gravar .env — REGRA CRÍTICA: NUNCA adicionar ADMIN_PASSWORD nem senhas em texto puro ao .env
+      // 3. Gravar .env — REGRA CRÍTICA: NUNCA adicionar ADMIN_PASSWORD nem senhas ou API keys ao .env
       // O usuário administrador e seu hash bcrypt são armazenados exclusivamente no PostgreSQL
+      // REGRA 15: Não transformar bootstrap em production silenciosamente
       const safeEnvLines = [
         `# Configurações do Provedor NAP (Provisionado em modo Bootstrap)`,
-        `NODE_ENV="${process.env.NODE_ENV === 'bootstrap' ? 'production' : (process.env.NODE_ENV || 'development')}"`,
+        `SETUP_ENABLED="false"`,
+        `ADMIN_EMAIL="${adminEmail}"`,
         `SGP_URL="${sgpUrl || ''}"`,
         `SGP_APP="${sgpApp || ''}"`,
         `AMI_USER="${amiUser || ''}"`,
-        `GENIEACS_URL="${process.env.GENIEACS_URL || 'http://127.0.0.1:7557'}"`,
-        `ADMIN_EMAIL="${adminEmail}"`,
-        `SETUP_ENABLED="false"`
+        `GENIEACS_URL="${process.env.GENIEACS_URL || 'http://127.0.0.1:7557'}"`
       ];
-      if (geminiApiKey) {
-        safeEnvLines.push(`GEMINI_API_KEY="${geminiApiKey}"`);
-      }
       const envContent = safeEnvLines.join("\n") + "\n";
 
       fs.writeFileSync(path.join(process.cwd(), ".env"), envContent, { mode: 0o600 });
-      console.log("[SETUP] Configurações gravadas com sucesso. Senha do administrador armazenada estritamente como hash no PostgreSQL.");
+      console.log("[SETUP] Provisionamento concluído. Setup desativado (SETUP_ENABLED=false). Credenciais administrativas protegidas no PostgreSQL.");
 
       // 4. Registro de auditoria imutável obrigatório
       await recordMandatoryAuditLog({

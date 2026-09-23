@@ -464,3 +464,51 @@ export const campanhas_execucoes = pgTable('campanhas_execucoes', {
   };
 });
 
+/**
+ * 15. PERSISTÊNCIA DE WEB PUSH (SUBSCRIPTIONS)
+ */
+export const push_subscriptions = pgTable('push_subscriptions', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dh: text('p256dh'),
+  auth: text('auth'),
+  userAgent: text('user_agent'),
+  deviceName: varchar('device_name', { length: 150 }),
+  operadorNome: varchar('operador_nome', { length: 150 }),
+  active: boolean('active').default(true).notNull(),
+  lastUsedAt: timestamp('last_used_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    endpointIdx: index('idx_push_sub_endpoint').on(table.endpoint),
+    userIdIdx: index('idx_push_sub_user_id').on(table.userId),
+    activeIdx: index('idx_push_sub_active').on(table.active)
+  };
+});
+
+/**
+ * 16. NOTIFICAÇÕES REAIS DE INCIDENTES (NOC)
+ */
+export const incident_notifications = pgTable('incident_notifications', {
+  id: serial('id').primaryKey(),
+  incidentId: varchar('incident_id', { length: 100 }).notNull(),
+  customerId: integer('customer_id').references(() => clientes.id),
+  channel: varchar('channel', { length: 50 }).notNull(), // 'whatsapp', 'push', 'sms'
+  status: varchar('status', { length: 50 }).default('queued').notNull(), // 'queued', 'sending', 'sent', 'delivered', 'failed'
+  providerMessageId: varchar('provider_message_id', { length: 255 }),
+  attemptedAt: timestamp('attempted_at').defaultNow().notNull(),
+  sentAt: timestamp('sent_at'),
+  failedAt: timestamp('failed_at'),
+  errorCode: varchar('error_code', { length: 100 }),
+  errorMessage: text('error_message'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    incidentIdx: index('idx_incident_notif_incident_id').on(table.incidentId),
+    statusIdx: index('idx_incident_notif_status').on(table.status),
+    customerIdx: index('idx_incident_notif_customer_id').on(table.customerId)
+  };
+});
+

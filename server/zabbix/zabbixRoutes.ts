@@ -1,10 +1,10 @@
 import express from 'express';
 import os from 'os';
+import axios from 'axios';
 import { ZabbixService } from './zabbixService';
-import { isMockAllowed } from '../security/mockGuard';
-import crypto from 'crypto';
+import { requireAuth } from '../auth/rbacMiddleware';
 
-export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: any) => {
+export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: any = {}) => {
   const router = express.Router();
   const zabbixService = ZabbixService.getInstance();
 
@@ -17,8 +17,8 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
         hosts: zabbixService.getHosts(),
         problems: zabbixService.getProblems()
       });
-    } catch (e) {
-      res.status(500).json({ error: 'Erro ao buscar status do Zabbix' });
+    } catch (e: any) {
+      res.status(500).json({ error: 'Erro ao buscar status do Zabbix', details: e.message });
     }
   });
 
@@ -36,7 +36,7 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
     });
   });
 
-  router.post('/ack', (req, res) => {
+  router.post('/ack', async (req, res) => {
     try {
       const { id, message, author } = req.body;
       if (!id || !message || !author) {
@@ -48,7 +48,6 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
         return res.status(404).json({ error: 'Alarme não encontrado' });
       }
 
-      // Mandatory Audit Trail for Zabbix ACK (AGENTS.md Rule)
       if (registrarAuditoria) {
         registrarAuditoria({
           usuario: author || (req as any).user?.email || "system",
@@ -62,27 +61,34 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
         });
       }
 
-      
-      // Dispatch via Communications Hub (Fase 4 - NOC PRD)
       if (req.body.severity === 'critical') {
-         fetch('http://127.0.0.1:3000/api/communications/telegram/send', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({
-             severity: 'critical',
-             message: `[Alerta Zabbix Gerado] ${message}\nHost: ${problem.host}\nHora: ${problem.time}`,
-             requiredRoles: ['noc', 'admin', 'engenharia']
-           })
-         }).catch(() => {});
+        fetch('http://127.0.0.1:3000/api/communications/telegram/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            severity: 'critical',
+            message: `[Alerta Zabbix Gerado] ${message}\nHost: ${problem.host}\nHora: ${problem.time}`,
+            requiredRoles: ['noc', 'admin', 'engenharia']
+          })
+        }).catch(() => {});
       }
-      
+
       res.json({ success: true, problem });
-    } catch (e) {
-      res.status(500).json({ error: 'Erro ao reconhecer alarme' });
+    } catch (e: any) {
+      res.status(500).json({ error: 'Erro ao reconhecer alarme', details: e.message });
     }
   });
 
+  // BLOQUEADOR 6: Simulação de Triggers TERMINANTEMENTE PROIBIDA em Produção
   router.post('/test-trigger', (req, res) => {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(403).json({
+        error: 'Simulação de trigger desabilitada em ambiente de produção (NODE_ENV=production).',
+        code: 'TRIGGER_SIMULATION_FORBIDDEN',
+        status: 'forbidden'
+      });
+    }
+
     try {
       const { hostId, severity, message } = req.body;
       const problem = zabbixService.simulateTrigger(Number(hostId), severity, message);
@@ -90,11 +96,12 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
         return res.status(404).json({ error: 'Host não encontrado para simulação' });
       }
       res.json({ success: true, problem });
-    } catch (e) {
-      res.status(500).json({ error: 'Erro ao simular trigger' });
+    } catch (e: any) {
+      res.status(500).json({ error: 'Erro ao simular trigger', details: e.message });
     }
   });
 
+  // BLOQUEADOR 6 & REGRA 17: Telemetria de Tráfego Semântica
   router.get('/traffic', async (req, res) => {
     const range = req.query.range || '24h';
     const zabbixUrl = process.env.ZABBIX_URL;
@@ -104,22 +111,60 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
       return res.json({
         success: false,
         status: "not_configured",
-        reason: "Servidor Zabbix ou token API não configurados no servidor.",
+        telemetry: "telemetry_unavailable",
+        reason: "Servidor Zabbix ou token API não configurados no ambiente.",
         range,
         peakGbps: null,
         points: []
       });
     }
 
-    // Se Zabbix estiver configurado, busca itens reais de telemetria de tráfego
-    // Em ausência de itens SNMP configurados na OLT/BGP, retorna lista vazia sem fabricar números
-    return res.json({
-      success: true,
-      status: "connected",
-      range,
-      peakGbps: null,
-      points: []
-    });
+    try {
+      // Testar conectividade com o Zabbix JSON-RPC
+      const checkRes = await axios.post(
+        `${zabbixUrl}/api_jsonrpc.php`,
+        {
+          jsonrpc: '2.0',
+          method: 'apiinfo.version',
+          params: [],
+          id: 1
+        },
+        { timeout: 3000 }
+      );
+
+      if (!checkRes.data || checkRes.data.error) {
+        return res.json({
+          success: false,
+          status: "unavailable",
+          telemetry: "telemetry_unavailable",
+          reason: `Zabbix API retornou erro: ${checkRes.data?.error?.data || 'Falha de autenticação'}`,
+          range,
+          peakGbps: null,
+          points: []
+        });
+      }
+
+      // Conectado com sucesso ao Zabbix. Como não há itens SNMP de histórico configurados para o gráfico agregado:
+      return res.json({
+        success: true,
+        status: "connected",
+        telemetry: "telemetry_unavailable",
+        reason: "Zabbix conectado. Nenhum item SNMP de tráfego agregado configurado para o intervalo.",
+        range,
+        peakGbps: null,
+        points: []
+      });
+    } catch (err: any) {
+      return res.json({
+        success: false,
+        status: "unavailable",
+        telemetry: "telemetry_unavailable",
+        reason: `Falha ao conectar no host Zabbix (${zabbixUrl}): ${err.message}`,
+        range,
+        peakGbps: null,
+        points: []
+      });
+    }
   });
 
   app.use('/api/zabbix', router);
