@@ -53,7 +53,7 @@ export default function PortalConta() {
  nome: 'Rafael Medeiros de Albuquerque', 
  cpf: '384.921.750-42', 
  email: 'rafael.medeiros@napfibra.com.br', 
- telefone: '(11) 98765-4321', 
+ telefone: '', 
  endereco: 'Rua das Acácias, 412, Apto 82 - Centro Histórico, São Paulo - SP', 
  contrato: 'CTR-2026-8894',
  plano: '600 Mega Fibra Turbo + Wi-Fi 6'
@@ -121,7 +121,7 @@ export default function PortalConta() {
  <Phone className="absolute left-4 top-3.5 text-muted-foreground group-focus-within:text-blue-600 transition-colors" size={18} />
  <input 
  type="tel" 
- defaultValue={clientData.telefone || "(11) 98765-4321"} 
+ defaultValue={clientData.telefone || ""} 
  className="w-full pl-11 pr-4 py-3 bg-background border border-border rounded-xl focus:ring-2 focus:ring-blue-600/50 focus:border-blue-600 outline-none text-foreground transition-all"
  />
  </div>

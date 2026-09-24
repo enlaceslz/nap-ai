@@ -37,8 +37,8 @@ export interface NocSecurityAlert {
   source: string; // 'zabbix'
   source_event_id: string; // ID real rastreável do evento no Zabbix
   source_problem_id?: string; // ID rastreável do problema no Zabbix
-  host_id: string;
-  host_name: string;
+  host_id: string | null;
+  host_name: string | null;
   severity: 'info' | 'warning' | 'average' | 'high' | 'disaster';
   category: 'ddos' | 'brute_force' | 'intrusion' | 'firewall' | 'port_scan' | 'authentication' | 'availability' | 'other';
   name: string;
@@ -51,6 +51,25 @@ export interface NocSecurityAlert {
 }
 
 export type ZabbixConnectionStatus = 'not_configured' | 'configured' | 'connecting' | 'connected' | 'unavailable' | 'error';
+
+/**
+ * CONTRATO OFICIAL DO NAP PARA ZABBIX_URL:
+ * A convenção padrão recomendada é:
+ *   ZABBIX_URL=http://<host>:<porta>/zabbix
+ * ou a URL completa:
+ *   ZABBIX_URL=http://<host>:<porta>/zabbix/api_jsonrpc.php
+ *
+ * A função normalizeZabbixApiUrl garante de forma idempotente que a URL resultante
+ * termine estritamente com "/api_jsonrpc.php", sem duplicações e sem barras extras.
+ */
+export function normalizeZabbixApiUrl(rawUrl?: string): string {
+  if (!rawUrl || !rawUrl.trim()) return '';
+  const trimmed = rawUrl.trim().replace(/\/+$/, '');
+  if (trimmed.endsWith('/api_jsonrpc.php')) {
+    return trimmed;
+  }
+  return `${trimmed}/api_jsonrpc.php`;
+}
 
 export class ZabbixService {
   private static instance: ZabbixService;
@@ -99,8 +118,9 @@ export class ZabbixService {
       return false;
     }
     try {
+      const apiUrl = normalizeZabbixApiUrl(this.zabbixUrl);
       const response = await axios.post(
-        `${this.zabbixUrl}/api_jsonrpc.php`,
+        apiUrl,
         {
           jsonrpc: '2.0',
           method: 'host.get',
@@ -251,13 +271,15 @@ export class ZabbixService {
     }
 
     try {
+      const apiUrl = normalizeZabbixApiUrl(this.zabbixUrl);
       const response = await axios.post(
-        `${this.zabbixUrl}/api_jsonrpc.php`,
+        apiUrl,
         {
           jsonrpc: '2.0',
           method: 'problem.get',
           params: {
             output: ['eventid', 'name', 'severity', 'clock', 'r_clock', 'acknowledged'],
+            selectHosts: ['hostid', 'name', 'host'],
             selectAcknowledges: ['clock', 'message', 'alias'],
             selectTags: 'extend',
             recent: true,
@@ -300,13 +322,22 @@ export class ZabbixService {
         const isAck = p.acknowledged === '1' || p.acknowledged === true;
         const isResolved = Boolean(resolvedAt);
 
+        // Host real retornado pelo Zabbix. Se ausente, usar null e registrar a limitação.
+        const realHost = Array.isArray(p.hosts) && p.hosts.length > 0 ? p.hosts[0] : null;
+        const hostId = realHost?.hostid ? String(realHost.hostid) : (p.hostid ? String(p.hostid) : null);
+        const hostName = realHost?.name || realHost?.host || (this.hosts.find(h => String(h.id) === String(p.hostid))?.name) || p.hostname || null;
+
+        if (!hostId || !hostName) {
+          console.log(`[ZabbixService] Alerta de segurança [EventID #${p.eventid}] sem host associado retornado pela API Zabbix. host_id e host_name definidos como null.`);
+        }
+
         securityAlerts.push({
           id: `sec_${p.eventid}`,
           source: 'zabbix',
           source_event_id: String(p.eventid),
           source_problem_id: p.problemid ? String(p.problemid) : String(p.eventid),
-          host_id: p.hostid ? String(p.hostid) : 'unknown',
-          host_name: p.hostname || (this.hosts.find(h => String(h.id) === String(p.hostid))?.name) || 'Zabbix Gateway',
+          host_id: hostId,
+          host_name: hostName,
           severity: this.mapZabbixSeverity(p.severity),
           category,
           name: p.name,

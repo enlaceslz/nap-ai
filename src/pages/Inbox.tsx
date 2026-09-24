@@ -54,7 +54,7 @@ const INITIAL_CHATS: ExtendedConversa[] = [
  canal: 'whatsapp',
  contato_id: 9982,
  nome_cliente: 'Maria Oliveira',
- telefone: '(11) 98765-4321',
+ telefone: '',
  cpf: '123.456.789-00',
  plano: 'Fibra 500MB Simétrico',
  protocolo: 'DJD-2026-0909-481',

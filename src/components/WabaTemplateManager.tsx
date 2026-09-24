@@ -330,7 +330,7 @@ export default function WabaTemplateManager() {
  const [previewMode, setPreviewMode] = useState<'sample' | 'variables'>('sample');
  const [activeTab, setActiveTab] = useState<'library' | 'editor' | 'guidelines' | 'json'>('library');
  const [copiedKey, setCopiedKey] = useState<string | null>(null);
- const [testPhoneNumber, setTestPhoneNumber] = useState('(11) 98765-4321');
+ const [testPhoneNumber, setTestPhoneNumber] = useState('');
  const [sendingTest, setSendingTest] = useState(false);
  const [testSuccess, setTestSuccess] = useState<string | null>(null);
 

@@ -1,11 +1,16 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 import { db, isDatabaseConnected } from '../../src/db/index';
 import { faturas, clientes, mensagens, conversas } from '../../src/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { webPushService } from '../push/webPushService';
+import { requireAuth } from '../auth/rbacMiddleware';
 
-// Configuração persistente da régua de cobrança
-let globalReguaConfig = {
+const REGUA_CONFIG_PATH = path.resolve(process.cwd(), 'data', 'regua_config.json');
+
+// Configuração padrão da régua de cobrança
+const defaultReguaConfig = {
   ativa: false,
   horarioInicio: "08:30",
   horarioFim: "19:30",
@@ -42,6 +47,33 @@ let globalReguaConfig = {
   }>
 };
 
+function loadReguaConfig(): typeof defaultReguaConfig {
+  try {
+    if (fs.existsSync(REGUA_CONFIG_PATH)) {
+      const raw = fs.readFileSync(REGUA_CONFIG_PATH, 'utf-8');
+      const parsed = JSON.parse(raw);
+      return { ...defaultReguaConfig, ...parsed };
+    }
+  } catch (err: any) {
+    console.warn('[Régua Cobrança] Falha ao carregar data/regua_config.json, usando padrão:', err.message);
+  }
+  return { ...defaultReguaConfig };
+}
+
+function persistReguaConfig(config: typeof defaultReguaConfig): void {
+  try {
+    const dir = path.dirname(REGUA_CONFIG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(REGUA_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+  } catch (err: any) {
+    console.warn('[Régua Cobrança] Falha ao persistir data/regua_config.json:', err.message);
+  }
+}
+
+let globalReguaConfig = loadReguaConfig();
+
 export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: any = {}) => {
   const router = express.Router();
 
@@ -51,14 +83,15 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
   });
 
   // 2. Atualizar Parâmetros da Régua de Cobrança
-  router.put('/regua', (req, res) => {
+  router.put('/regua', requireAuth, (req, res) => {
     globalReguaConfig = { ...globalReguaConfig, ...req.body };
+    persistReguaConfig(globalReguaConfig);
     if (registrarAuditoria) {
       registrarAuditoria({
         usuario: (req as any).user?.email || "system",
         modulo: "Campanhas ISP",
         acao: "Atualização da Régua de Cobrança",
-        detalhes: "Parâmetros operacionais e templates da régua atualizados.",
+        detalhes: "Parâmetros operacionais e templates da régua atualizados e persistidos.",
         categoria: "marketing",
         severidade: "info",
         ip: req.socket?.remoteAddress || req.ip || null,
@@ -159,7 +192,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
   });
 
   // 4. Executar Disparo em Lote da Régua (REGRA ABSOLUTA: Execução Real com message_id ou falha)
-  router.post('/regua/executar', async (req, res) => {
+  router.post('/regua/executar', requireAuth, async (req, res) => {
     const { fase = "d_menos_3" } = req.body;
 
     const accessToken = process.env.WABA_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
@@ -269,6 +302,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
         falhas,
         data: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
       });
+      persistReguaConfig(globalReguaConfig);
 
       if (registrarAuditoria) {
         registrarAuditoria({
@@ -302,7 +336,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
   });
 
   // 5. Disparo Individual Real de Régua de Cobrança (sem falsos sucessos)
-  router.post('/regua/disparar-individual', async (req, res) => {
+  router.post('/regua/disparar-individual', requireAuth, async (req, res) => {
     const { faturaId, id, fase = "d_menos_3" } = req.body;
     const targetId = Number(faturaId || id);
 
@@ -399,6 +433,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
 
       // Sucesso comprovado pela Meta
       globalReguaConfig.estatisticas.totalDisparadosHoje += 1;
+      persistReguaConfig(globalReguaConfig);
 
       // Registrar mensagem no histórico real
       try {
@@ -456,7 +491,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
   });
 
   // 7. Envio Real de WebPush
-  router.post('/push/send', async (req, res) => {
+  router.post('/push/send', requireAuth, async (req, res) => {
     const { target, title, body, data } = req.body;
 
     if (!webPushService.isConfigured()) {

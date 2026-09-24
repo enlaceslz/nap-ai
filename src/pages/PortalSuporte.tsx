@@ -10,7 +10,7 @@ import Webphone from '../components/Webphone';
 
 export default function PortalSuporte() {
  const authData = localStorage.getItem('@nap_client_auth');
- const clientData = authData ? JSON.parse(authData) : { nome: 'Rafael Medeiros', telefone: '(11) 98765-4321' };
+ const clientData = authData ? JSON.parse(authData) : { nome: 'Cliente', telefone: '' };
 
  const [chamados, setChamados] = useState<Deal[]>([]);
  const [loading, setLoading] = useState(true);
@@ -121,8 +121,8 @@ export default function PortalSuporte() {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({
- telefone: clientData.telefone ? clientData.telefone.replace(/\D/g, '') : '5511987654321',
- nome: clientData.nome || 'Rafael Medeiros',
+ telefone: clientData.telefone ? clientData.telefone.replace(/\D/g, '') : '',
+ nome: clientData.nome || 'Assinante',
  texto: texto
  })
  });
@@ -191,7 +191,7 @@ export default function PortalSuporte() {
  estagio: 'Novo Chamado',
  pipeline: 'Suporte',
  contato: 'João Silva',
- telefone: '(11) 98765-4321',
+ telefone: '',
  endereco: 'Rua das Flores, 123 - Centro Histórico',
  plano: 'Fibra 500MB',
  prioridade: 2,
@@ -260,7 +260,7 @@ export default function PortalSuporte() {
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({
  cliente: 'João Silva (Portal)',
- telefone: '+55 (11) 98765-4321',
+ telefone: '',
  canal: 'Portal PWA',
  nota: npsNota,
  comentario: npsComentario,

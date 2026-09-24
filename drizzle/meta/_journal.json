@@ -36,6 +36,20 @@
       "when": 1789850000000,
       "tag": "0004_append_only_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790262301437,
+      "tag": "0005_pale_santa_claus",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790263500000,
+      "tag": "0006_fluffy_iron_monger",
+      "breakpoints": true
     }
   ]
 }

@@ -18,8 +18,8 @@ export default function Template1({ config: propsConfig }: TemplateProps) {
  const tituloHero = config?.landingPage?.tituloPrincipal || "A internet que conecta você ao futuro.";
  const subtituloHero = config?.landingPage?.subtitulo || "Navegue com ultravelocidade, jogue sem lag e assista seus filmes em 4K sem travamentos. A estabilidade que sua casa e empresa merecem.";
  const textoBotaoCta = config?.landingPage?.textoBotaoCta || "Ver Planos Disponíveis";
- const rawZap = config?.landingPage?.whatsappVendas || config?.provedor?.telefoneWhatsapp || "11987654321";
- const zapClean = String(rawZap).replace(/\D/g, '') || "11987654321";
+ const rawZap = config?.landingPage?.whatsappVendas || config?.provedor?.telefoneWhatsapp || "";
+ const zapClean = String(rawZap).replace(/\D/g, '') || "";
 
  const planos = [
  {

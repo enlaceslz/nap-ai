@@ -313,9 +313,10 @@ Em conformidade estrita com a diretiva **ZERO FALSOS SUCESSOS** do PRD V3, os bl
      - Respostas de envio com status HTTP 404 ou 410 (Gone) inativam automaticamente o registro no PostgreSQL (`active: false`), prevenindo tentativas inúteis de retransmissão.
 
 ### 7.4. Evidência da Suíte de Testes Automatizados (Node Test Runner)
-* **Status da Suíte:** **50 testes unitários e de integração executados com 100% de sucesso (0 falhas)**.
+* **Status da Suíte:** **57 testes unitários e de integração executados com 100% de sucesso (0 falhas)** em 9 suítes.
 * **Comando de Execução:** `npm test`
 * **Módulos Testados:**
+  - `test/unit/v6Bloqueadores.test.ts`: Validação técnica dos bloqueadores finais V6 (Migrations Drizzle idempotentes, WebPush RBAC e autorização estrita, Incidentes NOC com contagem estrita de entregas e Régua de Cobrança durável).
   - `test/unit/prdV3Auditoria.test.ts`: Testes unitários cobrindo Asterisk (indisponibilidade, números inválidos, ciclo de estados, idempotência), Zabbix (not_configured, unavailable 503, classificação de eventos e source_event_id), WebPush (RBAC, bloqueio 403, 404/410), Setup 403 e WABA.
   - `test/security/auditTrail.test.ts`: Encadeamento de hashes SHA-256 e higienização LGPD.
   - `test/security/setupProtection.test.ts`: Bloqueio incondicional do Setup Wizard em produção e integridade bcrypt.
@@ -323,3 +324,49 @@ Em conformidade estrita com a diretiva **ZERO FALSOS SUCESSOS** do PRD V3, os bl
   - `test/security/cors.test.ts`: Política estrita de CORS sem wildcard em produção.
   - `test/security/helmet.test.ts`: Cabeçalhos de segurança HTTP e CSP restrito.
   - `test/security/mockGuard.test.ts`: Bloqueio de mocks e dados sintéticos em produção.
+
+---
+
+## 8. SANEAMENTO DOS BLOQUEADORES FINAIS — NAP V6
+
+### 8.1. Migrations PostgreSQL Versionadas e Idempotentes (Drizzle ORM)
+- **Arquivo Criado:** `drizzle/0005_pale_santa_claus.sql`
+- **Registro no Journal:** `drizzle/meta/_journal.json` atualizado na versão 7 com tag `0005_pale_santa_claus`.
+- **Tabelas Cobertas Integralmente:**
+  1. `campanhas`: Orquestração de campanhas ativas (WhatsApp, Voz, Push).
+  2. `campanhas_destinatarios`: Fila de destinatários reais com status e providerMessageId.
+  3. `campanhas_execucoes`: Histórico de execução de campanhas ativas.
+  4. `campanhas_chamadas_voz`: Registro de chamadas Asterisk 20+ com `asterisk_channel_id`, `asterisk_unique_id`, `duration_seconds`, `hangup_cause`, `result` e chave única `idempotency_key`.
+  5. `push_subscriptions`: Subscrições WebPush com chave única `endpoint`, `p256dh`, `auth`, `user_id` e controle de atividade.
+  6. `incident_notifications`: Histórico e rastreabilidade de alertas de incidentes do NOC.
+- **Idempotência Garantida:**
+  - Todas as tabelas utilizam `CREATE TABLE IF NOT EXISTS`.
+  - Todos os índices utilizam `CREATE INDEX IF NOT EXISTS`.
+  - Todas as foreign keys utilizam blocos `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '...') THEN ALTER TABLE ... ADD CONSTRAINT ...; END IF; END $$;`, prevenindo erros de "relation already exists" ou "duplicate constraint".
+
+### 8.2. Web Push — Autorização Estrita e Proteção contra Desvio de Destinatário
+- **Restrição de Identidade:** O usuário autenticado comum opera estritamente através de `req.user.id`.
+- **Bloqueio de Alvo Arbitrário:**
+  - Tentativas de enviar ou testar notificações para outros operadores sem o cargo `ADMIN` ou `SUPERADMIN` retornam incondicionalmente **HTTP 403 Forbidden**.
+  - No `webPushService.testPush`, foi eliminado o fallback indiscriminado para subscrições de terceiros. Se o operador autenticado não possuir subscrição ativa vinculada, o serviço retorna explicitamente `subscription_not_found`.
+  - Proteção implementada em `/api/push/operator/subscribe`, `/api/push/operator/test`, `/api/push/operator/send`, `/api/push/broadcast` e `/api/cobranca/push/send`.
+- **Auditoria Obrigatória:** Disparos administrativos entre operadores gravam registro imutável com `userId` de quem enviou, `recurso` de quem recebeu e status do envio.
+
+### 8.3. Incidentes NOC — Disparo Real e Contabilização Estrita
+- **Transmissão Comprovada:** No endpoint de notificação em massa de incidentes (`/api/incidentes/:id/notificar-massa`), o canal WebPush foi integrado com a tabela `incident_notifications`.
+- **Contabilidade Real:** Apenas notificações com entrega confirmada pela rede (Meta API ou WebPush VAPID) incrementam o contador `incidente.notificacoesEnviadas`. A mera configuração dos canais nunca incrementa contadores.
+
+### 8.4. Régua de Cobrança — Persistência Durável
+- **Persistência em Disco:** A configuração e o histórico de execuções da régua de cobrança são persistidos duravelmente em `data/regua_config.json`.
+- **Ciclo de Vida:** Carregamento automático na inicialização e gravação síncrona a cada atualização via `PUT /regua` e a cada execução da régua. As rotas operacionais foram protegidas com `requireAuth`.
+
+### 8.5. Erradicação de Dados Fictícios de Produção
+- Removidos todos os fallbacks de número de telefone fictício (`(11) 98765-4321` e `+55 (11) 98765-4321`) em telas e contextos de produção (`Kanban`, `PortalConta`, `PortalSuporte`, `ConfigContext`, `Campanhas`, `Inbox`, `WabaTemplateManager`).
+- Os campos de visualização exibem valores reais do banco de dados ou indicam ausência de cadastro (`Sem telefone` / vazio).
+
+---
+
+## 9. VEREDITO FINAL
+
+**STATUS:** **APTO PARA HOMOLOGAÇÃO CONTROLADA**
+

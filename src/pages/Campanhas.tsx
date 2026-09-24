@@ -41,7 +41,7 @@ export default function Campanhas() {
  canais: { whatsapp: true, sms: true, push: true, email: false }
  });
  const [salvandoConfigRegua, setSalvandoConfigRegua] = useState(false);
- const [telefoneTeste, setTelefoneTeste] = useState('(11) 98765-4321');
+ const [telefoneTeste, setTelefoneTeste] = useState('');
  const [enviandoTeste, setEnviandoTeste] = useState(false);
  const [resultadoTeste, setResultadoTeste] = useState<any>(null);
  const [filtroFaseFila, setFiltroFaseFila] = useState<string>('todas');

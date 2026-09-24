@@ -13,6 +13,35 @@ export let systemConfig: any = {
   seguranca: {}
 };
 
+/**
+ * Função de segurança: sanitiza objetos de configuração impedindo que segredos,
+ * chaves de API, senhas e tokens vazem em texto plano para os clientes HTTP.
+ */
+export function sanitizeConfig(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeConfig);
+  const sanitized: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const lowerKey = key.toLowerCase();
+    if (
+      lowerKey.includes('apikey') ||
+      lowerKey.includes('token') ||
+      lowerKey.includes('secret') ||
+      lowerKey.includes('password') ||
+      lowerKey.includes('senha') ||
+      lowerKey.includes('privatekey')
+    ) {
+      sanitized[key] = value ? '********' : '';
+      sanitized[`${key}Configurada`] = Boolean(value);
+    } else if (typeof value === 'object' && value !== null) {
+      sanitized[key] = sanitizeConfig(value);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
 let registrarAuditoria: (entry: any) => any = (entry: any) => {
   console.log(`[Audit Log] ${entry.modulo} - ${entry.acao}: ${entry.detalhes}`);
 };
@@ -105,12 +134,12 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
       alertaCotaAtivo: false
     };
 
+    const sanitizedIa = sanitizeConfig(iaConfig);
+    sanitizedIa.apiKeyConfigurada = Boolean(iaConfig.apiKey || process.env.GEMINI_API_KEY);
+
     res.json({
       sucesso: true,
-      ia: {
-        ...iaConfig,
-        apiKeyConfigurada: Boolean(iaConfig.apiKey || process.env.GEMINI_API_KEY)
-      },
+      ia: sanitizedIa,
       alertas: aiAlerts,
       alertaCotaAtivo: aiAlerts.some(a => a.type === 'QUOTA_EXHAUSTED')
     });
@@ -130,13 +159,13 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
         detalhes: `Provedor: ${updates.provedorGateway || systemConfig.ia.provedorGateway}, Gateway: ${updates.baseUrl || systemConfig.ia.baseUrl}`
       });
 
+      const sanitizedIa = sanitizeConfig(systemConfig.ia);
+      sanitizedIa.apiKeyConfigurada = Boolean(systemConfig.ia.apiKey || process.env.GEMINI_API_KEY);
+
       res.json({
         sucesso: true,
         mensagem: "Configuração de IA atualizada com sucesso.",
-        ia: {
-          ...systemConfig.ia,
-          apiKeyConfigurada: Boolean(systemConfig.ia.apiKey || process.env.GEMINI_API_KEY)
-        }
+        ia: sanitizedIa
       });
     } catch (e: any) {
       res.status(500).json({ sucesso: false, erro: e.message });
@@ -684,7 +713,7 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
     res.json({
       sucesso: true,
       mensagem: `Parâmetros de conexão do ${encontrado.nome} salvos com sucesso!`,
-      erp: (systemConfig as any).erps[erpId]
+      erp: sanitizeConfig((systemConfig as any).erps[erpId])
     });
   });
 
@@ -1012,7 +1041,7 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
     res.json({
       success: true,
       mensagem: "Configurações restauradas para os padrões de fábrica do NAP.",
-      config: systemConfig
+      config: sanitizeConfig(systemConfig)
     });
   });
 

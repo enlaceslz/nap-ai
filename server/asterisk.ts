@@ -429,17 +429,28 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
     let callResolved = false;
     let ringingAt: Date | undefined = undefined;
     let answeredAt: Date | undefined = undefined;
-    let asteriskChannelId: string | undefined = undefined;
-    let asteriskUniqueId: string | undefined = undefined;
+    let asteriskChannelId: string | null = null;
+    let asteriskUniqueId: string | null = null;
+    let activeChannel: any = null;
 
     const timeoutTimer = setTimeout(async () => {
       if (callResolved) return;
       callResolved = true;
       const endedAt = new Date();
+
+      // Solicitar encerramento real (hangup) ao canal no Asterisk
+      if (activeChannel) {
+        try {
+          activeChannel.hangup(() => {});
+        } catch (hangupErr: any) {
+          console.warn(`[Asterisk ARI] Falha ao solicitar hangup por timeout: ${hangupErr.message}`);
+        }
+      }
+
       const result: OriginateCallResult = {
         status: 'no_answer',
-        asteriskChannelId,
-        asteriskUniqueId,
+        asteriskChannelId: asteriskChannelId || undefined,
+        asteriskUniqueId: asteriskUniqueId || undefined,
         startedAt,
         ringingAt,
         answeredAt,
@@ -456,6 +467,7 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
           result: 'no_answer',
           ringingAt,
           endedAt,
+          durationSeconds: 0,
           hangupCause: result.hangupCause,
           errorMessage: result.errorMessage,
           updatedAt: new Date()
@@ -496,8 +508,17 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
           return resolve(failedResult);
         }
 
-        asteriskChannelId = channel.id;
-        asteriskUniqueId = channel.id || (channel as any).name || `ast_${Date.now()}_${cleanPhone}`;
+        activeChannel = channel;
+        asteriskChannelId = channel.id || null;
+
+        // REGRA V6: Nunca fabricar identificador Asterisk artificial. Usar identificador real ou null.
+        const realUniqueId = channel.id || (channel as any).name || (channel as any).uniqueid || null;
+        if (!realUniqueId) {
+          console.warn('[Asterisk ARI] Canal originado sem identificador único retornado pelo Asterisk (id/name/uniqueid). Definindo asteriskUniqueId = null.');
+          asteriskUniqueId = null;
+        } else {
+          asteriskUniqueId = String(realUniqueId);
+        }
 
         // Atualiza channel_id e unique_id no banco
         db.update(campanhas_chamadas_voz).set({
@@ -558,8 +579,8 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
 
           const callResult: OriginateCallResult = {
             status: finalStatus,
-            asteriskChannelId,
-            asteriskUniqueId,
+            asteriskChannelId: asteriskChannelId || undefined,
+            asteriskUniqueId: asteriskUniqueId || undefined,
             startedAt,
             ringingAt,
             answeredAt,

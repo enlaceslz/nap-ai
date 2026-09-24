@@ -1,7 +1,7 @@
 import express from 'express';
 import os from 'os';
 import axios from 'axios';
-import { ZabbixService } from './zabbixService';
+import { ZabbixService, normalizeZabbixApiUrl } from './zabbixService';
 import { requireAuth } from '../auth/rbacMiddleware';
 
 export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: any = {}) => {
@@ -120,9 +120,10 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
     }
 
     try {
-      // Testar conectividade com o Zabbix JSON-RPC
+      // Testar conectividade com o Zabbix JSON-RPC usando URL normalizada
+      const apiUrl = normalizeZabbixApiUrl(zabbixUrl);
       const checkRes = await axios.post(
-        `${zabbixUrl}/api_jsonrpc.php`,
+        apiUrl,
         {
           jsonrpc: '2.0',
           method: 'apiinfo.version',

@@ -63,9 +63,10 @@ GEMINI_BASE_URL=https://9router.enlace.slz.br # Opcional: Gateway corporativo 9r
 GEMINI_GATEWAY_PROVIDER=direct # "direct" (Google oficial gratuito) ou "9router" (Enterprise)
 
 # NOC, Telegram & Event Engine
+# Contrato Zabbix: aceita URL base (http://host:port/zabbix) ou completa (com /api_jsonrpc.php)
 TELEGRAM_BOT_TOKEN=seu_bot_token_do_telegram
 TELEGRAM_NOC_GROUP_ID=id_do_grupo_noc
-ZABBIX_URL=http://127.0.0.1:8080/zabbix/api_jsonrpc.php
+ZABBIX_URL=http://127.0.0.1:8080/zabbix
 ZABBIX_USER=Admin
 ZABBIX_PASSWORD=zabbix
 

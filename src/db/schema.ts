@@ -545,3 +545,31 @@ export const incident_notifications = pgTable('incident_notifications', {
   };
 });
 
+/**
+ * 17. INCIDENTES DE REDE DO NOC (PERSISTÊNCIA DEFINITIVA POSTGRESQL)
+ * Substitui arrays em memória. Sobrevive a reinicializações, deploys e containers.
+ */
+export const incidentes_rede = pgTable('incidentes_rede', {
+  id: varchar('id', { length: 100 }).primaryKey(),
+  titulo: varchar('titulo', { length: 255 }).notNull(),
+  tipo: varchar('tipo', { length: 100 }).notNull(), // 'rompimento_fibra', 'falha_energia_pop', 'degradacao_backbone', 'manutencao_programada'
+  regioesAfetadas: text('regioes_afetadas').notNull(), // JSON serializado de string[]
+  concentradorOlt: varchar('concentrador_olt', { length: 255 }).default('OLT Central'),
+  clientesAfetados: integer('clientes_afetados').default(0).notNull(),
+  status: varchar('status', { length: 50 }).default('em_reparo').notNull(), // 'em_reparo', 'identificado', 'normalizado'
+  previsaoRetorno: varchar('previsao_retorno', { length: 100 }),
+  iniciadoEm: varchar('iniciado_em', { length: 100 }).notNull(),
+  protocolo: varchar('protocolo', { length: 100 }).notNull(),
+  descricao: text('descricao'),
+  autoInterceptar: boolean('auto_interceptar').default(true).notNull(),
+  notificacoesEnviadas: integer('notificacoes_enviadas').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => {
+  return {
+    statusIdx: index('idx_incidentes_rede_status').on(table.status),
+    tipoIdx: index('idx_incidentes_rede_tipo').on(table.tipo),
+    protocoloIdx: index('idx_incidentes_rede_protocolo').on(table.protocolo)
+  };
+});
+

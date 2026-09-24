@@ -18,8 +18,8 @@ export default function Template2({ config: propsConfig }: TemplateProps) {
  const tituloHero = config?.landingPage?.tituloPrincipal || "Zero Lag. 100% Vitória.";
  const subtituloHero = config?.landingPage?.subtitulo || "A internet fibra óptica desenvolvida para entregar o menor ping e a maior taxa de download da região.";
  const textoBotaoCta = config?.landingPage?.textoBotaoCta || "Quero Fibra Agora";
- const rawZap = config?.landingPage?.whatsappVendas || config?.provedor?.telefoneWhatsapp || "11987654321";
- const zapClean = String(rawZap).replace(/\D/g, '') || "11987654321";
+ const rawZap = config?.landingPage?.whatsappVendas || config?.provedor?.telefoneWhatsapp || "";
+ const zapClean = String(rawZap).replace(/\D/g, '') || "";
 
  const planos = [
  {

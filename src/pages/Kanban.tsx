@@ -649,7 +649,7 @@ export default function Kanban({ type }: { type: "Suporte" | "Vendas" | "Cobranc
  {deal.contato}
  </p>
  <p className="text-[10px] text-muted-foreground truncate">
- {deal.telefone || '(11) 98765-4321'}
+ {deal.telefone || 'Sem telefone'}
  </p>
  </div>
  </div>
@@ -846,7 +846,7 @@ export default function Kanban({ type }: { type: "Suporte" | "Vendas" | "Cobranc
  </div>
  <div>
  <p className="font-bold text-foreground text-sm">{selectedDeal.contato}</p>
- <p className="text-muted-foreground">{selectedDeal.telefone || '(11) 98765-4321'}</p>
+ <p className="text-muted-foreground">{selectedDeal.telefone || 'Sem telefone'}</p>
  </div>
  </div>
 

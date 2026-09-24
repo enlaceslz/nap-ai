@@ -290,15 +290,25 @@ class WebPushService {
     }
 
     let subAlvo;
-    if (options.endpoint) {
+    if (options.endpoint && options.userId) {
+      // Se endpoint e userId foram informados, ambos devem corresponder
       const rows = await db.select().from(push_subscriptions)
-        .where(and(eq(push_subscriptions.endpoint, options.endpoint), eq(push_subscriptions.active, true)))
+        .where(and(
+          eq(push_subscriptions.endpoint, options.endpoint),
+          eq(push_subscriptions.userId, options.userId),
+          eq(push_subscriptions.active, true)
+        ))
         .limit(1);
       subAlvo = rows[0];
     } else if (options.userId) {
       const rows = await db.select().from(push_subscriptions)
         .where(and(eq(push_subscriptions.userId, options.userId), eq(push_subscriptions.active, true)))
         .orderBy(desc(push_subscriptions.updatedAt))
+        .limit(1);
+      subAlvo = rows[0];
+    } else if (options.endpoint) {
+      const rows = await db.select().from(push_subscriptions)
+        .where(and(eq(push_subscriptions.endpoint, options.endpoint), eq(push_subscriptions.active, true)))
         .limit(1);
       subAlvo = rows[0];
     } else if (options.operadorNome) {
@@ -309,20 +319,15 @@ class WebPushService {
       subAlvo = rows[0];
     }
 
-    if (!subAlvo) {
-      // Se não encontrou específico, busca qualquer subscription ativa recente
-      const rows = await db.select().from(push_subscriptions)
-        .where(eq(push_subscriptions.active, true))
-        .orderBy(desc(push_subscriptions.updatedAt))
-        .limit(1);
-      subAlvo = rows[0];
-    }
-
+    // REGRA DE SEGURANÇA: NUNCA pegar subscription arbitrária de outro operador.
+    // Se o usuário/alvo não possui subscrição ativa vinculada, reportar explicitamente subscription_not_found.
     if (!subAlvo) {
       return {
         sucesso: false,
         status: 'subscription_not_found',
-        mensagem: 'Nenhum navegador/operador com subscrição ativa registrado para recebimento de Push Notifications.'
+        mensagem: options.userId 
+          ? `Nenhuma subscrição ativa encontrada para o usuário #${options.userId}. Ative as notificações no navegador/PWA.`
+          : 'Nenhum navegador/operador com subscrição ativa registrado para o identificador informado.'
       };
     }
 

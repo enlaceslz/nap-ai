@@ -1,6 +1,7 @@
 import { db } from "../src/db/index.js";
-import { atendimentos, conversas, mensagens } from "../src/db/schema.js";
+import { atendimentos, conversas, mensagens, push_subscriptions } from "../src/db/schema.js";
 import { eq } from "drizzle-orm";
+import { webPushService } from "./push/webPushService";
 
 export function setupKanbanWaba(app: any, mockWabaChats: any[], mockWabaMessages: any[]) {
   app.post("/api/deals/:id/waba-trigger", async (req: any, res: any) => {
@@ -49,18 +50,16 @@ export function setupKanbanWaba(app: any, mockWabaChats: any[], mockWabaMessages
     console.log(`[Kanban Automation] Disparo WABA realizado para ${dealPhone}: ${templateMensagem}`);
     
     // Auto-disparo de Push Notification para Operadores se for Fechado/Ganho (Gamification)
-    if (estagio === "Fechado/Ganho") {
+    if (estagio === "Fechado/Ganho" && webPushService.isConfigured()) {
       try {
-        await fetch(`http://127.0.0.1:${process.env.PORT || 3000}/api/push/operator/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-             titulo: "🎉 Nova Venda Fechada!",
-             mensagem: `O lead ${dealName} acabou de assinar o contrato! Meta alcançada.`,
-             tipo: "vendas",
-             url: "/admin/crm"
-          })
-        });
+        const activeSubs = await db.select().from(push_subscriptions).where(eq(push_subscriptions.active, true));
+        for (const sub of activeSubs) {
+          await webPushService.sendNotification(sub.endpoint, {
+            title: "🎉 Nova Venda Fechada!",
+            body: `O lead ${dealName} acabou de assinar o contrato! Meta alcançada.`,
+            data: { tipo: "vendas", url: "/admin/crm" }
+          });
+        }
         console.log(`[Kanban Automation] Push Notification disparado para Operadores.`);
       } catch (err) {
         console.log(`[Kanban Automation] Erro no Push Notification para operadores:`, err);
