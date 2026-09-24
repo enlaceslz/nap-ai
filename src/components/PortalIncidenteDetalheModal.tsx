@@ -101,7 +101,7 @@ export default function PortalIncidenteDetalheModal({
  Concentrador / OLT:
  </span>
  <span className="font-mono text-card-foreground">
- {incidente.concentradorOuOlt || "OLT Central"}
+ {incidente.concentradorOuOlt || "Geral / Não especificado"}
  </span>
  </div>
 

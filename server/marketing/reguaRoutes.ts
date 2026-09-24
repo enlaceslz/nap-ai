@@ -2,8 +2,8 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { db, isDatabaseConnected } from '../../src/db/index';
-import { faturas, clientes, mensagens, conversas } from '../../src/db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { faturas, clientes, mensagens, conversas, regua_execucoes, regua_disparos } from '../../src/db/schema';
+import { eq, and, desc, sql, gte } from 'drizzle-orm';
 import { webPushService } from '../push/webPushService';
 import { requireAuth } from '../auth/rbacMiddleware';
 
@@ -77,15 +77,84 @@ let globalReguaConfig = loadReguaConfig();
 export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: any = {}) => {
   const router = express.Router();
 
-  // 1. Obter Parâmetros da Régua de Cobrança
-  router.get('/regua', (req, res) => {
-    res.json({ success: true, config: globalReguaConfig });
+  // 1. Obter Parâmetros da Régua de Cobrança (Configuração do arquivo + Estado Operacional 100% PostgreSQL)
+  router.get('/regua', async (req, res) => {
+    let historicoPostgres = globalReguaConfig.historicoExecucoes;
+    let estatisticasPostgres = globalReguaConfig.estatisticas;
+
+    if (isDatabaseConnected) {
+      try {
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const execRows = await db.select().from(regua_execucoes)
+          .orderBy(desc(regua_execucoes.iniciadoEm))
+          .limit(20);
+
+        if (execRows.length > 0) {
+          historicoPostgres = execRows.map(e => ({
+            id: `exec-${e.id}`,
+            fase: e.fase,
+            disparados: e.disparados,
+            sucesso: e.sucesso,
+            falhas: e.falhas,
+            data: e.iniciadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+          }));
+        }
+
+        const dispHoje = await db.select({ count: sql<number>`count(*)` })
+          .from(regua_disparos)
+          .where(and(eq(regua_disparos.status, 'enviado'), gte(regua_disparos.disparadoEm, startOfDay)));
+
+        const totalHoje = Number(dispHoje[0]?.count || 0);
+
+        const pagasHoje = await db.select({
+          count: sql<number>`count(*)`,
+          total: sql<number>`COALESCE(SUM(CAST(${faturas.valor} AS numeric)), 0)`
+        }).from(faturas).where(and(eq(faturas.status, 'paga'), gte(faturas.dataPagamento, startOfDay)));
+
+        const faturasRecup = Number(pagasHoje[0]?.count || 0);
+        const valorRecup = Number(pagasHoje[0]?.total || 0);
+        const taxaConv = totalHoje > 0 ? `${((faturasRecup / totalHoje) * 100).toFixed(1)}%` : "0.0%";
+
+        estatisticasPostgres = {
+          totalDisparadosHoje: totalHoje,
+          faturasRecuperadasPix: faturasRecup,
+          valorRecuperadoHoje: valorRecup,
+          taxaConversaoPix: taxaConv
+        };
+      } catch (err: any) {
+        console.warn('[Régua Cobrança] Erro ao carregar histórico operacional do PostgreSQL:', err.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      config: {
+        ...globalReguaConfig,
+        estatisticas: estatisticasPostgres,
+        historicoExecucoes: historicoPostgres
+      }
+    });
   });
 
   // 2. Atualizar Parâmetros da Régua de Cobrança
   router.put('/regua', requireAuth, (req, res) => {
-    globalReguaConfig = { ...globalReguaConfig, ...req.body };
+    const { ativa, horarioInicio, horarioFim, descontoPontualidade, diasAntesVencimento, notificarDiaVencimento, diasAposVencimentoTolerancia, diasAposVencimentoBloqueio, canais, templates } = req.body;
+    
+    if (typeof ativa === 'boolean') globalReguaConfig.ativa = ativa;
+    if (horarioInicio) globalReguaConfig.horarioInicio = horarioInicio;
+    if (horarioFim) globalReguaConfig.horarioFim = horarioFim;
+    if (descontoPontualidade !== undefined) globalReguaConfig.descontoPontualidade = Number(descontoPontualidade);
+    if (diasAntesVencimento !== undefined) globalReguaConfig.diasAntesVencimento = Number(diasAntesVencimento);
+    if (typeof notificarDiaVencimento === 'boolean') globalReguaConfig.notificarDiaVencimento = notificarDiaVencimento;
+    if (diasAposVencimentoTolerancia !== undefined) globalReguaConfig.diasAposVencimentoTolerancia = Number(diasAposVencimentoTolerancia);
+    if (diasAposVencimentoBloqueio !== undefined) globalReguaConfig.diasAposVencimentoBloqueio = Number(diasAposVencimentoBloqueio);
+    if (canais) globalReguaConfig.canais = { ...globalReguaConfig.canais, ...canais };
+    if (templates) globalReguaConfig.templates = { ...globalReguaConfig.templates, ...templates };
+
     persistReguaConfig(globalReguaConfig);
+
     if (registrarAuditoria) {
       registrarAuditoria({
         usuario: (req as any).user?.email || "system",
@@ -103,17 +172,17 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
 
   // 3. Renderização de Preview ou Teste Real de Template
   router.post('/regua/simular-teste', async (req, res) => {
-    const { telefone = "(11) 99999-9999", fase = "d_menos_3", executarEnvioReal = false } = req.body;
+    const { telefone = "", fase = "d_menos_3", executarEnvioReal = false } = req.body;
     const template = globalReguaConfig.templates[fase as keyof typeof globalReguaConfig.templates] || "";
     
     const mensagemRenderizada = template
-      .replace(/{{nome_cliente}}/g, "Cliente Teste")
+      .replace(/{{nome_cliente}}/g, "Assinante")
       .replace(/{{plano}}/g, "Fibra Óptica")
       .replace(/{{valor_fatura}}/g, "99,90")
       .replace(/{{data_vencimento}}/g, new Date().toLocaleDateString('pt-BR'))
       .replace(/{{desconto_pontualidade}}/g, Number(globalReguaConfig.descontoPontualidade || 0).toFixed(2).replace('.', ','))
-      .replace(/{{chave_pix}}/g, "00020126580014BR.GOV.BCB.PIX0136pix-cobranca@nap.local520400005303986540599.905802BR5910NAP FIBRA6009SAO PAULO62070503***6304E8A1")
-      .replace(/{{link_segunda_via}}/g, "https://isp.provedor.com.br/faturas/exemplo");
+      .replace(/{{chave_pix}}/g, "[Chave PIX da Fatura / Boleto]")
+      .replace(/{{link_segunda_via}}/g, "https://central.provedor.com.br/faturas");
 
     // Se o operador não solicitou disparo de rede, retorna apenas a renderização sem fingir envio
     if (!executarEnvioReal) {
@@ -231,6 +300,17 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
         });
       }
 
+      // Registra início da execução no PostgreSQL (Fonte de Verdade Operacional)
+      const [execRow] = await db.insert(regua_execucoes).values({
+        fase,
+        totalFaturas: pendingFaturas.length,
+        disparados: 0,
+        sucesso: 0,
+        falhas: 0,
+        status: 'running',
+        iniciadoEm: new Date()
+      }).returning();
+
       let disparados = 0;
       let falhas = 0;
       const template = globalReguaConfig.templates[fase as keyof typeof globalReguaConfig.templates] || "";
@@ -250,7 +330,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
             .replace(/{{valor_fatura}}/g, Number(fatura.valor || 0).toFixed(2).replace('.', ','))
             .replace(/{{data_vencimento}}/g, fatura.vencimento ? new Date(fatura.vencimento).toLocaleDateString('pt-BR') : 'A vencer')
             .replace(/{{chave_pix}}/g, fatura.pixCopiaECola || 'Chave PIX no boleto bancário')
-            .replace(/{{link_segunda_via}}/g, `https://isp.provedor.com.br/faturas/${fatura.id}`);
+            .replace(/{{link_segunda_via}}/g, `https://central.provedor.com.br/faturas/${fatura.id}`);
 
           // Disparo real via API do WhatsApp / Meta
           const metaRes = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
@@ -272,6 +352,21 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
 
           if (metaRes.ok && providerId) {
             disparados++;
+
+            // Persiste disparo bem-sucedido no PostgreSQL
+            await db.insert(regua_disparos).values({
+              execucaoId: execRow.id,
+              faturaId: fatura.id,
+              clienteId: fatura.clienteId,
+              fase,
+              canal: 'whatsapp',
+              destinatario: telefoneLimpo,
+              status: 'enviado',
+              providerMessageId: providerId,
+              valor: String(fatura.valor || '0.00'),
+              disparadoEm: new Date()
+            });
+
             // Registrar mensagem no histórico real do chat
             try {
               let [chat] = await db.select().from(conversas).where(eq(conversas.telefone, telefoneLimpo)).limit(1);
@@ -286,16 +381,50 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
             } catch {}
           } else {
             falhas++;
+            // Persiste falha do disparo no PostgreSQL
+            await db.insert(regua_disparos).values({
+              execucaoId: execRow.id,
+              faturaId: fatura.id,
+              clienteId: fatura.clienteId,
+              fase,
+              canal: 'whatsapp',
+              destinatario: telefoneLimpo,
+              status: 'falha',
+              erro: metaData.error?.message || 'Meta API não confirmou envio',
+              valor: String(fatura.valor || '0.00'),
+              disparadoEm: new Date()
+            });
           }
-        } catch {
+        } catch (errDisparo: any) {
           falhas++;
+          await db.insert(regua_disparos).values({
+            execucaoId: execRow.id,
+            faturaId: fatura.id,
+            clienteId: fatura.clienteId,
+            fase,
+            canal: 'whatsapp',
+            destinatario: (fatura as any).clienteId ? String((fatura as any).clienteId) : 'desconhecido',
+            status: 'falha',
+            erro: errDisparo.message,
+            valor: String(fatura.valor || '0.00'),
+            disparadoEm: new Date()
+          });
         }
       }
+
+      // Conclui execução no PostgreSQL com métricas finais
+      await db.update(regua_execucoes).set({
+        disparados,
+        sucesso: disparados,
+        falhas,
+        status: 'concluida',
+        finalizadoEm: new Date()
+      }).where(eq(regua_execucoes.id, execRow.id));
 
       // Atualizar métricas apenas com os números reais
       globalReguaConfig.estatisticas.totalDisparadosHoje += disparados;
       globalReguaConfig.historicoExecucoes.unshift({
-        id: `exec-${Date.now()}`,
+        id: `exec-${execRow.id}`,
         fase,
         disparados,
         sucesso: disparados,
@@ -402,7 +531,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
         .replace(/{{valor_fatura}}/g, Number(fatura.valor || 0).toFixed(2).replace('.', ','))
         .replace(/{{data_vencimento}}/g, fatura.vencimento ? new Date(fatura.vencimento).toLocaleDateString('pt-BR') : 'A vencer')
         .replace(/{{chave_pix}}/g, fatura.pixCopiaECola || 'Chave PIX no boleto bancário')
-        .replace(/{{link_segunda_via}}/g, `https://isp.provedor.com.br/faturas/${fatura.id}`);
+        .replace(/{{link_segunda_via}}/g, `https://central.provedor.com.br/faturas/${fatura.id}`);
 
       // Chamada real HTTPS à Meta
       const metaRes = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
@@ -423,6 +552,21 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
       const providerId = metaData.messages?.[0]?.id;
 
       if (!metaRes.ok || !providerId) {
+        // Registra falha no PostgreSQL
+        try {
+          await db.insert(regua_disparos).values({
+            faturaId: fatura.id,
+            clienteId: fatura.clienteId,
+            fase,
+            canal: 'whatsapp',
+            destinatario: cleanPhone,
+            status: 'falha',
+            erro: metaData.error?.message || "Meta API não retornou confirmação de entrega.",
+            valor: String(fatura.valor || '0.00'),
+            disparadoEm: new Date()
+          });
+        } catch {}
+
         return res.status(metaRes.ok ? 502 : metaRes.status).json({
           success: false,
           status: "failed",
@@ -431,7 +575,23 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
         });
       }
 
-      // Sucesso comprovado pela Meta
+      // Sucesso comprovado pela Meta — Persiste disparo no PostgreSQL
+      try {
+        await db.insert(regua_disparos).values({
+          faturaId: fatura.id,
+          clienteId: fatura.clienteId,
+          fase,
+          canal: 'whatsapp',
+          destinatario: cleanPhone,
+          status: 'enviado',
+          providerMessageId: providerId,
+          valor: String(fatura.valor || '0.00'),
+          disparadoEm: new Date()
+        });
+      } catch (dbErr: any) {
+        console.warn('[Régua Cobrança] Erro ao gravar disparo individual no PostgreSQL:', dbErr.message);
+      }
+
       globalReguaConfig.estatisticas.totalDisparadosHoje += 1;
       persistReguaConfig(globalReguaConfig);
 

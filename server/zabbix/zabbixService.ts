@@ -50,7 +50,7 @@ export interface NocSecurityAlert {
   acknowledged: boolean;
 }
 
-export type ZabbixConnectionStatus = 'not_configured' | 'configured' | 'connecting' | 'connected' | 'unavailable' | 'error';
+export type ZabbixConnectionStatus = 'not_configured' | 'connecting' | 'connected' | 'unavailable' | 'authentication_failed' | 'error';
 
 /**
  * CONTRATO OFICIAL DO NAP PARA ZABBIX_URL:
@@ -77,6 +77,7 @@ export class ZabbixService {
   private problems: ZabbixProblem[] = [];
   private _customUrl?: string;
   private _customToken?: string;
+  private _lastVerifiedStatus: ZabbixConnectionStatus = 'not_configured';
 
   private constructor() {
     this.hosts = [];
@@ -108,9 +109,98 @@ export class ZabbixService {
       return 'not_configured';
     }
     if (!this.zabbixUrl || !this.zabbixToken) {
-      return 'configured';
+      return 'not_configured';
     }
-    return 'configured';
+    return this._lastVerifiedStatus !== 'not_configured' ? this._lastVerifiedStatus : 'connecting';
+  }
+
+  /**
+   * Chamada REAL à API do Zabbix para verificar a disponibilidade e autenticação
+   * Estados retornados: not_configured, connecting, connected, unavailable, authentication_failed, error
+   */
+  public async checkRealConnectionStatus(): Promise<{
+    status: ZabbixConnectionStatus;
+    version?: string;
+    details?: string;
+  }> {
+    if (!this.zabbixUrl || !this.zabbixToken) {
+      this._lastVerifiedStatus = 'not_configured';
+      return { status: 'not_configured', details: 'URL ou Token do Zabbix não configurados no servidor.' };
+    }
+
+    const apiUrl = normalizeZabbixApiUrl(this.zabbixUrl);
+
+    try {
+      // 1. Testa conectividade da API com o endpoint do Zabbix
+      const verRes = await axios.post(
+        apiUrl,
+        {
+          jsonrpc: '2.0',
+          method: 'apiinfo.version',
+          params: [],
+          id: 1
+        },
+        { timeout: 3500 }
+      );
+
+      const version = verRes.data?.result;
+
+      if (!verRes.data || verRes.data.error) {
+        this._lastVerifiedStatus = 'error';
+        return {
+          status: 'error',
+          details: verRes.data?.error?.data || verRes.data?.error?.message || 'Erro retornado pela API Zabbix'
+        };
+      }
+
+      // 2. Valida se o Token configurado é aceito pelo Zabbix (consulta simples com auth)
+      const authRes = await axios.post(
+        apiUrl,
+        {
+          jsonrpc: '2.0',
+          method: 'host.get',
+          params: {
+            output: ['hostid'],
+            limit: 1
+          },
+          auth: this.zabbixToken,
+          id: 2
+        },
+        { timeout: 3500 }
+      );
+
+      if (authRes.data?.error) {
+        const errData = authRes.data.error;
+        const errCode = errData.code;
+        const errMsg = String(errData.data || errData.message || '');
+        if (errCode === -32500 || errMsg.toLowerCase().includes('auth') || errMsg.toLowerCase().includes('session') || errMsg.toLowerCase().includes('not authorised')) {
+          this._lastVerifiedStatus = 'authentication_failed';
+          return { status: 'authentication_failed', details: `Token do Zabbix inválido ou não autorizado: ${errMsg}`, version };
+        }
+        this._lastVerifiedStatus = 'error';
+        return { status: 'error', details: errMsg, version };
+      }
+
+      this._lastVerifiedStatus = 'connected';
+      return {
+        status: 'connected',
+        version: String(version || '7.0 LTS'),
+        details: 'Conexão com servidor Zabbix estabelecida e autenticada com sucesso.'
+      };
+    } catch (err: any) {
+      const code = err.code;
+      const msg = err.message || '';
+      if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'ETIMEDOUT' || code === 'ECONNABORTED' || code === 'EHOSTUNREACH') {
+        this._lastVerifiedStatus = 'unavailable';
+        return { status: 'unavailable', details: `Host Zabbix inacessível ou fora do ar: ${msg}` };
+      }
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        this._lastVerifiedStatus = 'authentication_failed';
+        return { status: 'authentication_failed', details: `Falha de autenticação HTTP ${err.response.status}` };
+      }
+      this._lastVerifiedStatus = 'error';
+      return { status: 'error', details: msg };
+    }
   }
 
   public async syncWithZabbix(): Promise<boolean> {

@@ -51,7 +51,7 @@ export function setupOltRoutes(
   const getUserIdentity = (req: Request) => {
     return {
       nome: req.user?.nome || 'Operador Autenticado',
-      email: req.user?.email || 'sistema@nap.local',
+      email: req.user?.email || 'sistema',
       role: req.user?.role || 'NOC'
     };
   };

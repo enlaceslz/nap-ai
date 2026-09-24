@@ -8,12 +8,33 @@ export const setupZabbixRoutes = (app: express.Express, { registrarAuditoria }: 
   const router = express.Router();
   const zabbixService = ZabbixService.getInstance();
 
+  // Status de Conexão Real (Estados: not_configured, connecting, connected, unavailable, authentication_failed, error)
+  router.get('/connection-status', async (req, res) => {
+    try {
+      const realStatus = await zabbixService.checkRealConnectionStatus();
+      return res.json({
+        sucesso: realStatus.status === 'connected',
+        ...realStatus
+      });
+    } catch (e: any) {
+      return res.status(500).json({
+        sucesso: false,
+        status: 'error',
+        details: e.message
+      });
+    }
+  });
+
   router.get('/status', async (req, res) => {
     try {
-      if (process.env.ZABBIX_URL && process.env.ZABBIX_TOKEN) {
+      const connection = await zabbixService.checkRealConnectionStatus();
+      if (connection.status === 'connected') {
         await zabbixService.syncWithZabbix();
       }
       res.json({
+        connectionStatus: connection.status,
+        connectionDetails: connection.details,
+        version: connection.version,
         hosts: zabbixService.getHosts(),
         problems: zabbixService.getProblems()
       });

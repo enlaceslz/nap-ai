@@ -144,16 +144,16 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
       });
     }
 
-    // Se endpoint específico foi fornecido por usuário comum, validar que pertence ao próprio usuário
-    if (endpoint && !isAdmin) {
+    // Se endpoint específico foi fornecido, validar obrigatoriamente que pertence ao targetUserId (regra V7: nunca usar endpoint de outro usuário)
+    if (endpoint) {
       const ownedSub = await db.select().from(push_subscriptions)
-        .where(and(eq(push_subscriptions.endpoint, endpoint), eq(push_subscriptions.userId, currentUserId), eq(push_subscriptions.active, true)))
+        .where(and(eq(push_subscriptions.endpoint, endpoint), eq(push_subscriptions.userId, targetUserId), eq(push_subscriptions.active, true)))
         .limit(1);
       if (ownedSub.length === 0) {
         return res.status(403).json({
           sucesso: false,
           status: 'forbidden',
-          mensagem: 'Acesso negado: o endpoint informado não pertence ao usuário autenticado.'
+          mensagem: 'Acesso negado: o endpoint informado não pertence ao usuário de destino autorizado.'
         });
       }
     }
@@ -164,7 +164,7 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
         operadorNome: targetOperadorNome,
         ramal,
         tipo,
-        endpoint: isAdmin ? endpoint : undefined
+        endpoint: endpoint || undefined
       });
 
       // Registro obrigatório de auditoria imutável com rastreabilidade completa (quem enviou, para quem, resultado)
@@ -233,7 +233,7 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
   // 3. Envio de Notificação Direta para Operador (chamado por WABA, SGP, Kanban ou Admin)
   // BLOQUEADOR V6: Exige autenticação estrita requireAuth, validação RBAC e auditoria completa
   router.post('/operator/send', requireAuth, async (req, res) => {
-    const { operador_id, operador_nome, titulo, mensagem, categoria, dados } = req.body;
+    const { operador_id, operador_nome, titulo, mensagem, categoria, dados, endpoint } = req.body;
     const currentUser = (req as any).user;
     const currentUserId = Number(currentUser?.id);
     const currentUserRole = (currentUser?.cargo || currentUser?.role || '').toUpperCase();
@@ -247,40 +247,21 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
       });
     }
 
-    const rawTarget = operador_id || operador_nome;
-    if (!rawTarget) {
-      return res.status(400).json({
+    // Regra V7: operador_id (userId) é a identidade primária obrigatória
+    let targetUserId = operador_id ? Number(operador_id) : currentUserId;
+    let targetName = currentUser?.nome || currentUser?.email || 'Operador';
+
+    // Se usuário comum tentar enviar para outro operador
+    if (!isAdmin && targetUserId !== currentUserId) {
+      return res.status(403).json({
         sucesso: false,
-        status: 'failed',
-        mensagem: 'Parâmetro operador_id ou operador_nome é obrigatório.'
+        status: 'forbidden',
+        mensagem: 'Acesso negado: apenas administradores (RBAC) podem enviar notificações Push para outros operadores.'
       });
     }
 
-    let targetUserId = operador_id ? Number(operador_id) : undefined;
-    let targetName = operador_nome;
-
-    // Se usuário comum tentar enviar para outro operador
-    if (!isAdmin) {
-      if (targetUserId && targetUserId !== currentUserId) {
-        return res.status(403).json({
-          sucesso: false,
-          status: 'forbidden',
-          mensagem: 'Acesso negado: apenas administradores (RBAC) podem enviar notificações Push para outros operadores.'
-        });
-      }
-      if (!targetUserId && targetName && targetName !== currentUser?.nome && targetName !== currentUser?.email) {
-        return res.status(403).json({
-          sucesso: false,
-          status: 'forbidden',
-          mensagem: 'Acesso negado: operador não autorizado a enviar notificações Push para terceiros.'
-        });
-      }
-      targetUserId = currentUserId;
-      targetName = currentUser?.nome || currentUser?.email;
-    }
-
-    // Se for admin enviando para operador_id específico, valida no PostgreSQL
-    if (targetUserId && isAdmin && targetUserId !== currentUserId) {
+    // Se for admin enviando para outro operador, valida existência do targetUserId no banco
+    if (isAdmin && targetUserId !== currentUserId) {
       const targetUserRows = await db.select().from(users).where(eq(users.id, targetUserId)).limit(1);
       if (targetUserRows.length === 0) {
         return res.status(404).json({
@@ -292,13 +273,33 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
       targetName = targetUserRows[0].nome;
     }
 
+    // Se endpoint específico foi informado, valida que pertence ao targetUserId
+    if (endpoint) {
+      const ownedSub = await db.select().from(push_subscriptions)
+        .where(and(eq(push_subscriptions.endpoint, endpoint), eq(push_subscriptions.userId, targetUserId), eq(push_subscriptions.active, true)))
+        .limit(1);
+      if (ownedSub.length === 0) {
+        return res.status(403).json({
+          sucesso: false,
+          status: 'forbidden',
+          mensagem: 'Acesso negado: o endpoint informado não pertence ao usuário de destino autorizado.'
+        });
+      }
+    }
+
     try {
-      const effectiveTarget = targetUserId || targetName || rawTarget;
-      const result = await webPushService.sendNotification(effectiveTarget, {
-        title: titulo || `[NAP] Alerta Operacional (${categoria || 'Geral'})`,
-        body: mensagem || 'Você possui uma nova atribuição no sistema.',
-        data: dados || {}
-      });
+      // REGRA V7: Utilizar userId (targetUserId) como identidade primária intransponível
+      const result = endpoint 
+        ? await webPushService.sendNotification(endpoint, {
+            title: titulo || `[NAP] Alerta Operacional (${categoria || 'Geral'})`,
+            body: mensagem || 'Você possui uma nova atribuição no sistema.',
+            data: dados || {}
+          })
+        : await webPushService.sendNotification(targetUserId, {
+            title: titulo || `[NAP] Alerta Operacional (${categoria || 'Geral'})`,
+            body: mensagem || 'Você possui uma nova atribuição no sistema.',
+            data: dados || {}
+          });
 
       // Registro obrigatório de auditoria imutável
       await recordMandatoryAuditLog({
@@ -307,8 +308,8 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
         usuarioRole: currentUserRole,
         modulo: 'WebPush Operacional',
         acao: 'Envio de Notificação Push para Operador',
-        detalhes: `Push enviado por #${currentUserId} para o operador '${effectiveTarget}'. Título: '${titulo || 'Alerta'}'. Resultado: ${result.status}`,
-        recurso: `user_${effectiveTarget}`,
+        detalhes: `Push enviado por #${currentUserId} para o operador #${targetUserId} (${targetName}). Título: '${titulo || 'Alerta'}'. Resultado: ${result.status}`,
+        recurso: `user_${targetUserId}`,
         resultado: result.status,
         categoria: 'disparo',
         severidade: result.sucesso ? 'info' : 'atencao',

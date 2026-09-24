@@ -50,6 +50,13 @@
       "when": 1790263500000,
       "tag": "0006_fluffy_iron_monger",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790264900000,
+      "tag": "0007_fine_status_notifications",
+      "breakpoints": true
     }
   ]
 }

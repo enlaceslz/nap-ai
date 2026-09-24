@@ -10,7 +10,7 @@ export interface IncidenteRede {
   titulo: string;
   tipo: "rompimento_fibra" | "falha_energia_pop" | "degradacao_backbone" | "manutencao_programada";
   regioesAfetadas: string[];
-  concentradorOuOlt: string;
+  concentradorOuOlt: string | null;
   clientesAfetadosAprox: number;
   status: "em_reparo" | "identificado" | "normalizado";
   previsaoRetorno: string;
@@ -21,9 +21,6 @@ export interface IncidenteRede {
   notificacoesEnviadas: number;
 }
 
-// Fallback resiliente em memória caso o PostgreSQL esteja offline
-let incidentesRedeMemoria: IncidenteRede[] = [];
-
 /**
  * Converte registro do banco PostgreSQL para a interface de domínio IncidenteRede
  */
@@ -32,7 +29,7 @@ function mapDbToIncidente(row: any): IncidenteRede {
   try {
     regioes = typeof row.regioesAfetadas === 'string' ? JSON.parse(row.regioesAfetadas) : (row.regioesAfetadas || []);
   } catch {
-    regioes = [row.regioesAfetadas || 'Região Geral'];
+    regioes = [row.regioesAfetadas || ''];
   }
 
   return {
@@ -40,7 +37,7 @@ function mapDbToIncidente(row: any): IncidenteRede {
     titulo: row.titulo,
     tipo: row.tipo as any,
     regioesAfetadas: regioes,
-    concentradorOuOlt: row.concentradorOlt || 'OLT Central',
+    concentradorOuOlt: row.concentradorOlt || null,
     clientesAfetadosAprox: row.clientesAfetados || 0,
     status: row.status as any,
     previsaoRetorno: row.previsaoRetorno || 'Em até 2 horas',
@@ -55,163 +52,178 @@ function mapDbToIncidente(row: any): IncidenteRede {
 export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria }: any = {}) => {
   const router = express.Router();
 
-  // 1. Listar Incidentes (PostgreSQL com fallback em memória)
+  // 1. Listar Incidentes (100% Persistente no PostgreSQL — BLOQUEADOR: ZERO Fallback Operacional em Memória)
   router.get('/incidentes', async (req, res) => {
-    if (isDatabaseConnected) {
-      try {
-        const rows = await db.select().from(incidentes_rede).orderBy(desc(incidentes_rede.createdAt));
-        const list = rows.map(mapDbToIncidente);
-        return res.json({
-          sucesso: true,
-          total: list.length,
-          incidentes: list
-        });
-      } catch (err: any) {
-        console.warn(`[NOC Incidentes] Falha ao consultar incidentes no PostgreSQL: ${err.message}. Utilizando fallback em memória.`);
-      }
-    }
-
-    res.json({
-      sucesso: true,
-      total: incidentesRedeMemoria.length,
-      incidentes: incidentesRedeMemoria
-    });
-  });
-
-  // 2. Criar novo Incidente (Persistência PostgreSQL)
-  router.post('/incidentes', async (req, res) => {
-    const { titulo, tipo, regioesAfetadas, concentradorOuOlt, clientesAfetadosAprox, previsaoRetorno, descricao } = req.body;
-    
-    const novoIncidente: IncidenteRede = {
-      id: `INC-${Date.now().toString().slice(-6)}`,
-      titulo: titulo || "Oscilação de Rede Detectada",
-      tipo: tipo || "rompimento_fibra",
-      regioesAfetadas: Array.isArray(regioesAfetadas) ? regioesAfetadas : ["Região Geral"],
-      concentradorOuOlt: concentradorOuOlt || "OLT Central",
-      clientesAfetadosAprox: Number(clientesAfetadosAprox) || 0,
-      status: "em_reparo",
-      previsaoRetorno: previsaoRetorno || "Em até 2 horas",
-      iniciadoEm: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + " (Hoje)",
-      protocoloAnatel: `ANT-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`,
-      descricao: descricao || "Manutenção corretiva em andamento.",
-      autoInterceptarAtendimento: true,
-      notificacoesEnviadas: 0
-    };
-
-    // 1. Persistência PostgreSQL
-    if (isDatabaseConnected) {
-      try {
-        await db.insert(incidentes_rede).values({
-          id: novoIncidente.id,
-          titulo: novoIncidente.titulo,
-          tipo: novoIncidente.tipo,
-          regioesAfetadas: JSON.stringify(novoIncidente.regioesAfetadas),
-          concentradorOlt: novoIncidente.concentradorOuOlt,
-          clientesAfetados: novoIncidente.clientesAfetadosAprox,
-          status: novoIncidente.status,
-          previsaoRetorno: novoIncidente.previsaoRetorno,
-          iniciadoEm: novoIncidente.iniciadoEm,
-          protocolo: novoIncidente.protocoloAnatel,
-          descricao: novoIncidente.descricao,
-          autoInterceptar: novoIncidente.autoInterceptarAtendimento,
-          notificacoesEnviadas: 0
-        });
-      } catch (err: any) {
-        console.warn(`[NOC Incidentes] Falha ao gravar incidente no PostgreSQL: ${err.message}`);
-      }
-    }
-
-    // 2. Cache em memória resiliente
-    incidentesRedeMemoria.unshift(novoIncidente);
-
-    if (registrarAuditoria) {
-      registrarAuditoria({
-        usuario: (req as any).user?.email || "operador_noc",
-        modulo: "NOC & Incidentes",
-        acao: `Registro de Incidente ${novoIncidente.id}`,
-        detalhes: `Incidente registrado: ${novoIncidente.titulo} afetando aprox. ${novoIncidente.clientesAfetadosAprox} clientes.`,
-        categoria: "noc_zabbix",
-        severidade: "alto",
-        ip: req.ip || null,
-        userAgent: (req.headers["user-agent"] as string) || null,
-        payloadDepois: novoIncidente
+    if (!isDatabaseConnected) {
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        erro: "Banco de dados PostgreSQL indisponível. Operação cancelada para garantir integridade e rastreabilidade."
       });
     }
 
-    res.status(201).json({ sucesso: true, incidente: novoIncidente });
+    try {
+      const rows = await db.select().from(incidentes_rede).orderBy(desc(incidentes_rede.createdAt));
+      const list = rows.map(mapDbToIncidente);
+      return res.json({
+        sucesso: true,
+        total: list.length,
+        incidentes: list
+      });
+    } catch (err: any) {
+      console.error(`[NOC Incidentes] Erro ao consultar PostgreSQL: ${err.message}`);
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        erro: `Falha na consulta de incidentes ao banco de dados: ${err.message}`
+      });
+    }
   });
 
-  // 3. Atualizar Incidente (Persistência PostgreSQL)
+  // 2. Criar novo Incidente (Persistência Exclusiva PostgreSQL com UUID Criptográfico)
+  router.post('/incidentes', async (req, res) => {
+    if (!isDatabaseConnected) {
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        erro: "Banco de dados PostgreSQL indisponível. O registro de incidente exige persistência obrigatória."
+      });
+    }
+
+    const { titulo, tipo, regioesAfetadas, concentradorOuOlt, clientesAfetadosAprox, previsaoRetorno, descricao } = req.body;
+    
+    // Identificador persistente e único gerado via UUID v4 — NÃO utilizar Date.now() slicing
+    const incidentId = `INC-${crypto.randomUUID()}`;
+    const protocolo = `ANT-${new Date().getFullYear()}-${crypto.randomInt(100000, 999999)}`;
+    const iniciadoEm = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + " (Hoje)";
+    const regioesArray = Array.isArray(regioesAfetadas) ? regioesAfetadas : (regioesAfetadas ? [String(regioesAfetadas)] : []);
+
+    try {
+      const [inserted] = await db.insert(incidentes_rede).values({
+        id: incidentId,
+        titulo: titulo || "Oscilação de Rede Detectada",
+        tipo: tipo || "rompimento_fibra",
+        regioesAfetadas: JSON.stringify(regioesArray),
+        concentradorOlt: concentradorOuOlt || null,
+        clientesAfetados: Number(clientesAfetadosAprox) || 0,
+        status: "em_reparo",
+        previsaoRetorno: previsaoRetorno || "Em até 2 horas",
+        iniciadoEm,
+        protocolo,
+        descricao: descricao || "Manutenção corretiva em andamento.",
+        autoInterceptar: true,
+        notificacoesEnviadas: 0
+      }).returning();
+
+      const novoIncidente = mapDbToIncidente(inserted);
+
+      if (registrarAuditoria) {
+        registrarAuditoria({
+          usuario: (req as any).user?.email || "operador_noc",
+          modulo: "NOC & Incidentes",
+          acao: `Registro de Incidente ${novoIncidente.id}`,
+          detalhes: `Incidente registrado no PostgreSQL: ${novoIncidente.titulo}. Regiões: ${novoIncidente.regioesAfetadas.join(', ')}.`,
+          categoria: "noc_zabbix",
+          severidade: "alto",
+          ip: req.ip || null,
+          userAgent: (req.headers["user-agent"] as string) || null,
+          payloadDepois: novoIncidente
+        });
+      }
+
+      return res.status(201).json({ sucesso: true, incidente: novoIncidente });
+    } catch (err: any) {
+      console.error(`[NOC Incidentes] Falha ao persistir incidente no PostgreSQL: ${err.message}`);
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        erro: `Falha ao gravar incidente no banco de dados: ${err.message}`
+      });
+    }
+  });
+
+  // 3. Atualizar Incidente (Persistência Exclusiva PostgreSQL)
   router.patch('/incidentes/:id', async (req, res) => {
+    if (!isDatabaseConnected) {
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        erro: "Banco de dados PostgreSQL indisponível. Operação de atualização cancelada."
+      });
+    }
+
     const { id } = req.params;
     const { status, previsaoRetorno, descricao, autoInterceptarAtendimento } = req.body;
 
-    let incidenteAtualizado: IncidenteRede | null = null;
+    try {
+      const updateData: any = { updatedAt: new Date() };
+      if (status) updateData.status = status;
+      if (previsaoRetorno) updateData.previsaoRetorno = previsaoRetorno;
+      if (descricao) updateData.descricao = descricao;
+      if (typeof autoInterceptarAtendimento === 'boolean') updateData.autoInterceptar = autoInterceptarAtendimento;
 
-    if (isDatabaseConnected) {
-      try {
-        const updateData: any = { updatedAt: new Date() };
-        if (status) updateData.status = status;
-        if (previsaoRetorno) updateData.previsaoRetorno = previsaoRetorno;
-        if (descricao) updateData.descricao = descricao;
-        if (typeof autoInterceptarAtendimento === 'boolean') updateData.autoInterceptar = autoInterceptarAtendimento;
+      const [updated] = await db.update(incidentes_rede)
+        .set(updateData)
+        .where(eq(incidentes_rede.id, id))
+        .returning();
 
-        const [updated] = await db.update(incidentes_rede)
-          .set(updateData)
-          .where(eq(incidentes_rede.id, id))
-          .returning();
-
-        if (updated) {
-          incidenteAtualizado = mapDbToIncidente(updated);
-        }
-      } catch (err: any) {
-        console.warn(`[NOC Incidentes] Falha ao atualizar incidente no PostgreSQL: ${err.message}`);
+      if (!updated) {
+        return res.status(404).json({ sucesso: false, erro: "Incidente não encontrado no banco de dados." });
       }
-    }
 
-    // Atualiza também no cache em memória
-    const index = incidentesRedeMemoria.findIndex(inc => inc.id === id);
-    if (index !== -1) {
-      if (status) incidentesRedeMemoria[index].status = status;
-      if (previsaoRetorno) incidentesRedeMemoria[index].previsaoRetorno = previsaoRetorno;
-      if (descricao) incidentesRedeMemoria[index].descricao = descricao;
-      if (typeof autoInterceptarAtendimento === 'boolean') {
-        incidentesRedeMemoria[index].autoInterceptarAtendimento = autoInterceptarAtendimento;
+      const incidenteAtualizado = mapDbToIncidente(updated);
+
+      if (registrarAuditoria) {
+        registrarAuditoria({
+          usuario: (req as any).user?.email || "operador_noc",
+          modulo: "NOC & Incidentes",
+          acao: `Atualização de Incidente ${id}`,
+          detalhes: `Status atualizado: ${status || 'inalterado'}. Previsão: ${previsaoRetorno || 'inalterada'}.`,
+          categoria: "noc_zabbix",
+          severidade: "medio",
+          ip: req.ip || null,
+          userAgent: (req.headers["user-agent"] as string) || null,
+          payloadDepois: incidenteAtualizado
+        });
       }
-      if (!incidenteAtualizado) {
-        incidenteAtualizado = incidentesRedeMemoria[index];
-      }
-    }
 
-    if (!incidenteAtualizado) {
-      return res.status(404).json({ sucesso: false, erro: "Incidente não encontrado." });
+      return res.json({ sucesso: true, incidente: incidenteAtualizado });
+    } catch (err: any) {
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        erro: `Falha ao atualizar incidente no PostgreSQL: ${err.message}`
+      });
     }
-
-    res.json({ sucesso: true, incidente: incidenteAtualizado });
   });
 
-  // 4. Disparo Real de Alertas de Incidente com Seleção Geográfica Estrita
+  // 4. Disparo Real de Notificações com Seleção Geográfica Real e Status Individual
+  // BLOQUEADORES: Clientes reais sem .limit() artificial; Status individual; WebPush sem fabricar providerMessageId.
   router.post('/incidentes/:id/notificar-massa', async (req, res) => {
+    if (!isDatabaseConnected) {
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        enviados: 0,
+        motivo: "Banco de dados PostgreSQL indisponível. Disparo cancelado para preservar rastreabilidade."
+      });
+    }
+
     const { id } = req.params;
     let incidente: IncidenteRede | null = null;
 
-    if (isDatabaseConnected) {
-      try {
-        const [row] = await db.select().from(incidentes_rede).where(eq(incidentes_rede.id, id)).limit(1);
-        if (row) {
-          incidente = mapDbToIncidente(row);
-        }
-      } catch (dbErr: any) {
-        console.warn(`[NOC Incidentes] Aviso ao ler incidente no PostgreSQL: ${dbErr.message}`);
+    try {
+      const [row] = await db.select().from(incidentes_rede).where(eq(incidentes_rede.id, id)).limit(1);
+      if (!row) {
+        return res.status(404).json({ sucesso: false, erro: "Incidente não encontrado no banco de dados." });
       }
-    }
-
-    if (!incidente) {
-      incidente = incidentesRedeMemoria.find(inc => inc.id === id) || null;
-    }
-
-    if (!incidente) {
-      return res.status(404).json({ sucesso: false, erro: "Incidente não encontrado." });
+      incidente = mapDbToIncidente(row);
+    } catch (dbErr: any) {
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        erro: `Falha ao carregar incidente: ${dbErr.message}`
+      });
     }
 
     const hasWaba = Boolean(process.env.WABA_ACCESS_TOKEN && process.env.WABA_PHONE_NUMBER_ID);
@@ -226,46 +238,45 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
       });
     }
 
-    if (!isDatabaseConnected) {
-      return res.status(503).json({
+    // REGRA V7: Seleção baseada estritamente em dados reais do cadastro
+    // Não selecionar artificialmente com LIMIT N. Validar se há critérios geográficos resolvíveis.
+    const conditions: any[] = [];
+    for (const reg of incidente.regioesAfetadas) {
+      const cleanReg = (reg || '').trim();
+      if (
+        cleanReg &&
+        cleanReg.length >= 3 &&
+        cleanReg.toLowerCase() !== 'região geral' &&
+        cleanReg.toLowerCase() !== 'todas' &&
+        cleanReg.toLowerCase() !== 'geral'
+      ) {
+        const pattern = `%${cleanReg.toLowerCase()}%`;
+        conditions.push(sql`LOWER(${clientes.bairro}) LIKE ${pattern}`);
+        conditions.push(sql`LOWER(${clientes.cidade}) LIKE ${pattern}`);
+        conditions.push(sql`LOWER(${clientes.endereco}) LIKE ${pattern}`);
+        conditions.push(sql`LOWER(${clientes.cep}) LIKE ${pattern}`);
+      }
+    }
+
+    // Se o incidente tiver concentrador/OLT especificado
+    if (incidente.concentradorOuOlt && incidente.concentradorOuOlt.trim().length >= 3) {
+      const oltPattern = `%${incidente.concentradorOuOlt.trim().toLowerCase()}%`;
+      conditions.push(sql`LOWER(${clientes.endereco}) LIKE ${oltPattern}`);
+    }
+
+    // Se não há critérios de região específicos: retornar affected_clients_unresolved (NÃO inventar clientes)
+    if (conditions.length === 0) {
+      return res.status(422).json({
         sucesso: false,
-        status: "unavailable",
+        status: "affected_clients_unresolved",
         enviados: 0,
-        motivo: "Banco de dados PostgreSQL indisponível para consulta e filtragem de clientes por região."
+        falhas: 0,
+        motivo: `Critérios geográficos e de infraestrutura insuficientes para determinar clientes afetados (${incidente.regioesAfetadas.join(', ')}). Nenhum envio executado para evitar notificações indevidas.`
       });
     }
 
     try {
-      // REGRA V6 - PONTO 10: Seleção baseada em dados reais de localização do cadastro
-      // Não executar SELECT clientes LIMIT N. Filtrar estritamente por bairro/cidade/endereço/cep.
-      const conditions: any[] = [];
-      for (const reg of incidente.regioesAfetadas) {
-        const cleanReg = (reg || '').trim();
-        if (
-          cleanReg &&
-          cleanReg.length >= 3 &&
-          cleanReg.toLowerCase() !== 'região geral' &&
-          cleanReg.toLowerCase() !== 'todas'
-        ) {
-          const pattern = `%${cleanReg.toLowerCase()}%`;
-          conditions.push(sql`LOWER(${clientes.bairro}) LIKE ${pattern}`);
-          conditions.push(sql`LOWER(${clientes.cidade}) LIKE ${pattern}`);
-          conditions.push(sql`LOWER(${clientes.endereco}) LIKE ${pattern}`);
-          conditions.push(sql`LOWER(${clientes.cep}) LIKE ${pattern}`);
-        }
-      }
-
-      // Se não há critérios de região específicos: não inventar dados e retornar insufficient_data
-      if (conditions.length === 0) {
-        return res.status(422).json({
-          sucesso: false,
-          status: "insufficient_data",
-          enviados: 0,
-          falhas: 0,
-          motivo: `Critérios geográficos insuficientes para filtrar clientes afetados no cadastro (${incidente.regioesAfetadas.join(', ')}). Nenhum envio executado para evitar notificações indevidas.`
-        });
-      }
-
+      // Busca todos os clientes reais que coincidem com os critérios das regiões afetadas
       const clientesAlvo = await db.select({
         id: clientes.id,
         nome: clientes.nome,
@@ -274,16 +285,15 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
         bairro: clientes.bairro,
         cidade: clientes.cidade
       }).from(clientes)
-        .where(and(sql`${clientes.deletedAt} IS NULL`, sql`(${sql.join(conditions, sql` OR `)})`))
-        .limit(Math.min(incidente.clientesAfetadosAprox || 50, 100));
+        .where(and(sql`${clientes.deletedAt} IS NULL`, sql`(${sql.join(conditions, sql` OR `)})`));
 
       if (clientesAlvo.length === 0) {
         return res.json({
           sucesso: false,
-          status: "insufficient_data",
+          status: "affected_clients_unresolved",
           enviados: 0,
           falhas: 0,
-          motivo: `Nenhum cliente cadastrado no banco coincide com as regiões afetadas pelo incidente (${incidente.regioesAfetadas.join(', ')}).`,
+          motivo: `Nenhum cliente cadastrado no banco coincide com as regiões ou infraestrutura do incidente (${incidente.regioesAfetadas.join(', ')}).`,
           incidente
         });
       }
@@ -295,21 +305,21 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
       for (const cliente of clientesAlvo) {
         const cleanPhone = (cliente.telefone || '').replace(/\D/g, "");
 
-        // Canal 1: WhatsApp Oficial (se WABA configurado e telefone válido)
+        // Canal 1: WhatsApp Oficial (WABA)
         if (hasWaba && cleanPhone && cleanPhone.length >= 10) {
           const [notif] = await db.insert(incident_notifications).values({
             incidentId: incidente.id,
             customerId: cliente.id,
+            recipientType: "cliente",
+            recipientId: cliente.id,
             channel: "whatsapp",
-            status: "queued",
-            attemptedAt: new Date()
+            status: "processing",
+            requestedAt: new Date(),
+            attemptedAt: new Date(),
+            attemptCount: 1
           }).returning();
 
           try {
-            await db.update(incident_notifications)
-              .set({ status: "sending" })
-              .where(eq(incident_notifications.id, notif.id));
-
             const accessToken = process.env.WABA_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
             const phoneNumberId = process.env.WABA_PHONE_NUMBER_ID;
 
@@ -334,8 +344,9 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
               enviadosReal++;
               await db.update(incident_notifications).set({
                 status: "sent",
-                providerMessageId: providerId,
-                sentAt: new Date()
+                acceptedAt: new Date(),
+                sentAt: new Date(),
+                providerMessageId: providerId
               }).where(eq(incident_notifications.id, notif.id));
 
               // Registra no chat histórico
@@ -379,14 +390,14 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
               const [pushNotif] = await db.insert(incident_notifications).values({
                 incidentId: incidente.id,
                 customerId: cliente.id,
+                recipientType: "cliente",
+                recipientId: cliente.id,
                 channel: "push",
-                status: "queued",
-                attemptedAt: new Date()
+                status: "processing",
+                requestedAt: new Date(),
+                attemptedAt: new Date(),
+                attemptCount: 1
               }).returning();
-
-              await db.update(incident_notifications)
-                .set({ status: "sending" })
-                .where(eq(incident_notifications.id, pushNotif.id));
 
               const pushRes = await webPushService.sendNotification(sub.endpoint, {
                 title: `⚠️ COMUNICADO DE REDE [${incidente.id}]`,
@@ -396,10 +407,13 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
 
               if (pushRes.sucesso) {
                 enviadosReal++;
+                // REGRA V7: WebPush não fornece providerMessageId. O NAP deve utilizar NULL e nunca fabricar ID.
+                // O identificador rastreável é o id próprio do banco (pushNotif.id).
                 await db.update(incident_notifications).set({
                   status: "sent",
-                  providerMessageId: `push_${Date.now()}`,
-                  sentAt: new Date()
+                  acceptedAt: new Date(),
+                  sentAt: new Date(),
+                  providerMessageId: null
                 }).where(eq(incident_notifications.id, pushNotif.id));
               } else {
                 falhasReal++;
@@ -417,27 +431,13 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
         }
       }
 
-      // Atualiza o contador de notificações enviadas no banco e memória
-      incidente.notificacoesEnviadas += enviadosReal;
-
-      if (isDatabaseConnected) {
-        try {
-          await db.update(incidentes_rede)
-            .set({
-              notificacoesEnviadas: sql`${incidentes_rede.notificacoesEnviadas} + ${enviadosReal}`,
-              updatedAt: new Date()
-            })
-            .where(eq(incidentes_rede.id, incidente.id));
-        } catch (dbUpErr: any) {
-          console.warn(`[NOC Incidentes] Falha ao atualizar contador no PostgreSQL: ${dbUpErr.message}`);
-        }
-      }
-
-      // Atualiza na memória
-      const memIdx = incidentesRedeMemoria.findIndex(i => i.id === incidente!.id);
-      if (memIdx !== -1) {
-        incidentesRedeMemoria[memIdx].notificacoesEnviadas += enviadosReal;
-      }
+      // Atualiza o contador de notificações enviadas no PostgreSQL
+      await db.update(incidentes_rede)
+        .set({
+          notificacoesEnviadas: sql`${incidentes_rede.notificacoesEnviadas} + ${enviadosReal}`,
+          updatedAt: new Date()
+        })
+        .where(eq(incidentes_rede.id, incidente.id));
 
       if (registrarAuditoria) {
         registrarAuditoria({
@@ -471,45 +471,53 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
     }
   });
 
-  // 5. Verificar se determinado cliente ou endereço está sob impacto de Incidente Ativo
+  // 5. Verificar se determinado cliente ou endereço está sob impacto de Incidente Ativo (PostgreSQL)
   router.get('/incidentes/verificar-cliente', async (req, res) => {
+    if (!isDatabaseConnected) {
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        erro: "Banco de dados PostgreSQL indisponível para checagem de incidentes."
+      });
+    }
+
     const { bairro = "", cidade = "" } = req.query as { bairro?: string; cidade?: string };
 
-    let incidentesParaChecagem: IncidenteRede[] = incidentesRedeMemoria;
-    if (isDatabaseConnected) {
-      try {
-        const rows = await db.select().from(incidentes_rede).where(eq(incidentes_rede.status, 'em_reparo'));
-        if (rows.length > 0) {
-          incidentesParaChecagem = rows.map(mapDbToIncidente);
-        }
-      } catch {}
-    }
+    try {
+      const rows = await db.select().from(incidentes_rede).where(eq(incidentes_rede.status, 'em_reparo'));
+      const incidentesAtivos = rows.map(mapDbToIncidente);
 
-    const incidenteAtivo = incidentesParaChecagem.find(inc => {
-      if (inc.status === "normalizado") return false;
-      const bNorm = bairro.toLowerCase().trim();
-      const cNorm = cidade.toLowerCase().trim();
-      return inc.regioesAfetadas.some(reg => {
-        const rNorm = reg.toLowerCase().trim();
-        return (bNorm && rNorm.includes(bNorm)) || (cNorm && rNorm.includes(cNorm)) || rNorm === "toda a cidade" || rNorm === "região geral";
+      const incidenteAtivo = incidentesAtivos.find(inc => {
+        const bNorm = bairro.toLowerCase().trim();
+        const cNorm = cidade.toLowerCase().trim();
+        return inc.regioesAfetadas.some(reg => {
+          const rNorm = reg.toLowerCase().trim();
+          return (bNorm && rNorm.includes(bNorm)) || (cNorm && rNorm.includes(cNorm)) || rNorm === "toda a cidade" || rNorm === "região geral";
+        });
       });
-    });
 
-    if (incidenteAtivo) {
-      return res.json({
-        sobImpacto: true,
-        incidente: {
-          id: incidenteAtivo.id,
-          titulo: incidenteAtivo.titulo,
-          tipo: incidenteAtivo.tipo,
-          previsaoRetorno: incidenteAtivo.previsaoRetorno,
-          mensagemURA: `Identificamos uma oscilação na rede da sua região. Nossa equipe técnica já está atuando com previsão de normalização ${incidenteAtivo.previsaoRetorno}. Protocolo: ${incidenteAtivo.protocoloAnatel}.`,
-          autoInterceptar: incidenteAtivo.autoInterceptarAtendimento
-        }
+      if (incidenteAtivo) {
+        return res.json({
+          sobImpacto: true,
+          incidente: {
+            id: incidenteAtivo.id,
+            titulo: incidenteAtivo.titulo,
+            tipo: incidenteAtivo.tipo,
+            previsaoRetorno: incidenteAtivo.previsaoRetorno,
+            mensagemURA: `Identificamos uma oscilação na rede da sua região. Nossa equipe técnica já está atuando com previsão de normalização ${incidenteAtivo.previsaoRetorno}. Protocolo: ${incidenteAtivo.protocoloAnatel}.`,
+            autoInterceptar: incidenteAtivo.autoInterceptarAtendimento
+          }
+        });
+      }
+
+      return res.json({ sobImpacto: false });
+    } catch (err: any) {
+      return res.status(503).json({
+        sucesso: false,
+        status: "database_unavailable",
+        erro: `Erro na consulta de incidentes: ${err.message}`
       });
     }
-
-    res.json({ sobImpacto: false });
   });
 
   app.use('/api', router);

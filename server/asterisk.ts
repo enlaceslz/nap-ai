@@ -3,7 +3,7 @@ import net from 'net';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { db } from "../src/db/index";
+import { db, isDatabaseConnected } from "../src/db/index";
 import { clientes, campanhas_chamadas_voz } from "../src/db/schema";
 import { eq, and } from "drizzle-orm";
 import { assertRealService } from "./security/mockGuard";
@@ -289,6 +289,16 @@ export interface OriginateCallResult {
 export async function originateCampaignVoiceCall(params: OriginateCallParams): Promise<OriginateCallResult> {
   const { campaignId, recipientId, telefone, idempotencyKey, audioText, timeoutSeconds = 30 } = params;
 
+  // BLOQUEADOR V7 - ITEM 11: Erro ou indisponibilidade do PostgreSQL DEVE impedir a originação
+  if (!isDatabaseConnected) {
+    return {
+      status: 'failed',
+      errorCode: 'PERSISTENCE_UNAVAILABLE',
+      errorMessage: 'Banco de dados PostgreSQL indisponível. Originação telefônica terminantemente cancelada para garantir rastreabilidade e idempotência.',
+      result: 'failed'
+    };
+  }
+
   // 1. Verificação de Idempotência: não duplicar chamadas em execução ou já atendidas
   try {
     const existing = await db.select().from(campanhas_chamadas_voz)
@@ -314,7 +324,13 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
       }
     }
   } catch (dbErr: any) {
-    console.warn(`[Asterisk Voz] Aviso ao consultar idempotência: ${dbErr.message}`);
+    console.error(`[Asterisk Voz] Erro crítico ao consultar idempotência no PostgreSQL: ${dbErr.message}`);
+    return {
+      status: 'failed',
+      errorCode: 'PERSISTENCE_UNAVAILABLE',
+      errorMessage: `Falha na verificação de persistência no PostgreSQL: ${dbErr.message}. Originação cancelada.`,
+      result: 'failed'
+    };
   }
 
   // 2. Sanitização estrita do telefone
@@ -401,7 +417,7 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
     return errResult;
   }
 
-  // 4. Registro inicial no banco: queued -> originating
+  // 4. Registro inicial no banco: queued -> originating (persiste obrigatoriamente antes de originar)
   const startedAt = new Date();
   try {
     await db.insert(campanhas_chamadas_voz).values({
@@ -417,7 +433,13 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
       set: { status: 'originating', startedAt, updatedAt: new Date() }
     });
   } catch (e: any) {
-    console.warn(`[Asterisk Voz] Falha ao registrar início da chamada no PostgreSQL: ${e.message}`);
+    console.error(`[Asterisk Voz] Falha crítica ao persistir início da chamada no PostgreSQL: ${e.message}`);
+    return {
+      status: 'failed',
+      errorCode: 'PERSISTENCE_UNAVAILABLE',
+      errorMessage: `Falha ao persistir estado inicial da chamada: ${e.message}. Originação cancelada.`,
+      result: 'failed'
+    };
   }
 
   // 5. Originação Real no ARI
@@ -432,49 +454,93 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
     let asteriskChannelId: string | null = null;
     let asteriskUniqueId: string | null = null;
     let activeChannel: any = null;
+    let hangupRequestedDueToTimeout = false;
+    let fallbackReconciliationTimer: NodeJS.Timeout | null = null;
 
+    // BLOQUEADOR V7 - ITEM 9: Timeout NÃO pode finalizar antes do Asterisk confirmar
+    // Fluxo obrigatório: timeout -> solicitar hangup -> aguardar evento ChannelDestroyed -> persistir -> resolver
     const timeoutTimer = setTimeout(async () => {
       if (callResolved) return;
-      callResolved = true;
-      const endedAt = new Date();
+      hangupRequestedDueToTimeout = true;
 
       // Solicitar encerramento real (hangup) ao canal no Asterisk
       if (activeChannel) {
+        try {
+          await db.update(campanhas_chamadas_voz).set({
+            status: 'terminating',
+            hangupCause: 'TIMEOUT_HANGUP_REQUESTED',
+            updatedAt: new Date()
+          }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey));
+        } catch {}
+
         try {
           activeChannel.hangup(() => {});
         } catch (hangupErr: any) {
           console.warn(`[Asterisk ARI] Falha ao solicitar hangup por timeout: ${hangupErr.message}`);
         }
-      }
 
-      const result: OriginateCallResult = {
-        status: 'no_answer',
-        asteriskChannelId: asteriskChannelId || undefined,
-        asteriskUniqueId: asteriskUniqueId || undefined,
-        startedAt,
-        ringingAt,
-        answeredAt,
-        endedAt,
-        durationSeconds: 0,
-        hangupCause: 'TIMEOUT_NO_ANSWER',
-        result: 'no_answer',
-        errorMessage: `Tempo limite de chamada expirado (${timeoutSeconds}s) sem atendimento.`
-      };
+        // Janela de reconciliação de 5 segundos se a central não emitir ChannelDestroyed
+        fallbackReconciliationTimer = setTimeout(async () => {
+          if (callResolved) return;
+          callResolved = true;
+          const endedAt = new Date();
+          const recResult: OriginateCallResult = {
+            status: 'failed',
+            asteriskChannelId: asteriskChannelId || undefined,
+            asteriskUniqueId: asteriskUniqueId || undefined,
+            startedAt,
+            ringingAt,
+            answeredAt,
+            endedAt,
+            durationSeconds: 0,
+            hangupCause: 'RECONCILIATION_REQUIRED',
+            result: 'reconciliation_required',
+            errorCode: 'RECONCILIATION_REQUIRED',
+            errorMessage: 'Asterisk não confirmou encerramento do canal após solicitação de hangup por timeout.'
+          };
 
-      try {
-        await db.update(campanhas_chamadas_voz).set({
+          try {
+            await db.update(campanhas_chamadas_voz).set({
+              status: 'failed',
+              result: 'reconciliation_required',
+              endedAt,
+              hangupCause: 'RECONCILIATION_REQUIRED',
+              errorCode: recResult.errorCode,
+              errorMessage: recResult.errorMessage,
+              updatedAt: new Date()
+            }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey));
+          } catch {}
+
+          resolve(recResult);
+        }, 5000);
+      } else {
+        // Canal nem chegou a ser aceito pela central antes do timeout
+        if (callResolved) return;
+        callResolved = true;
+        const endedAt = new Date();
+        const noChannelResult: OriginateCallResult = {
           status: 'no_answer',
-          result: 'no_answer',
-          ringingAt,
+          startedAt,
           endedAt,
           durationSeconds: 0,
-          hangupCause: result.hangupCause,
-          errorMessage: result.errorMessage,
-          updatedAt: new Date()
-        }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey));
-      } catch {}
+          hangupCause: 'TIMEOUT_BEFORE_CHANNEL',
+          result: 'no_answer',
+          errorMessage: `Tempo limite (${timeoutSeconds}s) expirado sem resposta da central.`
+        };
 
-      resolve(result);
+        try {
+          await db.update(campanhas_chamadas_voz).set({
+            status: 'no_answer',
+            result: 'no_answer',
+            endedAt,
+            durationSeconds: 0,
+            hangupCause: noChannelResult.hangupCause,
+            updatedAt: new Date()
+          }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey));
+        } catch {}
+
+        resolve(noChannelResult);
+      }
     }, timeoutSeconds * 1000);
 
     try {
@@ -486,6 +552,7 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
       }, (err: any, channel: any) => {
         if (err || !channel) {
           clearTimeout(timeoutTimer);
+          if (fallbackReconciliationTimer) clearTimeout(fallbackReconciliationTimer);
           if (callResolved) return;
           callResolved = true;
           const errMsg = err?.message || 'Rejeição de originação pelo Asterisk ARI';
@@ -509,15 +576,14 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
         }
 
         activeChannel = channel;
-        asteriskChannelId = channel.id || null;
+        asteriskChannelId = channel.id ? String(channel.id) : null;
 
-        // REGRA V6: Nunca fabricar identificador Asterisk artificial. Usar identificador real ou null.
-        const realUniqueId = channel.id || (channel as any).name || (channel as any).uniqueid || null;
-        if (!realUniqueId) {
-          console.warn('[Asterisk ARI] Canal originado sem identificador único retornado pelo Asterisk (id/name/uniqueid). Definindo asteriskUniqueId = null.');
-          asteriskUniqueId = null;
-        } else {
-          asteriskUniqueId = String(realUniqueId);
+        // BLOQUEADOR V7 - ITEM 10: Separar corretamente asterisk_channel_id e asterisk_unique_id
+        // Não assumir que channel.id é asterisk_unique_id. Usar somente valor fornecido pelo Asterisk ou NULL.
+        const rawUniqueId = (channel as any)?.uniqueid || (channel as any)?.caller?.uniqueid || null;
+        asteriskUniqueId = rawUniqueId ? String(rawUniqueId) : null;
+        if (!asteriskUniqueId) {
+          console.log('[Asterisk ARI] Canal originado sem uniqueid explícito no payload da central. asteriskUniqueId definido como NULL.');
         }
 
         // Atualiza channel_id e unique_id no banco
@@ -554,8 +620,10 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
           }
         });
 
+        // Confirmação REAL do encerramento emitida pelo Asterisk
         channel.on('ChannelDestroyed', async (event: any) => {
           clearTimeout(timeoutTimer);
+          if (fallbackReconciliationTimer) clearTimeout(fallbackReconciliationTimer);
           if (callResolved) return;
           callResolved = true;
 
@@ -569,6 +637,9 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
           if (answeredAt) {
             finalStatus = 'answered';
             durationSeconds = Math.max(1, Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000));
+          } else if (hangupRequestedDueToTimeout) {
+            // Encerramento confirmado pelo Asterisk após solicitação de hangup por timeout
+            finalStatus = 'no_answer';
           } else if (cause === 17) {
             finalStatus = 'busy'; // User busy
           } else if (cause === 19 || cause === 18) {
@@ -611,6 +682,7 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
       });
     } catch (launchErr: any) {
       clearTimeout(timeoutTimer);
+      if (fallbackReconciliationTimer) clearTimeout(fallbackReconciliationTimer);
       if (callResolved) return;
       callResolved = true;
       const failedResult: OriginateCallResult = {

@@ -266,6 +266,7 @@ export interface AppendOnlyAuditLog {
   ip?: string;
   userAgent?: string;
   status: 'sucesso' | 'falha' | 'bloqueado';
+  persistenceStatus?: 'queued' | 'persisted' | 'failed';
   previousHash: string;
   entryHash: string;
 }
@@ -389,7 +390,9 @@ async function persistLogToPostgres(log: AppendOnlyAuditLog): Promise<void> {
 
     await client.query('COMMIT');
     lastHash = effectiveEntryHash;
+    (log as any).persistenceStatus = 'persisted';
   } catch (err: any) {
+    (log as any).persistenceStatus = 'failed';
     if (client) {
       await client.query('ROLLBACK').catch(() => {});
     }
@@ -530,7 +533,8 @@ export function appendAuditLog(entry: Omit<AppendOnlyAuditLog, 'id' | 'timestamp
     id,
     timestamp,
     previousHash,
-    entryHash
+    entryHash,
+    persistenceStatus: 'queued'
   };
 
   auditChain.push(Object.freeze(logEntry));
@@ -687,6 +691,7 @@ export async function recordMandatoryAuditLog(
       lastHash = effectiveEntryHash;
       logEntry.previousHash = effectivePreviousHash;
       logEntry.entryHash = effectiveEntryHash;
+      logEntry.persistenceStatus = 'persisted';
     } catch (err: any) {
       if (client) {
         await client.query('ROLLBACK').catch(() => {});

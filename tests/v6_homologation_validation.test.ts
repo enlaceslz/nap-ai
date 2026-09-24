@@ -89,9 +89,9 @@ describe('NAP-AI V6 — Validação Técnica de Bloqueadores para Homologação'
       assert.equal(migration0006.includes('CREATE INDEX IF NOT EXISTS "idx_incidentes_rede_status"'), true);
     });
 
-    it('incidentesRoutes.ts deve validar regiões afetadas e rejeitar com insufficient_data se genéricas ou sem clientes', () => {
+    it('incidentesRoutes.ts deve validar regiões afetadas e rejeitar com affected_clients_unresolved se genéricas ou sem clientes', () => {
       const routesCode = fs.readFileSync(path.join(process.cwd(), 'server/noc/incidentesRoutes.ts'), 'utf8');
-      assert.equal(routesCode.includes('insufficient_data'), true, 'Deve retornar insufficient_data se regiões forem insuficientes');
+      assert.equal(routesCode.includes('affected_clients_unresolved'), true, 'Deve retornar affected_clients_unresolved se regiões forem insuficientes');
       assert.equal(routesCode.includes('LOWER(${clientes.bairro}) LIKE'), true, 'Deve filtrar clientes reais por bairro');
       assert.equal(routesCode.includes('LOWER(${clientes.cidade}) LIKE'), true, 'Deve filtrar clientes reais por cidade');
     });

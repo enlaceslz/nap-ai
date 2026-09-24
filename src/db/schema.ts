@@ -523,19 +523,25 @@ export const push_subscriptions = pgTable('push_subscriptions', {
 
 /**
  * 16. NOTIFICAÇÕES REAIS DE INCIDENTES (NOC)
+ * Suporte a rastreamento individual com status granular (queued, processing, sent, failed, cancelled)
  */
 export const incident_notifications = pgTable('incident_notifications', {
   id: serial('id').primaryKey(),
   incidentId: varchar('incident_id', { length: 100 }).notNull(),
   customerId: integer('customer_id').references(() => clientes.id),
+  recipientType: varchar('recipient_type', { length: 50 }).default('cliente').notNull(), // 'cliente' | 'operador'
+  recipientId: integer('recipient_id'),
   channel: varchar('channel', { length: 50 }).notNull(), // 'whatsapp', 'push', 'sms'
-  status: varchar('status', { length: 50 }).default('queued').notNull(), // 'queued', 'sending', 'sent', 'delivered', 'failed'
+  status: varchar('status', { length: 50 }).default('queued').notNull(), // 'queued', 'processing', 'sending', 'sent', 'failed', 'cancelled'
   providerMessageId: varchar('provider_message_id', { length: 255 }),
+  requestedAt: timestamp('requested_at').defaultNow().notNull(),
+  acceptedAt: timestamp('accepted_at'),
   attemptedAt: timestamp('attempted_at').defaultNow().notNull(),
   sentAt: timestamp('sent_at'),
   failedAt: timestamp('failed_at'),
   errorCode: varchar('error_code', { length: 100 }),
   errorMessage: text('error_message'),
+  attemptCount: integer('attempt_count').default(1).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 }, (table) => {
   return {
@@ -554,7 +560,7 @@ export const incidentes_rede = pgTable('incidentes_rede', {
   titulo: varchar('titulo', { length: 255 }).notNull(),
   tipo: varchar('tipo', { length: 100 }).notNull(), // 'rompimento_fibra', 'falha_energia_pop', 'degradacao_backbone', 'manutencao_programada'
   regioesAfetadas: text('regioes_afetadas').notNull(), // JSON serializado de string[]
-  concentradorOlt: varchar('concentrador_olt', { length: 255 }).default('OLT Central'),
+  concentradorOlt: varchar('concentrador_olt', { length: 255 }),
   clientesAfetados: integer('clientes_afetados').default(0).notNull(),
   status: varchar('status', { length: 50 }).default('em_reparo').notNull(), // 'em_reparo', 'identificado', 'normalizado'
   previsaoRetorno: varchar('previsao_retorno', { length: 100 }),
@@ -570,6 +576,52 @@ export const incidentes_rede = pgTable('incidentes_rede', {
     statusIdx: index('idx_incidentes_rede_status').on(table.status),
     tipoIdx: index('idx_incidentes_rede_tipo').on(table.tipo),
     protocoloIdx: index('idx_incidentes_rede_protocolo').on(table.protocolo)
+  };
+});
+
+/**
+ * 18. ESTADO OPERACIONAL PERSISTENTE DA RÉGUA DE COBRANÇA (POSTGRESQL)
+ * Substitui estado volátil em memória. Histórico resiliente de execuções e disparos.
+ */
+export const regua_execucoes = pgTable('regua_execucoes', {
+  id: serial('id').primaryKey(),
+  fase: varchar('fase', { length: 50 }).notNull(), // 'd_menos_3', 'd_zero', 'd_mais_3', 'd_mais_7'
+  totalFaturas: integer('total_faturas').default(0).notNull(),
+  disparados: integer('disparados').default(0).notNull(),
+  sucesso: integer('sucesso').default(0).notNull(),
+  falhas: integer('falhas').default(0).notNull(),
+  status: varchar('status', { length: 50 }).default('concluida').notNull(), // 'running', 'concluida', 'falha'
+  iniciadoEm: timestamp('iniciado_em').defaultNow().notNull(),
+  finalizadoEm: timestamp('finalizado_em'),
+  erro: text('erro'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => {
+  return {
+    faseIdx: index('idx_regua_exec_fase').on(table.fase),
+    statusIdx: index('idx_regua_exec_status').on(table.status),
+    iniciadoEmIdx: index('idx_regua_exec_iniciado_em').on(table.iniciadoEm)
+  };
+});
+
+export const regua_disparos = pgTable('regua_disparos', {
+  id: serial('id').primaryKey(),
+  execucaoId: integer('execucao_id').references(() => regua_execucoes.id),
+  faturaId: integer('fatura_id').references(() => faturas.id),
+  clienteId: integer('cliente_id').references(() => clientes.id),
+  fase: varchar('fase', { length: 50 }).notNull(),
+  canal: varchar('canal', { length: 50 }).default('whatsapp').notNull(), // 'whatsapp', 'push', 'sms'
+  destinatario: varchar('destinatario', { length: 100 }).notNull(),
+  status: varchar('status', { length: 50 }).default('enviado').notNull(), // 'enviado', 'falha', 'ignorado'
+  providerMessageId: varchar('provider_message_id', { length: 255 }),
+  valor: numeric('valor', { precision: 15, scale: 2 }),
+  erro: text('erro'),
+  disparadoEm: timestamp('disparado_em').defaultNow().notNull()
+}, (table) => {
+  return {
+    execucaoIdx: index('idx_regua_disp_exec_id').on(table.execucaoId),
+    faturaIdx: index('idx_regua_disp_fatura_id').on(table.faturaId),
+    clienteIdx: index('idx_regua_disp_cliente_id').on(table.clienteId),
+    statusIdx: index('idx_regua_disp_status').on(table.status)
   };
 });
 

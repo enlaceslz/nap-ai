@@ -123,7 +123,7 @@ export default function GenieACSDashboard() {
  const [novoTitulo, setNovoTitulo] = useState('');
  const [novoTipo, setNovoTipo] = useState<"rompimento_fibra" | "falha_energia_pop" | "degradacao_olt" | "manutencao_programada">('rompimento_fibra');
  const [novoBairros, setNovoBairros] = useState('');
- const [novoOlt, setNovoOlt] = useState('OLT Central / PON 02');
+ const [novoOlt, setNovoOlt] = useState('');
  const [novoClientes, setNovoClientes] = useState('320');
  const [novoPrevisao, setNovoPrevisao] = useState('16:00 (Hoje)');
  const [novoDescricao, setNovoDescricao] = useState('');
@@ -139,92 +139,29 @@ export default function GenieACSDashboard() {
  .finally(() => setLoadingIncidentes(false));
  };
 
- const fetchDevices = async () => {
- const mockDevices: DeviceInfo[] = [
- {
- _id: '123456-ZXHN-123456789',
- manufacturer: 'ZTE',
- productClass: 'F670L',
- serialNumber: 'ZTEGC1234567',
- mac: '00:11:22:33:44:55',
- ip: '10.10.1.55',
- lastInform: new Date(Date.now() - 60000).toISOString(),
- status: 'online',
- rssi: -19.5,
- snr: 40.2,
- uptime: '15 dias, 4 horas',
- ssid: 'DJD_Fibra_Casa_5G',
- wifiPassword: 'fibra@segura2026',
- wifiChannel: 36,
- wifiBand: 'Dual-Band (2.4GHz + 5GHz AC)',
- lanClients: 6,
- tempLaser: '42.5 °C',
- vccVolts: '3.31 V'
- },
- {
- _id: '987654-HG8245-987654321',
- manufacturer: 'Huawei',
- productClass: 'HG8245H',
- serialNumber: '4857544321',
- mac: 'AA:BB:CC:DD:EE:FF',
- ip: '10.10.1.102',
- lastInform: new Date(Date.now() - 3600000).toISOString(),
- status: 'offline',
- rssi: -35.0,
- snr: 15.0,
- uptime: 'Offline',
- ssid: 'Huawei_Fibra_Residencial',
- wifiPassword: 'senha123456',
- wifiChannel: 6,
- wifiBand: '2.4GHz b/g/n',
- lanClients: 0,
- tempLaser: '0.0 °C',
- vccVolts: '0.00 V'
- },
- {
- _id: '456789-EG8145-456789123',
- manufacturer: 'Huawei',
- productClass: 'EG8145V5',
- serialNumber: '4857544388',
- mac: '11:22:33:AA:BB:CC',
- ip: '10.10.1.200',
- lastInform: new Date(Date.now() - 120000).toISOString(),
- status: 'online',
- rssi: -22.1,
- snr: 35.5,
- uptime: '7 dias, 18 horas',
- ssid: 'DJD_Familia_Silva_Wi-Fi6',
- wifiPassword: 'internet@rapida',
- wifiChannel: 44,
- wifiBand: 'Dual-Band Wi-Fi 6 AX',
- lanClients: 9,
- tempLaser: '39.8 °C',
- vccVolts: '3.29 V'
- }
- ];
-
- try {
- setLoading(true);
- setError('');
- const controller = new AbortController();
- const timeoutId = setTimeout(() => controller.abort(), 4000);
- const res = await fetch('/api/genieacs/devices', { signal: controller.signal });
- clearTimeout(timeoutId);
-
- if (res.ok) {
- const data = await res.json();
- if (data.devices && Array.isArray(data.devices) && data.devices.length > 0) {
- setDevices(data.devices);
- return;
- }
- }
- setDevices(mockDevices);
- } catch {
- setDevices(mockDevices);
- } finally {
- setLoading(false);
- }
- };
+  const fetchDevices = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch("/api/genieacs/devices", { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.devices && Array.isArray(data.devices)) {
+          setDevices(data.devices);
+          return;
+        }
+      }
+      setDevices([]);
+    } catch {
+      setError("Falha ao carregar dispositivos do GenieACS.");
+      setDevices([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
  useEffect(() => {
  fetchIncidentes();
@@ -266,8 +203,8 @@ export default function GenieACSDashboard() {
  } else {
  setFeedbackTr069(data.erro || "Erro ao reiniciar CPE.");
  }
- } catch {
- setFeedbackTr069(`Comando Reboot enviado com sucesso via TR-069 para ${device.serialNumber}!`);
+    } catch (err: any) {
+      setFeedbackTr069(`Falha ao disparar comando Reboot via TR-069: ${err.message || "Servidor inacessível"}`);
  } finally {
  setRebootingId(null);
  setTimeout(() => setFeedbackTr069(null), 5000);
