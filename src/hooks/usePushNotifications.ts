@@ -52,37 +52,52 @@ export function usePushNotifications() {
  }
  }, []);
 
- // Registrar subscrição no backend do DJD
- const syncSubscriptionWithServer = async () => {
- try {
- let endpoint = `https://portal.nap.local/push/${Math.random().toString(36).substring(7)}`;
- 
- if ('serviceWorker' in navigator) {
- try {
- const reg = await navigator.serviceWorker.ready;
- const sub = await reg.pushManager.getSubscription();
- if (sub) {
- endpoint = sub.endpoint;
- }
- } catch {
- // Mantém fallback seguro para visualização
- }
- }
+  // Registrar subscrição no backend do portal com prova de identidade
+  const syncSubscriptionWithServer = async () => {
+    try {
+      const authRaw = localStorage.getItem('@nap_client_auth');
+      const clientAuth = authRaw ? JSON.parse(authRaw) : null;
+      if (!clientAuth || !clientAuth.id) {
+        return;
+      }
 
- await fetch('/api/push/subscribe', {
- method: 'POST',
- headers: { 'Content-Type': 'application/json' },
- body: JSON.stringify({
- subscription: { endpoint },
- cliente_id: 1001,
- cliente_nome: 'João Silva',
- dispositivo: navigator.userAgent.includes('Mobile') ? 'Mobile (PWA)' : 'Desktop (PWA)'
- })
- });
- } catch (err) {
- console.warn('Erro ao registrar inscrição no servidor:', err);
- }
- };
+      let subObj: any = null;
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          const sub = await reg.pushManager.getSubscription();
+          if (sub) {
+            subObj = sub;
+          }
+        } catch {
+          // Service worker indisponível no contexto atual
+        }
+      }
+
+      if (!subObj?.endpoint) {
+        return;
+      }
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (clientAuth.pushEnrollmentToken) {
+        headers['x-push-enrollment-token'] = clientAuth.pushEnrollmentToken;
+      }
+
+      await fetch('/api/push/portal/subscribe', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          subscription: subObj,
+          cliente_id: Number(clientAuth.id),
+          cliente_nome: clientAuth.nome || 'Assinante',
+          push_enrollment_token: clientAuth.pushEnrollmentToken,
+          dispositivo: navigator.userAgent.includes('Mobile') ? 'Mobile (PWA)' : 'Desktop (PWA)'
+        })
+      });
+    } catch (err) {
+      console.warn('Erro ao registrar inscrição no servidor:', err);
+    }
+  };
 
  const requestPermission = async () => {
  if (!isSupported) {

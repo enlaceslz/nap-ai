@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { db, isDatabaseConnected } from '../../src/db/index';
-import { faturas, clientes, mensagens, conversas, regua_execucoes, regua_disparos } from '../../src/db/schema';
+import { faturas, clientes, mensagens, conversas, regua_execucoes, regua_disparos, users, push_subscriptions } from '../../src/db/schema';
 import { eq, and, desc, sql, gte } from 'drizzle-orm';
 import { webPushService } from '../push/webPushService';
 import { requireAuth } from '../auth/rbacMiddleware';
@@ -78,64 +78,73 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
   const router = express.Router();
 
   // 1. Obter Parâmetros da Régua de Cobrança (Configuração do arquivo + Estado Operacional 100% PostgreSQL)
+  // BLOQUEADOR CRÍTICO V9: Eliminação de fallback operacional em memória. Se PostgreSQL indisponível -> 503 OPERATIONAL_DATA_UNAVAILABLE
   router.get('/regua', async (req, res) => {
-    let historicoPostgres = globalReguaConfig.historicoExecucoes;
-    let estatisticasPostgres = globalReguaConfig.estatisticas;
-
-    if (isDatabaseConnected) {
-      try {
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-
-        const execRows = await db.select().from(regua_execucoes)
-          .orderBy(desc(regua_execucoes.iniciadoEm))
-          .limit(20);
-
-        if (execRows.length > 0) {
-          historicoPostgres = execRows.map(e => ({
-            id: `exec-${e.id}`,
-            fase: e.fase,
-            disparados: e.disparados,
-            sucesso: e.sucesso,
-            falhas: e.falhas,
-            data: e.iniciadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-          }));
-        }
-
-        const dispHoje = await db.select({ count: sql<number>`count(*)` })
-          .from(regua_disparos)
-          .where(and(eq(regua_disparos.status, 'enviado'), gte(regua_disparos.disparadoEm, startOfDay)));
-
-        const totalHoje = Number(dispHoje[0]?.count || 0);
-
-        const pagasHoje = await db.select({
-          count: sql<number>`count(*)`,
-          total: sql<number>`COALESCE(SUM(CAST(${faturas.valor} AS numeric)), 0)`
-        }).from(faturas).where(and(eq(faturas.status, 'paga'), gte(faturas.dataPagamento, startOfDay)));
-
-        const faturasRecup = Number(pagasHoje[0]?.count || 0);
-        const valorRecup = Number(pagasHoje[0]?.total || 0);
-        const taxaConv = totalHoje > 0 ? `${((faturasRecup / totalHoje) * 100).toFixed(1)}%` : "0.0%";
-
-        estatisticasPostgres = {
-          totalDisparadosHoje: totalHoje,
-          faturasRecuperadasPix: faturasRecup,
-          valorRecuperadoHoje: valorRecup,
-          taxaConversaoPix: taxaConv
-        };
-      } catch (err: any) {
-        console.warn('[Régua Cobrança] Erro ao carregar histórico operacional do PostgreSQL:', err.message);
-      }
+    if (!isDatabaseConnected) {
+      return res.status(503).json({
+        success: false,
+        status: "unavailable",
+        code: "OPERATIONAL_DATA_UNAVAILABLE",
+        erro: "Banco de dados PostgreSQL indisponível. Dados operacionais, execuções e estatísticas da régua não podem ser carregados."
+      });
     }
 
-    res.json({
-      success: true,
-      config: {
-        ...globalReguaConfig,
-        estatisticas: estatisticasPostgres,
-        historicoExecucoes: historicoPostgres
-      }
-    });
+    try {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const execRows = await db.select().from(regua_execucoes)
+        .orderBy(desc(regua_execucoes.iniciadoEm))
+        .limit(20);
+
+      const historicoPostgres = execRows.map(e => ({
+        id: `exec-${e.id}`,
+        fase: e.fase,
+        disparados: e.disparados,
+        sucesso: e.sucesso,
+        falhas: e.falhas,
+        data: e.iniciadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+      }));
+
+      const dispHoje = await db.select({ count: sql<number>`count(*)` })
+        .from(regua_disparos)
+        .where(and(eq(regua_disparos.status, 'enviado'), gte(regua_disparos.disparadoEm, startOfDay)));
+
+      const totalHoje = Number(dispHoje[0]?.count || 0);
+
+      const pagasHoje = await db.select({
+        count: sql<number>`count(*)`,
+        total: sql<number>`COALESCE(SUM(CAST(${faturas.valor} AS numeric)), 0)`
+      }).from(faturas).where(and(eq(faturas.status, 'paga'), gte(faturas.dataPagamento, startOfDay)));
+
+      const faturasRecup = Number(pagasHoje[0]?.count || 0);
+      const valorRecup = Number(pagasHoje[0]?.total || 0);
+      const taxaConv = totalHoje > 0 ? `${((faturasRecup / totalHoje) * 100).toFixed(1)}%` : "0.0%";
+
+      const estatisticasPostgres = {
+        totalDisparadosHoje: totalHoje,
+        faturasRecuperadasPix: faturasRecup,
+        valorRecuperadoHoje: valorRecup,
+        taxaConversaoPix: taxaConv
+      };
+
+      res.json({
+        success: true,
+        config: {
+          ...globalReguaConfig,
+          estatisticas: estatisticasPostgres,
+          historicoExecucoes: historicoPostgres
+        }
+      });
+    } catch (err: any) {
+      console.warn('[Régua Cobrança] Erro ao carregar dados operacionais do PostgreSQL:', err.message);
+      return res.status(503).json({
+        success: false,
+        status: "unavailable",
+        code: "OPERATIONAL_DATA_UNAVAILABLE",
+        erro: `Falha na consulta ao banco de dados PostgreSQL: ${err.message}`
+      });
+    }
   });
 
   // 2. Atualizar Parâmetros da Régua de Cobrança
@@ -179,7 +188,7 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
     const mensagemRenderizada = template
       .replace(/{{nome_cliente}}/g, "Assinante")
       .replace(/{{plano}}/g, "[Nome do Plano Contratado]")
-      .replace(/{{valor_fatura}}/g, "99,90")
+      .replace(/{{valor_fatura}}/g, "[Valor da Fatura]")
       .replace(/{{data_vencimento}}/g, new Date().toLocaleDateString('pt-BR'))
       .replace(/{{desconto_pontualidade}}/g, Number(globalReguaConfig.descontoPontualidade || 0).toFixed(2).replace('.', ','))
       .replace(/{{chave_pix}}/g, "[Chave PIX da Fatura / Boleto]")
@@ -656,9 +665,14 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
     });
   });
 
-  // 7. Envio Real de WebPush
+  // 7. Envio Real de WebPush com Autorização Estrita (BLOQUEADOR CRÍTICO V9)
+  // Regras obrigatórias:
+  // - Usuário interno (user_id): autenticado, RBAC (se outro usuário, exige ADMIN/SUPERADMIN), existência do usuário, subscrição pertencente ao usuário.
+  // - Cliente/assinante (cliente_id): permissão de notificar cliente (ADMIN/SUPERADMIN/OPERADOR/SUPORTE/FINANCEIRO), existência do cliente, subscrição pertencente a cliente_id, NUNCA users.id.
+  // - Endpoint arbitrário: REJEIÇÃO com 403 Forbidden. Nunca aceitar endpoint como prova de identidade.
+  // - Falha de autorização ou recurso não encontrado -> 403 Forbidden ou 404 Not Found. NUNCA 200 success.
   router.post('/push/send', requireAuth, async (req, res) => {
-    const { target, title, body, data } = req.body;
+    const { target, target_type, user_id, cliente_id, title, body, data } = req.body;
 
     if (!webPushService.isConfigured()) {
       return res.status(503).json({
@@ -668,16 +682,152 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
       });
     }
 
-    if (!target || !title || !body) {
+    if (!title || !body) {
       return res.status(400).json({
         sucesso: false,
         status: "failed",
-        mensagem: "Campos obrigatórios: target, title, body."
+        mensagem: "Campos obrigatórios: title, body."
       });
     }
 
-    const result = await webPushService.sendNotification(target, { title, body, data });
-    return res.status(result.sucesso ? 200 : (result.status === 'subscription_not_found' ? 404 : 400)).json(result);
+    // Validação de Endpoint Arbitrário: Nunca aceitar endpoint arbitrário como prova de identidade
+    if (typeof target === 'string' && (target.startsWith('http://') || target.startsWith('https://'))) {
+      return res.status(403).json({
+        sucesso: false,
+        status: "forbidden",
+        mensagem: "Endpoints Push arbitrários não são aceitos como autorização de identidade. O envio deve ser direcionado para user_id ou cliente_id autorizado no banco."
+      });
+    }
+
+    const currentUser = (req as any).user;
+    const userRole = (currentUser?.cargo || currentUser?.role || '').toUpperCase();
+    const isAdmin = userRole === 'ADMIN' || userRole === 'SUPERADMIN';
+
+    // Determinar destino: Cliente ISP ou Usuário interno
+    const isClienteTarget = Boolean(cliente_id || target_type === 'cliente' || (typeof target === 'string' && target.startsWith('cliente:')));
+    const isUserTarget = Boolean(user_id || target_type === 'user' || (typeof target === 'string' && target.startsWith('user:')));
+
+    if (!isClienteTarget && !isUserTarget && !target) {
+      return res.status(400).json({
+        sucesso: false,
+        status: "failed",
+        mensagem: "Destinatário não especificado. Forneça cliente_id ou user_id autorizado."
+      });
+    }
+
+    if (isClienteTarget) {
+      // 1. Destino: Cliente ISP (clientes.id)
+      const allowedRoles = ['ADMIN', 'SUPERADMIN', 'OPERADOR', 'SUPORTE', 'FINANCEIRO'];
+      if (!allowedRoles.includes(userRole)) {
+        return res.status(403).json({
+          sucesso: false,
+          status: "forbidden",
+          mensagem: "Perfil de usuário sem permissão RBAC para notificar clientes via Push."
+        });
+      }
+
+      let targetClienteId: number;
+      if (cliente_id) {
+        targetClienteId = Number(cliente_id);
+      } else if (typeof target === 'string' && target.startsWith('cliente:')) {
+        targetClienteId = Number(target.replace('cliente:', ''));
+      } else {
+        targetClienteId = Number(target);
+      }
+
+      if (isNaN(targetClienteId) || targetClienteId <= 0) {
+        return res.status(400).json({
+          sucesso: false,
+          status: "invalid_target",
+          mensagem: "Identificador cliente_id deve ser um número válido."
+        });
+      }
+
+      // Validar existência do cliente no PostgreSQL
+      const clienteRows = await db.select().from(clientes)
+        .where(and(eq(clientes.id, targetClienteId), sql`${clientes.deletedAt} IS NULL`))
+        .limit(1);
+
+      if (clienteRows.length === 0) {
+        return res.status(404).json({
+          sucesso: false,
+          status: "cliente_not_found",
+          mensagem: `Cliente ISP #${targetClienteId} não encontrado no cadastro.`
+        });
+      }
+
+      // Validar existência de subscrição ativa vinculada EXCLUSIVAMENTE ao cliente_id (NUNCA users.id)
+      const subRows = await db.select().from(push_subscriptions)
+        .where(and(eq(push_subscriptions.clienteId, targetClienteId), eq(push_subscriptions.active, true)))
+        .orderBy(desc(push_subscriptions.updatedAt))
+        .limit(1);
+
+      if (subRows.length === 0) {
+        return res.status(404).json({
+          sucesso: false,
+          status: "subscription_not_found",
+          mensagem: `Nenhuma subscrição WebPush ativa encontrada para o cliente ISP #${targetClienteId}.`
+        });
+      }
+
+      const pushRes = await webPushService.sendToCliente(targetClienteId, { title, body, data });
+      return res.status(pushRes.sucesso ? 200 : (pushRes.status === 'subscription_not_found' ? 404 : 400)).json(pushRes);
+    } else {
+      // 2. Destino: Usuário Interno (users.id)
+      let targetUserId: number;
+      if (user_id) {
+        targetUserId = Number(user_id);
+      } else if (typeof target === 'string' && target.startsWith('user:')) {
+        targetUserId = Number(target.replace('user:', ''));
+      } else {
+        targetUserId = Number(target);
+      }
+
+      if (isNaN(targetUserId) || targetUserId <= 0) {
+        return res.status(400).json({
+          sucesso: false,
+          status: "invalid_target",
+          mensagem: "Identificador user_id deve ser um número válido."
+        });
+      }
+
+      // Validar se o usuário está enviando para si mesmo ou se possui perfil ADMIN
+      const currentUserId = Number(currentUser?.id);
+      if (targetUserId !== currentUserId && !isAdmin) {
+        return res.status(403).json({
+          sucesso: false,
+          status: "forbidden",
+          mensagem: "Acesso negado: apenas administradores com perfil RBAC podem enviar notificações Push para outros usuários."
+        });
+      }
+
+      // Validar existência do usuário no PostgreSQL
+      const userRows = await db.select().from(users).where(eq(users.id, targetUserId)).limit(1);
+      if (userRows.length === 0) {
+        return res.status(404).json({
+          sucesso: false,
+          status: "user_not_found",
+          mensagem: `Usuário operador #${targetUserId} não encontrado.`
+        });
+      }
+
+      // Validar subscrição pertencente ao usuário
+      const subRows = await db.select().from(push_subscriptions)
+        .where(and(eq(push_subscriptions.userId, targetUserId), eq(push_subscriptions.active, true)))
+        .orderBy(desc(push_subscriptions.updatedAt))
+        .limit(1);
+
+      if (subRows.length === 0) {
+        return res.status(404).json({
+          sucesso: false,
+          status: "subscription_not_found",
+          mensagem: `Nenhuma subscrição WebPush ativa encontrada para o usuário #${targetUserId}.`
+        });
+      }
+
+      const pushRes = await webPushService.sendToUser(targetUserId, { title, body, data });
+      return res.status(pushRes.sucesso ? 200 : (pushRes.status === 'subscription_not_found' ? 404 : 400)).json(pushRes);
+    }
   });
 
   app.use('/api/cobranca', router);

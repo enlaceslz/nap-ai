@@ -53,14 +53,14 @@ class WebPushService {
       if (!subject) {
         if (isProd) {
           console.warn('[WebPush] VAPID_SUBJECT não configurado em ambiente de produção. WebPush desabilitado (not_configured).');
-          this.vapidConfigured = false;
-          return;
+        } else {
+          console.warn('[WebPush] VAPID_SUBJECT ausente. WebPush desabilitado (not_configured). Defina VAPID_SUBJECT.');
         }
-        console.warn('[WebPush] [DEV ONLY] VAPID_SUBJECT ausente em desenvolvimento local. Utilizando placeholder.');
+        this.vapidConfigured = false;
+        return;
       }
-      const effectiveSubject = subject || 'mailto:admin@nap.local';
       try {
-        webpush.setVapidDetails(effectiveSubject, publicKey, privateKey);
+        webpush.setVapidDetails(subject, publicKey, privateKey);
         this.vapidConfigured = true;
       } catch (err: any) {
         console.warn('[WebPush] Falha ao configurar VAPID:', err.message);

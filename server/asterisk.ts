@@ -266,7 +266,7 @@ export interface OriginateCallParams {
 }
 
 export interface OriginateCallResult {
-  status: 'queued' | 'originating' | 'ringing' | 'answered' | 'no_answer' | 'busy' | 'failed' | 'cancelled';
+  status: 'queued' | 'originating' | 'ringing' | 'answered' | 'no_answer' | 'busy' | 'failed' | 'cancelled' | 'originating_timeout' | 'reconciliation_required' | 'terminating' | 'completed';
   asteriskChannelId?: string;
   asteriskUniqueId?: string;
   startedAt?: Date;
@@ -349,7 +349,7 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
     return errResult;
   }
 
-  // BLOQUEADOR V7 - ITEM 11: Erro ou indisponibilidade do PostgreSQL DEVE impedir a originação
+  // 3. BLOQUEADOR CRÍTICO: DB indisponível -> NÃO originate. Nunca chamar Asterisk sem persistência mínima.
   if (!isDatabaseConnected) {
     return {
       status: 'failed',
@@ -521,17 +521,17 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
         }, 5000);
       } else {
         // Canal nem chegou a ser aceito pela central antes do timeout
-        // Exigência 4.3: Não marcar imediatamente no_answer se o originate ainda não retornou canal.
-        // Utilizar estado intermediário (originating_timeout / reconciliation_required).
+        // BLOQUEADOR CRÍTICO V9: Não marcar imediatamente no_answer se o originate ainda não retornou canal.
+        // Transição estrita: originating -> originating_timeout -> reconciliation_required
         if (callResolved) return;
         callResolved = true;
         const endedAt = new Date();
         const pendingResult: OriginateCallResult = {
-          status: 'failed',
+          status: 'originating_timeout',
           startedAt,
           endedAt,
           durationSeconds: 0,
-          hangupCause: 'RECONCILIATION_REQUIRED',
+          hangupCause: 'ORIGINATING_TIMEOUT',
           result: 'reconciliation_required',
           errorCode: 'ORIGINATING_TIMEOUT',
           errorMessage: `Tempo limite (${timeoutSeconds}s) expirado antes de confirmação de canal pelo Asterisk. Reconciliação necessária.`
@@ -539,11 +539,11 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
 
         try {
           await db.update(campanhas_chamadas_voz).set({
-            status: 'failed',
+            status: 'originating_timeout',
             result: 'reconciliation_required',
             endedAt,
             durationSeconds: 0,
-            hangupCause: 'RECONCILIATION_REQUIRED',
+            hangupCause: 'ORIGINATING_TIMEOUT',
             errorCode: 'ORIGINATING_TIMEOUT',
             errorMessage: pendingResult.errorMessage,
             updatedAt: new Date()
@@ -564,6 +564,16 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
         if (err || !channel) {
           clearTimeout(timeoutTimer);
           if (fallbackReconciliationTimer) clearTimeout(fallbackReconciliationTimer);
+          if (hangupRequestedDueToTimeout) {
+            // Reconciliação: Central confirmou que nenhum canal foi gerado
+            db.update(campanhas_chamadas_voz).set({
+              status: 'failed',
+              result: 'reconciliation_completed',
+              hangupCause: 'TIMEOUT_NO_CHANNEL_CREATED',
+              updatedAt: new Date()
+            }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
+            return;
+          }
           if (callResolved) return;
           callResolved = true;
           const errMsg = err?.message || 'Rejeição de originação pelo Asterisk ARI';
@@ -595,6 +605,44 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
         asteriskUniqueId = rawUniqueId ? String(rawUniqueId) : null;
         if (!asteriskUniqueId) {
           console.log('[Asterisk ARI] Canal originado sem uniqueid explícito no payload da central. asteriskUniqueId definido como NULL.');
+        }
+
+        // REGRA CRÍTICA V9: Se o timeout ocorreu ANTES da entrega do canal (CANAL TARDIO):
+        // 1. Registrar asterisk_channel_id e asterisk_unique_id
+        // 2. Transicionar para terminating / reconciliation_required
+        // 3. Solicitar hangup
+        // 4. Aguardar ChannelDestroyed para finalizar reconciliação
+        if (hangupRequestedDueToTimeout) {
+          console.warn(`[Asterisk ARI] Canal tardio entregue pelo Asterisk após timeout (Channel ID: ${asteriskChannelId}, Unique ID: ${asteriskUniqueId}). Iniciando reconciliação forçada.`);
+
+          db.update(campanhas_chamadas_voz).set({
+            asteriskChannelId,
+            asteriskUniqueId,
+            status: 'terminating',
+            result: 'reconciliation_required',
+            hangupCause: 'LATE_CHANNEL_TERMINATING',
+            updatedAt: new Date()
+          }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
+
+          channel.once('ChannelDestroyed', async (destEvent: any) => {
+            console.log(`[Asterisk ARI] Canal tardio ${asteriskChannelId} destruído. Reconciliação concluída.`);
+            const cause = Number(destEvent?.cause || 0);
+            const causeTxt = destEvent?.cause_txt || `ISDN-${cause}`;
+            db.update(campanhas_chamadas_voz).set({
+              status: 'failed',
+              result: 'reconciliation_completed',
+              hangupCause: `TIMEOUT_RECONCILED_${causeTxt}`,
+              endedAt: new Date(),
+              updatedAt: new Date()
+            }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey)).catch(() => {});
+          });
+
+          try {
+            channel.hangup();
+          } catch (hangErr: any) {
+            console.warn(`[Asterisk ARI] Falha ao solicitar hangup em canal tardio: ${hangErr.message}`);
+          }
+          return;
         }
 
         // Atualiza channel_id e unique_id no banco

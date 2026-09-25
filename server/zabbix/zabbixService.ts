@@ -378,7 +378,7 @@ export class ZabbixService {
             limit: 100
           },
           auth: this.zabbixToken,
-          id: Date.now()
+          id: randomInt(1, 1000000)
         },
         { timeout: 4500 }
       );

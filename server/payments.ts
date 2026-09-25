@@ -8,6 +8,7 @@ import crypto from "crypto";
 import tls from "tls";
 import { Customer360Store } from "./customer360_service.js";
 import { assertRealService, isMockAllowed } from "./security/mockGuard.js";
+import { generatePushEnrollmentToken } from "./push/operatorPushRoutes.js";
 
 export function setupPaymentRoutes(app: any) {
   const store = Customer360Store.getInstance();
@@ -35,8 +36,10 @@ export function setupPaymentRoutes(app: any) {
       if (!matched) {
         return res.status(404).json({ error: "CPF não localizado na base de assinantes" });
       }
+      const pushEnrollmentToken = generatePushEnrollmentToken(Number(matched.id));
       res.json({
         success: true,
+        pushEnrollmentToken,
         client: {
           id: String(matched.id),
           nome: matched.name,
@@ -44,6 +47,7 @@ export function setupPaymentRoutes(app: any) {
           cpf_limpo: cleanCpf,
           email: matched.email,
           telefone: matched.phone,
+          pushEnrollmentToken,
           plano: matched.contract?.planName || "Plano Contratado",
           status_conexao: matched.status === 'active' ? 'conectado' : 'bloqueado',
           contrato: matched.contract?.contractId || `CT-${matched.id}`,

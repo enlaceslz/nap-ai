@@ -166,7 +166,7 @@ export default function PortalSuporte() {
  contato: clientData.nome || 'Assinante',
  telefone: clientData.telefone || '',
  endereco: clientData.endereco || 'Endereço Cadastrado no ERP',
- plano: clientData.plano || 'Fibra Óptica',
+ plano: clientData.plano || 'dado_nao_cadastrado',
  prioridade: novoCategoria.includes('Sem Acesso') ? 1 : 2,
  contexto_ia: `${novoDescricao} | Preferência de retorno: ${novoPreferencia}.${coordenadas}`
  })
@@ -182,29 +182,11 @@ export default function PortalSuporte() {
  setModalNovoChamado(false);
  }, 2000);
  }
- } catch {
- // Fallback local caso o backend esteja indisponível
- const fakeId = Math.floor(1000 + Math.random() * 9000);
- const novoDeal: Deal = {
- id: fakeId,
- titulo: novoCategoria,
- estagio: 'Novo Chamado',
- pipeline: 'Suporte',
- contato: 'João Silva',
- telefone: '',
- endereco: 'Rua das Flores, 123 - Centro Histórico',
- plano: 'Fibra 500MB',
- prioridade: 2,
- criado_em: 'Agora',
- contexto_ia: `${novoDescricao} | Preferência: ${novoPreferencia}.${coordenadas}`
- };
- setChamados(prev => [novoDeal, ...prev]);
- setProtocoloSucesso(`PROT-${fakeId}`);
- setNovoDescricao('');
- setEnviarGps(false);
- setTimeout(() => {
- setModalNovoChamado(false);
- }, 2000);
+ } catch (err) {
+ // BLOQUEADOR V9: Princípio Erro explícito > sucesso falso.
+ // NUNCA inventar ticket ou dados de assinante caso o backend falhe.
+ console.error('[Portal Suporte] Erro ao registrar chamado no backend:', err);
+ setProtocoloSucesso(null);
  } finally {
  setCriandoChamado(false);
  }
@@ -259,8 +241,8 @@ export default function PortalSuporte() {
  method: 'POST',
  headers: { 'Content-Type': 'application/json' },
  body: JSON.stringify({
- cliente: 'João Silva (Portal)',
- telefone: '',
+ cliente: clientData.nome || 'Assinante',
+ telefone: clientData.telefone || '',
  canal: 'Portal PWA',
  nota: npsNota,
  comentario: npsComentario,
