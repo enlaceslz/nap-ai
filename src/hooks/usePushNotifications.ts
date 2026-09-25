@@ -79,6 +79,10 @@ export function usePushNotifications() {
       }
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const clientToken = localStorage.getItem('@nap_client_token');
+      if (clientToken) {
+        headers['Authorization'] = `Bearer ${clientToken}`;
+      }
       if (clientAuth.pushEnrollmentToken) {
         headers['x-push-enrollment-token'] = clientAuth.pushEnrollmentToken;
       }

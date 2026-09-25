@@ -365,6 +365,38 @@ export function validateSecrets(options?: {
     }
   }
 
+  // MÓDULO WEBPUSH (VAPID)
+  const webpushEnabled = env.WEBPUSH_ENABLED === 'true' || env.PUSH_ENABLED === 'true';
+  if (webpushEnabled) {
+    modulosAtivos.push('WebPush VAPID');
+    const vapidSpecs: SecretSpec[] = [
+      { chave: 'VAPID_PUBLIC_KEY', descricao: 'Chave pública VAPID WebPush (Base64)', minLen: 20 },
+      { chave: 'VAPID_PRIVATE_KEY', descricao: 'Chave privada VAPID WebPush (Base64)', minLen: 20 },
+      { chave: 'VAPID_SUBJECT', descricao: 'Subject VAPID (mailto: ou URL)', minLen: 10, aliases: ['VAPID_EMAIL'] }
+    ];
+
+    for (const spec of vapidSpecs) {
+      const val = getVal(spec);
+      if (!val) {
+        items.push({ modulo: 'WEBPUSH', chave: spec.chave, descricao: spec.descricao, status: 'FALTANDO' });
+        if (isProduction) {
+          errors.push(`[WEBPUSH] Módulo ativo mas '${spec.chave}' (${spec.descricao}) está ausente em produção.`);
+        } else {
+          warnings.push(`[WEBPUSH] Secret '${spec.chave}' ausente.`);
+        }
+      } else if (isWeak(val, spec)) {
+        items.push({ modulo: 'WEBPUSH', chave: spec.chave, descricao: spec.descricao, status: 'FRACO' });
+        if (isProduction) {
+          errors.push(`[WEBPUSH] Secret fraco/inseguro em '${spec.chave}'.`);
+        } else {
+          warnings.push(`[WEBPUSH] Secret '${spec.chave}' utiliza valor fraco.`);
+        }
+      } else {
+        items.push({ modulo: 'WEBPUSH', chave: spec.chave, descricao: spec.descricao, status: 'OK' });
+      }
+    }
+  }
+
   // MÓDULO GEMINI / IA MAIA
   const geminiEnabled = env.GEMINI_ENABLED === 'true' || env.MAIA_AI_ENABLED === 'true' || Boolean(env.GEMINI_API_KEY && env.GEMINI_API_KEY.length > 0);
   if (geminiEnabled) {

@@ -1,20 +1,24 @@
-import { db } from "../src/db/index.js";
+import { db, isDatabaseConnected } from "../src/db/index.js";
 import { 
+  faturas, clientes, pagamentos_transacoes,
   nap_customers, nap_invoices, nap_payment_transactions, 
   nap_customer_events, nap_customer_references 
 } from "../src/db/schema.js";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import crypto from "crypto";
 import tls from "tls";
 import { Customer360Store } from "./customer360_service.js";
 import { assertRealService, isMockAllowed } from "./security/mockGuard.js";
 import { generatePushEnrollmentToken } from "./push/operatorPushRoutes.js";
+import { requestPortalOtp, authenticatePortalClient } from "./auth/portalAuth.js";
+import { requireAuth, requirePermission, requireRole } from "./auth/rbacMiddleware.js";
+import { recordMandatoryAuditLog } from "./security/httpSecurity.js";
 
 export function setupPaymentRoutes(app: any) {
   const store = Customer360Store.getInstance();
 
-  // 1. Dashboard Customer 360 (PRD Seção 28)
-  app.get("/api/customer360/dashboard", (req: any, res: any) => {
+  // 1. Dashboard Customer 360 (PRD Seção 28) - Protegido por requireAuth
+  app.get("/api/customer360/dashboard", requireAuth, (req: any, res: any) => {
     try {
       const metrics = store.getDashboardMetrics();
       res.json(metrics);
@@ -23,53 +27,73 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 1.1 Autenticação do Portal do Assinante por CPF
-  app.post("/api/portal/login", async (req: any, res: any) => {
+  // 1.1a Solicitação de Código de Acesso / OTP para o Portal do Assinante
+  // BLOQUEADOR CRÍTICO P0 V10: Implementação de Autenticação Real (CPF + OTP / Senha)
+  app.post(["/api/portal/request-otp", "/api/cliente/request-otp", "/api/portal/send-otp"], async (req: any, res: any) => {
     try {
       const { cpf } = req.body;
       if (!cpf) {
-        return res.status(400).json({ error: "CPF obrigatório" });
+        return res.status(400).json({ error: "CPF é obrigatório para emissão de código de acesso.", code: "CPF_REQUIRED" });
       }
-      const cleanCpf = cpf.replace(/\D/g, '');
-      const customers = store.listCustomers(cleanCpf);
-      const matched = customers.find((c: any) => c.document.replace(/\D/g, '') === cleanCpf);
-      if (!matched) {
-        return res.status(404).json({ error: "CPF não localizado na base de assinantes" });
-      }
-      const pushEnrollmentToken = generatePushEnrollmentToken(Number(matched.id));
-      res.json({
-        success: true,
-        pushEnrollmentToken,
-        client: {
-          id: String(matched.id),
-          nome: matched.name,
-          cpf: matched.document,
-          cpf_limpo: cleanCpf,
-          email: matched.email,
-          telefone: matched.phone,
-          pushEnrollmentToken,
-          plano: matched.contract?.planName || "Plano Contratado",
-          status_conexao: matched.status === 'active' ? 'conectado' : 'bloqueado',
-          contrato: matched.contract?.contractId || `CT-${matched.id}`,
-          endereco: matched.address || '',
-          faturas: (matched.financial?.invoices || []).map((inv: any) => ({
-            id: String(inv.id),
-            mes: inv.dueDate,
-            vencimento: inv.dueDate,
-            valor: `R$ ${Number(inv.amount).toFixed(2).replace('.', ',')}`,
-            status: inv.status === 'paid' ? 'pago' : 'aberto',
-            codigoBarras: inv.napInvoiceId || '',
-            pixPayload: inv.pixCopiaECola || ''
-          }))
-        }
-      });
+      const result = await requestPortalOtp(cpf);
+      res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const isNotFound = err.message?.toLowerCase().includes("não localizado") || err.message?.toLowerCase().includes("não encontrado");
+      res.status(isNotFound ? 404 : 400).json({
+        success: false,
+        error: err.message,
+        code: isNotFound ? "CLIENTE_NOT_FOUND" : "OTP_REQUEST_FAILED"
+      });
     }
   });
 
-  // 2. Lista de Clientes com Busca Unificada (Nome, CPF/CNPJ, Contrato, Telefone, IP)
-  app.get("/api/customers", async (req: any, res: any) => {
+  // 1.1b Autenticação Real do Portal do Assinante (CPF + OTP ou Senha)
+  // BLOQUEADOR CRÍTICO P0 V10: NUNCA transforma CPF solto em credencial!
+  app.post(["/api/portal/login", "/api/cliente/login"], async (req: any, res: any) => {
+    try {
+      const { cpf, senha, otp, code } = req.body;
+      const effectiveOtp = otp || code;
+
+      if (!cpf) {
+        return res.status(400).json({ error: "CPF é obrigatório.", code: "CPF_REQUIRED" });
+      }
+
+      if (!senha && !effectiveOtp) {
+        return res.status(401).json({
+          success: false,
+          error: "Autenticação necessária. Forneça o código de verificação (OTP) enviado por WhatsApp/SMS ou a senha do portal.",
+          code: "CREDENTIAL_REQUIRED"
+        });
+      }
+
+      const authResult = await authenticatePortalClient({
+        cpf,
+        senha,
+        otp: effectiveOtp
+      });
+
+      res.json({
+        success: true,
+        token: authResult.token,
+        pushEnrollmentToken: authResult.pushEnrollmentToken,
+        client: authResult.client
+      });
+    } catch (err: any) {
+      const errMsg = err.message || "Falha na autenticação do portal";
+      const isNotFound = errMsg.toLowerCase().includes("não localizado") || errMsg.toLowerCase().includes("não encontrado");
+      const isAuthErr = errMsg.toLowerCase().includes("incorreto") || errMsg.toLowerCase().includes("necessária") || errMsg.toLowerCase().includes("expirado") || errMsg.toLowerCase().includes("inválid");
+      
+      const statusCode = isNotFound ? 404 : (isAuthErr ? 401 : 400);
+      res.status(statusCode).json({
+        success: false,
+        error: errMsg,
+        code: isNotFound ? "CLIENTE_NOT_FOUND" : (isAuthErr ? "UNAUTHORIZED" : "AUTH_FAILED")
+      });
+    }
+  });
+
+  // 2. Lista de Clientes com Busca Unificada - Protegido por requireAuth e permissão CUSTOMER_READ
+  app.get("/api/customers", requireAuth, requirePermission('CUSTOMER_READ'), async (req: any, res: any) => {
     try {
       const { q, status } = req.query;
       const customers = store.listCustomers(q as string, status as string);
@@ -79,13 +103,16 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 3. Ficha Customer 360 Completa por ID (PRD Seção 3)
-  app.get("/api/customers/:id", async (req: any, res: any) => {
+  // 3. Ficha Customer 360 Completa por ID - Protegido por requireAuth e permissão CUSTOMER_READ
+  app.get("/api/customers/:id", requireAuth, requirePermission('CUSTOMER_READ'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: "ID de cliente inválido.", code: "INVALID_ID" });
+      }
       const customer = store.getCustomerById(cid);
       if (!customer) {
-        return res.status(404).json({ error: "Cliente não encontrado no NAP Customer 360." });
+        return res.status(404).json({ error: "Cliente não encontrado no NAP Customer 360.", code: "CUSTOMER_NOT_FOUND" });
       }
       res.json(customer);
     } catch (err: any) {
@@ -93,10 +120,13 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 4. Timeline Operacional do Cliente (PRD Seção 15 & 16)
-  app.get("/api/customers/:id/timeline", async (req: any, res: any) => {
+  // 4. Timeline Operacional do Cliente - Protegido por requireAuth e CUSTOMER_READ
+  app.get("/api/customers/:id/timeline", requireAuth, requirePermission('CUSTOMER_READ'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: "ID de cliente inválido.", code: "INVALID_ID" });
+      }
       const customer = store.getCustomerById(cid);
       if (!customer) {
         return res.json({ events: [] });
@@ -107,10 +137,13 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 5. Contratos do Cliente
-  app.get("/api/customers/:id/contracts", async (req: any, res: any) => {
+  // 5. Contratos do Cliente - Protegido por requireAuth e CUSTOMER_READ
+  app.get("/api/customers/:id/contracts", requireAuth, requirePermission('CUSTOMER_READ'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: "ID de cliente inválido." });
+      }
       const customer = store.getCustomerById(cid);
       if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
       res.json({ contracts: [customer.contract] });
@@ -119,10 +152,13 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 6. Faturas e Cobranças Pix (PRD Seção 9 & 10)
-  app.get("/api/customers/:id/invoices", async (req: any, res: any) => {
+  // 6. Faturas e Cobranças Pix - Protegido por requireAuth e INVOICE_READ
+  app.get("/api/customers/:id/invoices", requireAuth, requirePermission('INVOICE_READ'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: "ID de cliente inválido." });
+      }
       const customer = store.getCustomerById(cid);
       if (!customer) return res.json({ invoices: [] });
       res.json({ invoices: customer.financial.invoices || [] });
@@ -131,10 +167,13 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 7. Histórico de Pagamentos e Transações (PRD Seção 14)
-  app.get("/api/customers/:id/payments", async (req: any, res: any) => {
+  // 7. Histórico de Pagamentos e Transações - Protegido por requireAuth e PAYMENT_READ
+  app.get("/api/customers/:id/payments", requireAuth, requirePermission('PAYMENT_READ'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: "ID de cliente inválido." });
+      }
       const customer = store.getCustomerById(cid);
       if (!customer) return res.json({ payments: [] });
       
@@ -147,10 +186,13 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 8. Telemetria e Dados Técnicos (GenieACS / TR-069)
-  app.get("/api/customers/:id/network", async (req: any, res: any) => {
+  // 8. Telemetria e Dados Técnicos (GenieACS / TR-069) - Protegido por requireAuth e CUSTOMER_READ
+  app.get("/api/customers/:id/network", requireAuth, requirePermission('CUSTOMER_READ'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: "ID de cliente inválido." });
+      }
       const customer = store.getCustomerById(cid);
       if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
       res.json({ technical: customer.technical });
@@ -159,10 +201,13 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 9. Chamados de Suporte
-  app.get("/api/customers/:id/tickets", async (req: any, res: any) => {
+  // 9. Chamados de Suporte - Protegido por requireAuth e HELPDESK_READ
+  app.get("/api/customers/:id/tickets", requireAuth, requirePermission('HELPDESK_READ'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: "ID de cliente inválido." });
+      }
       const customer = store.getCustomerById(cid);
       if (!customer) return res.json({ tickets: [] });
       res.json({ tickets: customer.support.tickets });
@@ -171,10 +216,13 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 10. Métricas NOC / Zabbix
-  app.get("/api/customers/:id/noc", async (req: any, res: any) => {
+  // 10. Métricas NOC / Zabbix - Protegido por requireAuth e ZABBIX_READ
+  app.get("/api/customers/:id/noc", requireAuth, requirePermission('ZABBIX_READ'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: "ID de cliente inválido." });
+      }
       const customer = store.getCustomerById(cid);
       if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
       res.json({ noc: customer.noc });
@@ -183,19 +231,42 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 11. Ações Operacionais Seguras (Reboot ONU via TR-069)
-  app.post("/api/customers/:id/actions/reboot-onu", async (req: any, res: any) => {
+  // 11. Ações Operacionais Críticas: Reboot ONU via TR-069
+  // BLOQUEADOR CRÍTICO P0 V10: Exige autenticação, permissão ONU_REBOOT e auditoria imutável obrigatória
+  app.post("/api/customers/:id/actions/reboot-onu", requireAuth, requirePermission('ONU_REBOOT'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: "ID de cliente inválido." });
+      }
       const customer = store.getCustomerById(cid);
-      if (!customer) return res.status(404).json({ error: "Cliente não encontrado" });
+      if (!customer) {
+        return res.status(404).json({ error: "Cliente não encontrado no Customer 360." });
+      }
 
-      const onuSerial = customer.technical.onuSerial;
+      const onuSerial = customer.technical?.onuSerial;
       if (!onuSerial) {
         return res.status(400).json({ error: "Serial da ONU não cadastrado para este cliente." });
       }
 
-      const operator = req.body.operator || req.user?.email || 'Admin';
+      const operator = req.user?.email || req.user?.nome || 'Operador';
+
+      // Trilha de Auditoria Obrigatória
+      await recordMandatoryAuditLog({
+        usuario: req.user?.nome || req.user?.email || 'operador',
+        userId: String(req.user?.id || 1),
+        usuarioEmail: req.user?.email || 'operador@nap.local',
+        modulo: 'Customer 360',
+        acao: 'ONU_REBOOT',
+        recurso: `cliente:${cid}:onu:${onuSerial}`,
+        status: 'sucesso',
+        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
+        detalhes: JSON.stringify({
+          motivo: req.body.motivo || 'Reboot solicitado pelo operador',
+          onuSerial,
+          clienteId: cid
+        })
+      });
 
       store.addCustomerEvent({
         customerId: cid,
@@ -220,30 +291,167 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 12. Geração de Cobrança Pix via Enlace-Pay (PRD Seção 9)
-  app.post("/api/payments/charges", async (req: any, res: any) => {
+  // 12. Geração de Cobrança Pix via Enlace-Pay / Banco C6
+  // BLOQUEADOR CRÍTICO FINANCEIRO P0 V10:
+  // - Requer autenticação e permissão INVOICE_CREATE
+  // - NUNCA fabricar valor default; se ausente ou inválido retorna 400 Bad Request
+  // - Vencimento obrigatório (sem default arbitrário)
+  // - Idempotência com chave persistida no PostgreSQL
+  // - Persistência real na tabela 'faturas'
+  // - IDs técnicos gerados via UUID (nunca Date.now())
+  app.post("/api/payments/charges", requireAuth, requirePermission('INVOICE_CREATE'), async (req: any, res: any) => {
     try {
       const { customerId, externalInvoiceId, amount, dueDate, externalSystem = 'sgp' } = req.body;
-      const numAmount = parseFloat(amount) || 100.00;
-      const invId = Date.now();
-      const txid = `E${Date.now()}NAP${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-      
+      const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'] || req.body.idempotencyKey || req.body.idempotency_key;
+
+      // 1. Validação estrita do valor
+      if (amount === undefined || amount === null || String(amount).trim() === '') {
+        return res.status(400).json({
+          success: false,
+          error: "Valor da cobrança ('amount') é obrigatório.",
+          code: "AMOUNT_REQUIRED"
+        });
+      }
+
+      const numAmount = parseFloat(String(amount));
+      if (isNaN(numAmount) || numAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Valor da cobrança ('amount') deve ser um número positivo maior que zero.",
+          code: "INVALID_AMOUNT"
+        });
+      }
+
+      // 2. Validação estrita da data de vencimento
+      if (!dueDate || String(dueDate).trim() === '') {
+        return res.status(400).json({
+          success: false,
+          error: "Data de vencimento ('dueDate') é obrigatória.",
+          code: "DUE_DATE_REQUIRED"
+        });
+      }
+
+      const parsedDueDate = new Date(dueDate);
+      if (isNaN(parsedDueDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: "Data de vencimento ('dueDate') inválida.",
+          code: "INVALID_DUE_DATE"
+        });
+      }
+      const dueDateStr = parsedDueDate.toISOString().slice(0, 10); // YYYY-MM-DD
+
+      // 3. Validação do cliente
+      if (!customerId) {
+        return res.status(400).json({
+          success: false,
+          error: "Identificador do cliente ('customerId') é obrigatório.",
+          code: "CUSTOMER_REQUIRED"
+        });
+      }
+
+      const cid = parseInt(String(customerId));
+      if (isNaN(cid)) {
+        return res.status(400).json({
+          success: false,
+          error: "Identificador do cliente ('customerId') inválido.",
+          code: "INVALID_CUSTOMER_ID"
+        });
+      }
+
+      let targetClient: any = null;
+      if (isDatabaseConnected) {
+        const rows = await db.select().from(clientes).where(eq(clientes.id, cid)).limit(1);
+        if (rows.length > 0) {
+          targetClient = rows[0];
+        }
+      }
+
+      if (!targetClient) {
+        targetClient = store.getCustomerById(cid);
+      }
+
+      if (!targetClient) {
+        return res.status(404).json({
+          success: false,
+          error: `Cliente ISP #${cid} não localizado no cadastro.`,
+          code: "CUSTOMER_NOT_FOUND"
+        });
+      }
+
+      // 4. Suporte à Idempotência Financeira
+      if (idempotencyKey && isDatabaseConnected) {
+        const [existing] = await db.select().from(faturas).where(eq(faturas.idempotencyKey, String(idempotencyKey))).limit(1);
+        if (existing) {
+          return res.status(200).json({
+            success: true,
+            idempotent: true,
+            invoice: {
+              id: existing.id,
+              napInvoiceId: `inv_${existing.id}`,
+              amount: Number(existing.valor),
+              dueDate: existing.vencimento,
+              status: existing.status,
+              txid: existing.txid,
+              pixCopiaECola: existing.pixCopiaECola,
+              idempotencyKey: existing.idempotencyKey
+            }
+          });
+        }
+      }
+
+      // 5. Geração de TXID Oficial em conformidade com padrão BACEN (26 a 35 caracteres alfanuméricos)
+      // Formato: E + data (8 dígitos) + identificador seguro randômico (NUNCA Date.now())
+      const dateTag = dueDateStr.replace(/-/g, '');
+      const randomTag = crypto.randomBytes(10).toString('hex').toUpperCase();
+      const txid = `E${dateTag}NAP${randomTag}`.slice(0, 32);
+      const paymentChargeId = `chg_${crypto.randomUUID()}`;
+      const pixPayload = `00020126360014BR.GOV.BCB.PIX0114${txid}520400005303986540${numAmount.toFixed(2)}5802BR5912${(store.c6BankConfig.ispName || 'Provedor Telecom').slice(0, 25)}6009Sao Paulo62070503***6304${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+
+      // 6. Persistência Obrigatória no PostgreSQL
+      let insertedInvoiceId: number;
+      if (isDatabaseConnected) {
+        const [inserted] = await db.insert(faturas).values({
+          clienteId: cid,
+          valor: numAmount.toFixed(2),
+          vencimento: dueDateStr,
+          status: 'pendente',
+          txid: txid,
+          transactionId: paymentChargeId,
+          idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+          pixCopiaECola: pixPayload,
+          formaPagamento: 'PIX',
+          erpBaixaStatus: 'pendente',
+          erpFaturaId: externalInvoiceId ? String(externalInvoiceId) : null
+        }).returning();
+        insertedInvoiceId = inserted.id;
+      } else {
+        // Em ambiente isolado sem DB conectado, lança erro de indisponibilidade
+        return res.status(503).json({
+          success: false,
+          error: "Banco de dados PostgreSQL indisponível para persistência financeira de cobrança.",
+          code: "PERSISTENCE_UNAVAILABLE"
+        });
+      }
+
       const newInvoice: any = {
-        id: invId,
-        napInvoiceId: `inv_${invId}`,
-        externalInvoiceId: externalInvoiceId || `ERP_${invId}`,
+        id: insertedInvoiceId,
+        napInvoiceId: `inv_${insertedInvoiceId}`,
+        externalInvoiceId: externalInvoiceId || `ERP_${insertedInvoiceId}`,
         externalSystem,
         amount: numAmount,
-        dueDate: dueDate || new Date(Date.now() + 86400000 * 5).toISOString(),
+        dueDate: dueDateStr,
         status: 'open',
-        paymentChargeId: `chg_${Date.now()}`,
+        paymentChargeId,
         txid,
-        pixCopiaECola: `00020126360014BR.GOV.BCB.PIX0114${txid}520400005303986540${numAmount.toFixed(2)}5802BR5912DJD Telecom6009Sao Paulo62070503***6304${crypto.randomBytes(2).toString('hex').toUpperCase()}`,
-        erpBaixaStatus: 'pending_queue'
+        pixCopiaECola: pixPayload,
+        erpBaixaStatus: 'pending_queue',
+        idempotencyKey: idempotencyKey ? String(idempotencyKey) : undefined
       };
 
+      // Atualiza cache em memória para leituras rápidas
       store.invoices.set(newInvoice.id, newInvoice);
-      const cust = store.getCustomerById(parseInt(customerId) || 1);
+      const cust = store.getCustomerById(cid);
       if (cust) {
         cust.financial.invoices.unshift(newInvoice);
         cust.financial.totalPending += numAmount;
@@ -267,13 +475,32 @@ export function setupPaymentRoutes(app: any) {
         });
       }
 
-      res.json({ success: true, invoice: newInvoice });
+      // Trilha de Auditoria Obrigatória para criação de cobrança
+      await recordMandatoryAuditLog({
+        usuario: req.user?.nome || req.user?.email || 'sistema',
+        userId: String(req.user?.id || 1),
+        usuarioEmail: req.user?.email || 'sistema@nap.local',
+        modulo: 'Customer 360 / Financeiro',
+        acao: 'INVOICE_CREATE',
+        recurso: `cliente:${cid}:fatura:${insertedInvoiceId}`,
+        status: 'sucesso',
+        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
+        detalhes: JSON.stringify({
+          faturaId: insertedInvoiceId,
+          clienteId: cid,
+          valor: numAmount,
+          vencimento: dueDateStr,
+          txid
+        })
+      });
+
+      res.status(201).json({ success: true, invoice: newInvoice });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: err.message, code: "CHARGE_CREATION_FAILED" });
     }
   });
 
-  // 13. Webhook Oficial do Banco (C6 / Cobranca-API / Enlace-Pay) - PRD Seções 11, 12, 13
+  // 13. Webhook Oficial do Banco (C6 / Cobranca-API / Enlace-Pay)
   const handleBankWebhook = async (req: any, res: any) => {
     try {
       const { txid, valor, idTransacaoBancaria, banco, webhookId } = req.body;
@@ -281,9 +508,40 @@ export function setupPaymentRoutes(app: any) {
         return res.status(400).json({ error: "Campos obrigatórios ausentes: 'txid' e 'valor' são exigidos." });
       }
 
+      const numValor = parseFloat(valor);
+
+      // Persistência em PostgreSQL se conectado
+      if (isDatabaseConnected) {
+        try {
+          const [fat] = await db.select().from(faturas).where(eq(faturas.txid, txid)).limit(1);
+          if (fat) {
+            await db.update(faturas).set({
+              status: 'pago',
+              valorPago: numValor.toFixed(2),
+              dataPagamento: new Date(),
+              transactionId: idTransacaoBancaria ? String(idTransacaoBancaria) : fat.transactionId,
+              updatedAt: new Date()
+            }).where(eq(faturas.id, fat.id));
+
+            await db.insert(pagamentos_transacoes).values({
+              faturaId: fat.id,
+              clienteId: fat.clienteId,
+              txid: txid,
+              gateway: banco || 'C6_BANK',
+              valor: numValor.toFixed(2),
+              status: 'CONCLUIDO',
+              e2eId: idTransacaoBancaria ? String(idTransacaoBancaria) : null,
+              payloadRetorno: JSON.stringify(req.body)
+            });
+          }
+        } catch (dbErr: any) {
+          console.warn("[Webhook DB Sync] Falha ao persistir transação no PostgreSQL:", dbErr.message);
+        }
+      }
+
       const result = await store.processBankPaymentWebhook({
         txid,
-        valor: parseFloat(valor),
+        valor: numValor,
         idTransacaoBancaria,
         banco,
         webhookId
@@ -299,8 +557,8 @@ export function setupPaymentRoutes(app: any) {
   app.post("/api/payments/webhook", handleBankWebhook);
   app.post("/api/payments/webhooks", handleBankWebhook);
 
-  // 14. Reconciliação Financeira Automatizada (PRD Seção 22)
-  app.post("/api/payments/reconcile", (req: any, res: any) => {
+  // 14. Reconciliação Financeira Automatizada - Protegido por requireAuth e PAYMENT_RECONCILE
+  app.post("/api/payments/reconcile", requireAuth, requirePermission('PAYMENT_RECONCILE'), (req: any, res: any) => {
     try {
       const reconciliationReport = store.reconcileAll();
       res.json({ success: true, report: reconciliationReport });
@@ -309,8 +567,8 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 15. Fila de Divergências e Reconciliação
-  app.get("/api/customer360/reconciliation", (req: any, res: any) => {
+  // 15. Fila de Divergências e Reconciliação - Protegido por requireAuth e PAYMENT_RECONCILE
+  app.get("/api/customer360/reconciliation", requireAuth, requirePermission('PAYMENT_RECONCILE'), (req: any, res: any) => {
     try {
       res.json({
         divergences: store.reconciliationQueue,
@@ -322,8 +580,8 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 15b. Disparar Reconciliação Geral (Banco x NAP x ERP)
-  app.post("/api/customer360/reconciliation/run", (req: any, res: any) => {
+  // 15b. Disparar Reconciliação Geral (Banco x NAP x ERP) - Protegido por requireAuth e PAYMENT_RECONCILE
+  app.post("/api/customer360/reconciliation/run", requireAuth, requirePermission('PAYMENT_RECONCILE'), (req: any, res: any) => {
     try {
       const result = store.reconcileAll();
       res.json({
@@ -338,17 +596,18 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 16. Resolver Divergência Manualmente (Auditoria LGPD)
-  app.post("/api/customer360/reconciliation/:id/resolve", (req: any, res: any) => {
+  // 16. Resolver Divergência Manualmente - Protegido por requireAuth e PAYMENT_RECONCILE
+  app.post("/api/customer360/reconciliation/:id/resolve", requireAuth, requirePermission('PAYMENT_RECONCILE'), (req: any, res: any) => {
     try {
       const { id } = req.params;
-      const { resolvedBy = 'Admin', resolutionNote } = req.body;
+      const { resolvedBy, resolutionNote } = req.body;
+      const operatorName = resolvedBy || req.user?.nome || req.user?.email || 'Admin';
       const item = store.reconciliationQueue.find(q => q.id === id);
       if (!item) return res.status(404).json({ error: "Item de divergência não encontrado" });
 
       item.status = 'resolved';
       item.resolvedAt = new Date().toISOString();
-      item.resolvedBy = resolvedBy;
+      item.resolvedBy = operatorName;
 
       res.json({ success: true, message: `Divergência ${id} resolvida e registrada em auditoria.` });
     } catch (err: any) {
@@ -356,8 +615,8 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 17. Matriz de Autoridade e Fonte de Verdade (PRD Seção 2)
-  app.get("/api/customer360/authority-matrix", (req: any, res: any) => {
+  // 17. Matriz de Autoridade e Fonte de Verdade - Protegido por requireAuth
+  app.get("/api/customer360/authority-matrix", requireAuth, (req: any, res: any) => {
     try {
       res.json({ matrix: store.authorityMatrix });
     } catch (err: any) {
@@ -365,7 +624,7 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  app.put("/api/customer360/authority-matrix", (req: any, res: any) => {
+  app.put("/api/customer360/authority-matrix", requireAuth, requireRole('ADMIN'), (req: any, res: any) => {
     try {
       const { matrix } = req.body;
       if (Array.isArray(matrix)) {
@@ -377,8 +636,8 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // 19. Configuração e Credenciais C6 Bank (Interface Web Segura)
-  app.get("/api/payments/c6-config", (req: any, res: any) => {
+  // 19. Configuração e Credenciais C6 Bank (Interface Web Segura) - Restrito a Administradores
+  app.get("/api/payments/c6-config", requireAuth, requireRole('ADMIN'), (req: any, res: any) => {
     try {
       res.json({ config: store.c6BankConfig });
     } catch (err: any) {
@@ -386,7 +645,7 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  app.put("/api/payments/c6-config", (req: any, res: any) => {
+  app.put("/api/payments/c6-config", requireAuth, requireRole('ADMIN'), (req: any, res: any) => {
     try {
       const { 
         pixKey, pixKeyType, clientId, clientSecret, 
@@ -416,7 +675,7 @@ export function setupPaymentRoutes(app: any) {
   });
 
   // Teste de Conectividade mTLS e Handshake C6 Bank
-  app.post("/api/payments/c6-config/test", async (req: any, res: any) => {
+  app.post("/api/payments/c6-config/test", requireAuth, requireRole('ADMIN'), async (req: any, res: any) => {
     try {
       const hasCert = Boolean(process.env.C6_CERT_PATH || store.c6BankConfig.mtlsCertificateUploaded);
       const hasClient = Boolean(process.env.C6_CLIENT_ID || store.c6BankConfig.clientId);
@@ -489,8 +748,8 @@ export function setupPaymentRoutes(app: any) {
     }
   });
 
-  // Upload de certificado mTLS (.crt/.pem/.pfx)
-  app.post("/api/payments/c6-config/upload-cert", (req: any, res: any) => {
+  // Upload de certificado mTLS (.crt/.pem/.pfx) - Restrito a Administradores
+  app.post("/api/payments/c6-config/upload-cert", requireAuth, requireRole('ADMIN'), (req: any, res: any) => {
     try {
       const { certificateName = 'c6_mtls_prod.crt' } = req.body;
       store.c6BankConfig.mtlsCertificateUploaded = true;
@@ -509,15 +768,18 @@ export function setupPaymentRoutes(app: any) {
   });
 
   // Simulação de Eventos e Teste de Carga de Webhook (Para Testes do Operador em DEV)
-  app.post("/api/customer360/simulate/payment", async (req: any, res: any) => {
+  app.post("/api/customer360/simulate/payment", requireAuth, requireRole('ADMIN'), async (req: any, res: any) => {
     try {
       assertRealService('C6 Bank Pagamentos', 'Simulação manual de webhook Pix é terminantemente proibida em produção.');
-      const txid = req.body.txid || 'E123456789';
-      const valor = req.body.valor !== undefined ? req.body.valor : (req.body.amount !== undefined ? req.body.amount : 100.00);
+      const txid = req.body.txid || `E_SIM_${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
+      const valor = req.body.valor !== undefined ? req.body.valor : (req.body.amount !== undefined ? req.body.amount : null);
+      if (valor === null || isNaN(parseFloat(valor))) {
+        return res.status(400).json({ error: "Valor da cobrança é obrigatório para simulação.", code: "AMOUNT_REQUIRED" });
+      }
       const result = await store.processBankPaymentWebhook({
         txid,
         valor: parseFloat(valor),
-        idTransacaoBancaria: req.body.idTransacaoBancaria || `SIM_C6_${Date.now()}`,
+        idTransacaoBancaria: req.body.idTransacaoBancaria || `SIM_C6_${crypto.randomUUID()}`,
         banco: req.body.banco || 'C6 Bank'
       });
       res.json(result);

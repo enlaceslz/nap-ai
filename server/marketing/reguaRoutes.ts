@@ -9,8 +9,32 @@ import { requireAuth } from '../auth/rbacMiddleware';
 
 const REGUA_CONFIG_PATH = path.resolve(process.cwd(), 'data', 'regua_config.json');
 
-// Configuração padrão da régua de cobrança
-const defaultReguaConfig = {
+// Configuração estática padrão da régua de cobrança (Sem dados voláteis ou operacionais)
+// BLOQUEADOR P1 V10: Estado operacional (execuções, disparos, estatísticas) reside 100% no PostgreSQL
+interface ReguaStaticConfig {
+  ativa: boolean;
+  horarioInicio: string;
+  horarioFim: string;
+  descontoPontualidade: number;
+  diasAntesVencimento: number;
+  notificarDiaVencimento: boolean;
+  diasAposVencimentoTolerancia: number;
+  diasAposVencimentoBloqueio: number;
+  canais: {
+    whatsapp: boolean;
+    sms: boolean;
+    push: boolean;
+    email: boolean;
+  };
+  templates: {
+    d_menos_3: string;
+    d_zero: string;
+    d_mais_3: string;
+    d_mais_7: string;
+  };
+}
+
+const defaultReguaConfig: ReguaStaticConfig = {
   ativa: false,
   horarioInicio: "08:30",
   horarioFim: "19:30",
@@ -30,29 +54,17 @@ const defaultReguaConfig = {
     d_zero: "Olá, {{nome_cliente}}! 🚀 Sua mensalidade vence HOJE ({{data_vencimento}}). Para manter sua conexão rápida e sem interrupções, pague agora via PIX:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}\n\nPrecisa de 2ª via? Acesse: {{link_segunda_via}}",
     d_mais_3: "Olá, {{nome_cliente}}. Não localizamos o pagamento da sua fatura vencida em {{data_vencimento}}.\n\nCaso precise regularizar, você pode pagar com o PIX abaixo:\n\n🔑 PIX Copia-e-Cola:\n{{chave_pix}}",
     d_mais_7: "⚠️ AVISO URGENTE: Prezado(a) {{nome_cliente}}, sua fatura está com 7 dias de atraso. Evite a suspensão do serviço efetuando o pagamento via PIX:\n\n🔑 PIX:\n{{chave_pix}}"
-  },
-  estatisticas: {
-    totalDisparadosHoje: 0,
-    faturasRecuperadasPix: 0,
-    valorRecuperadoHoje: 0.00,
-    taxaConversaoPix: "0.0%"
-  },
-  historicoExecucoes: [] as Array<{
-    id: string;
-    fase: string;
-    disparados: number;
-    sucesso: number;
-    falhas: number;
-    data: string;
-  }>
+  }
 };
 
-function loadReguaConfig(): typeof defaultReguaConfig {
+function loadReguaConfig(): ReguaStaticConfig {
   try {
     if (fs.existsSync(REGUA_CONFIG_PATH)) {
       const raw = fs.readFileSync(REGUA_CONFIG_PATH, 'utf-8');
       const parsed = JSON.parse(raw);
-      return { ...defaultReguaConfig, ...parsed };
+      // Extrai estritamente as propriedades estáticas válidas, descartando resquícios operacionais legados
+      const { estatisticas, historicoExecucoes, ...pureConfig } = parsed;
+      return { ...defaultReguaConfig, ...pureConfig };
     }
   } catch (err: any) {
     console.warn('[Régua Cobrança] Falha ao carregar data/regua_config.json, usando padrão:', err.message);
@@ -60,13 +72,17 @@ function loadReguaConfig(): typeof defaultReguaConfig {
   return { ...defaultReguaConfig };
 }
 
-function persistReguaConfig(config: typeof defaultReguaConfig): void {
+function persistReguaConfig(config: ReguaStaticConfig): void {
   try {
     const dir = path.dirname(REGUA_CONFIG_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(REGUA_CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
+    // Salva estritamente a configuração sem misturar dados operacionais
+    const { ...pureConfig } = config;
+    delete (pureConfig as any).estatisticas;
+    delete (pureConfig as any).historicoExecucoes;
+    fs.writeFileSync(REGUA_CONFIG_PATH, JSON.stringify(pureConfig, null, 2), 'utf-8');
   } catch (err: any) {
     console.warn('[Régua Cobrança] Falha ao persistir data/regua_config.json:', err.message);
   }
@@ -434,18 +450,6 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
         finalizadoEm: new Date()
       }).where(eq(regua_execucoes.id, execRow.id));
 
-      // Atualizar métricas apenas com os números reais
-      globalReguaConfig.estatisticas.totalDisparadosHoje += disparados;
-      globalReguaConfig.historicoExecucoes.unshift({
-        id: `exec-${execRow.id}`,
-        fase,
-        disparados,
-        sucesso: disparados,
-        falhas,
-        data: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-      });
-      persistReguaConfig(globalReguaConfig);
-
       if (registrarAuditoria) {
         registrarAuditoria({
           usuario: (req as any).user?.email || "sistema",
@@ -606,9 +610,6 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
       } catch (dbErr: any) {
         console.warn('[Régua Cobrança] Erro ao gravar disparo individual no PostgreSQL:', dbErr.message);
       }
-
-      globalReguaConfig.estatisticas.totalDisparadosHoje += 1;
-      persistReguaConfig(globalReguaConfig);
 
       // Registrar mensagem no histórico real
       try {

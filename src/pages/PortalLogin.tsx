@@ -1,14 +1,21 @@
 import React, { useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { ShieldCheck, User, ArrowRight, Loader2, Sparkles, UserX, HeadphonesIcon, AlertTriangle, Lock } from 'lucide-react';
+import { ShieldCheck, User, ArrowRight, Loader2, Sparkles, UserX, HeadphonesIcon, AlertTriangle, Lock, KeyRound, MessageSquare } from 'lucide-react';
 import { useConfig } from '../contexts/ConfigContext';
 import WebchatWidget from '../components/WebchatWidget';
 
 export default function PortalLogin() {
   const [cpf, setCpf] = useState('');
+  const [authMode, setAuthMode] = useState<'otp' | 'senha'>('otp');
+  const [otp, setOtp] = useState('');
+  const [senha, setSenha] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpMessage, setOtpMessage] = useState('');
+  const [maskedPhone, setMaskedPhone] = useState('');
   const [cpfNotFound, setCpfNotFound] = useState(false);
-  const [cpfError, setCpfError] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
   const isValidCpf = (cpfStr: string) => {
     const clean = cpfStr.replace(/\D/g, '');
@@ -37,10 +44,8 @@ export default function PortalLogin() {
 
   const navigate = useNavigate();
   const { config } = useConfig();
-  
   const nomeProvedor = config.provedor?.nomeFantasia || 'DJD Telecom';
 
-  // Se já estiver logado, redireciona
   if (localStorage.getItem('@nap_client_auth')) {
     return <Navigate to="/portal" replace />;
   }
@@ -49,7 +54,6 @@ export default function PortalLogin() {
     let value = e.target.value.replace(/\D/g, '');
     if (value.length > 11) value = value.slice(0, 11);
     
-    // Aplica a máscara CPF (000.000.000-00)
     value = value.replace(/(\d{3})(\d)/, '$1.$2');
     value = value.replace(/(\d{3})(\d)/, '$1.$2');
     value = value.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
@@ -57,30 +61,78 @@ export default function PortalLogin() {
     setCpf(value);
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (cpf.length < 14) return;
-    
-    if (!isValidCpf(cpf)) {
-      setCpfError('CPF inválido de acordo com a Receita Federal');
+  // Solicitar código OTP por WhatsApp
+  const handleRequestOtp = async () => {
+    if (cpf.length < 14 || !isValidCpf(cpf)) {
+      setErrorMsg('Informe um CPF válido para receber o código.');
       return;
     }
-    setCpfError('');
-    setIsLoading(true);
+    setErrorMsg('');
+    setIsSendingOtp(true);
 
     try {
-      const res = await fetch('/api/portal/login', {
+      const res = await fetch('/api/portal/request-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cpf })
       });
 
-      if (res.status === 429) {
-        const data = await res.json().catch(() => ({}));
-        setCpfError(data.message || 'Bloqueio de segurança WAF ativado. Tente novamente em alguns instantes.');
-        setIsLoading(false);
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 404) {
+          setCpfNotFound(true);
+        } else {
+          setErrorMsg(data.error || 'Falha ao solicitar código de acesso.');
+        }
         return;
       }
+
+      setOtpSent(true);
+      setMaskedPhone(data.maskedPhone || '');
+      setOtpMessage(data.message || 'Código enviado por WhatsApp.');
+      if (data.devOtpCode) {
+        setOtp(data.devOtpCode);
+      }
+    } catch (err: any) {
+      setErrorMsg('Erro de conexão ao solicitar código: ' + err.message);
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  // Efetuar Login Real (CPF + OTP ou Senha)
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (cpf.length < 14) return;
+    
+    if (!isValidCpf(cpf)) {
+      setErrorMsg('CPF inválido de acordo com a Receita Federal');
+      return;
+    }
+
+    if (authMode === 'otp' && (!otp || otp.length < 4)) {
+      setErrorMsg('Insira o código de 6 dígitos recebido por WhatsApp.');
+      return;
+    }
+
+    if (authMode === 'senha' && (!senha || senha.length < 6)) {
+      setErrorMsg('Insira sua senha de acesso do portal (mínimo 6 caracteres).');
+      return;
+    }
+
+    setErrorMsg('');
+    setIsLoading(true);
+
+    try {
+      const payload: any = { cpf };
+      if (authMode === 'otp') payload.otp = otp;
+      if (authMode === 'senha') payload.senha = senha;
+
+      const res = await fetch('/api/portal/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
       if (res.status === 404) {
         setCpfNotFound(true);
@@ -89,14 +141,17 @@ export default function PortalLogin() {
       }
 
       const data = await res.json();
-      if (data.success && data.client) {
+      if (res.ok && data.success && data.client) {
         localStorage.setItem('@nap_client_auth', JSON.stringify(data.client));
+        if (data.token) {
+          localStorage.setItem('@nap_client_token', data.token);
+        }
         navigate('/portal');
       } else {
-        setCpfNotFound(true);
+        setErrorMsg(data.error || 'Credenciais inválidas. Verifique os dados digitados.');
       }
     } catch (err: any) {
-      setCpfError('Erro de conexão ao autenticar no portal: ' + err.message);
+      setErrorMsg('Erro de conexão ao autenticar no portal: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -148,7 +203,7 @@ export default function PortalLogin() {
 
             <button 
               type="button"
-              onClick={() => { setCpfNotFound(false); setCpf(''); }}
+              onClick={() => { setCpfNotFound(false); setCpf(''); setOtpSent(false); setOtp(''); }}
               className="w-full bg-muted hover:bg-accent text-foreground font-bold py-3.5 rounded-xl transition-all active:scale-95 text-sm"
             >
               Tentar outro CPF
@@ -159,14 +214,34 @@ export default function PortalLogin() {
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
                 <User className="text-blue-600" size={22} />
-                Acesso com CPF
+                Acesso Seguro ao Portal
               </h2>
               <span className="text-[11px] font-mono font-bold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1">
-                <Lock size={12} /> Acesso Seguro
+                <Lock size={12} /> Autenticação 2FA
               </span>
             </div>
 
-            <form onSubmit={handleLogin} className="space-y-5">
+            {/* Alternador de Método de Autenticação */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-muted rounded-xl mb-5">
+              <button
+                type="button"
+                onClick={() => { setAuthMode('otp'); setErrorMsg(''); }}
+                className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${authMode === 'otp' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <MessageSquare size={14} />
+                Código WhatsApp
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthMode('senha'); setErrorMsg(''); }}
+                className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${authMode === 'senha' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                <KeyRound size={14} />
+                Senha do Portal
+              </button>
+            </div>
+
+            <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
                   CPF do Titular
@@ -176,34 +251,84 @@ export default function PortalLogin() {
                   <input
                     type="tel"
                     value={cpf}
-                    onChange={(e) => { setCpfError(''); handleCpfChange(e); }}
+                    onChange={(e) => { setErrorMsg(''); handleCpfChange(e); }}
                     placeholder="000.000.000-00"
-                    className={`w-full h-13 pl-4 pr-11 bg-background border-2 rounded-xl text-lg font-mono font-medium text-foreground focus:ring-4 outline-none transition-all placeholder:text-muted-foreground ${cpfError ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20' : 'border-border focus:border-blue-500 focus:ring-blue-500/20'}`}
+                    className={`w-full h-12 pl-4 pr-11 bg-background border-2 rounded-xl text-base font-mono font-medium text-foreground focus:ring-4 outline-none transition-all placeholder:text-muted-foreground ${errorMsg ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20' : 'border-border focus:border-blue-500 focus:ring-blue-500/20'}`}
                     required
                     autoFocus
                   />
-                  {cpf.length === 14 && !cpfError && (
+                  {cpf.length === 14 && isValidCpf(cpf) && (
                     <div className="absolute right-3.5 top-1/2 -translate-y-1/2 text-emerald-500">
-                      <ShieldCheck size={22} />
+                      <ShieldCheck size={20} />
                     </div>
                   )}
                 </div>
-                {cpfError && (
-                  <p className="mt-1.5 text-xs font-bold text-red-500 flex items-center gap-1 animate-in slide-in-from-top-1">
-                    <AlertTriangle size={12} /> {cpfError}
-                  </p>
-                )}
               </div>
+
+              {/* Modo OTP por WhatsApp */}
+              {authMode === 'otp' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Código de 6 Dígitos
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleRequestOtp}
+                      disabled={cpf.length < 14 || isSendingOtp}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                    >
+                      {isSendingOtp ? 'Enviando...' : (otpSent ? 'Reenviar Código' : 'Receber Código no WhatsApp')}
+                    </button>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={otp}
+                    onChange={(e) => { setErrorMsg(''); setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); }}
+                    placeholder="Ex: 123456"
+                    className="w-full h-12 px-4 bg-background border-2 border-border rounded-xl text-center text-xl font-mono tracking-widest font-bold text-foreground focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none transition-all"
+                    maxLength={6}
+                  />
+                  {otpSent && maskedPhone && (
+                    <p className="mt-1 text-[11px] text-emerald-600 font-medium">
+                      ✓ Código enviado para o número {maskedPhone}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Modo Senha */}
+              {authMode === 'senha' && (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                    Senha de Acesso
+                  </label>
+                  <input
+                    type="password"
+                    value={senha}
+                    onChange={(e) => { setErrorMsg(''); setSenha(e.target.value); }}
+                    placeholder="Digite sua senha"
+                    className="w-full h-12 px-4 bg-background border-2 border-border rounded-xl text-sm font-medium text-foreground focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 outline-none transition-all"
+                  />
+                </div>
+              )}
+
+              {errorMsg && (
+                <p className="text-xs font-bold text-red-500 flex items-center gap-1 animate-in slide-in-from-top-1">
+                  <AlertTriangle size={12} /> {errorMsg}
+                </p>
+              )}
 
               <button
                 type="submit"
                 disabled={cpf.length < 14 || isLoading}
-                className="w-full h-12 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                className="w-full h-12 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm mt-2"
               >
                 {isLoading ? (
                   <>
                     <Loader2 className="animate-spin" size={18} />
-                    <span>Consultando Contrato...</span>
+                    <span>Autenticando...</span>
                   </>
                 ) : (
                   <>

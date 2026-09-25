@@ -6,17 +6,25 @@ import { recordMandatoryAuditLog } from '../security/httpSecurity';
 import { db } from '../../src/db/index';
 import { users, push_subscriptions, clientes } from '../../src/db/schema';
 import { eq, and } from 'drizzle-orm';
+import { getJwtSecret, verifyPortalSessionToken } from '../security/secretManager';
 
 /**
  * Geração de Push Enrollment Token criptograficamente assinado com HMAC-SHA256
  * Curta duração (padrão 15 min), uso único/nonce e cliente_id vinculado.
+ * REGRA V10: Eliminação incondicional de secret fallbacks hardcoded.
  */
 export function generatePushEnrollmentToken(clienteId: number, options?: { expiresInSeconds?: number }): string {
-  const secret = process.env.JWT_SECRET || process.env.NAP_JWT_SECRET || 'nap_portal_push_secret_v9';
+  const secret = getJwtSecret();
   const expiresIn = options?.expiresInSeconds || 900; // 15 minutos
   const expiresAt = Date.now() + expiresIn * 1000;
   const nonce = crypto.randomBytes(16).toString('hex');
-  const payload = JSON.stringify({ clienteId: Number(clienteId), expiresAt, nonce });
+  const payload = JSON.stringify({
+    purpose: 'push_enrollment',
+    clienteId: Number(clienteId),
+    issuedAt: Date.now(),
+    expiresAt,
+    nonce
+  });
   const base64Payload = Buffer.from(payload).toString('base64url');
   const signature = crypto.createHmac('sha256', secret).update(base64Payload).digest('base64url');
   return `${base64Payload}.${signature}`;
@@ -34,7 +42,7 @@ export function verifyPushEnrollmentToken(token: string): { valid: boolean; clie
     return { valid: false, error: 'Formato inválido de token de inscrição' };
   }
   const [base64Payload, signature] = parts;
-  const secret = process.env.JWT_SECRET || process.env.NAP_JWT_SECRET || 'nap_portal_push_secret_v9';
+  const secret = getJwtSecret();
   const expectedSignature = crypto.createHmac('sha256', secret).update(base64Payload).digest('base64url');
 
   if (signature.length !== expectedSignature.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
@@ -175,21 +183,28 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
 
       if (rawToken && typeof rawToken === 'string') {
         const verification = verifyPushEnrollmentToken(rawToken);
-        if (!verification.valid) {
-          if (verification.error?.includes('expirado')) {
+        if (verification.valid && verification.clienteId) {
+          effectiveClienteId = verification.clienteId;
+        } else {
+          // Também aceita sessão autenticada legítima do Portal do Assinante
+          const portalSession = verifyPortalSessionToken(rawToken);
+          if (portalSession.valid && portalSession.clienteId) {
+            effectiveClienteId = portalSession.clienteId;
+          } else {
+            if (verification.error?.includes('expirado') || portalSession.error?.includes('expirad')) {
+              return res.status(403).json({
+                sucesso: false,
+                status: 'expired_enrollment_token',
+                mensagem: 'Token de inscrição Push ou sessão expirada. Solicite novo token de inscrição no portal.'
+              });
+            }
             return res.status(403).json({
               sucesso: false,
-              status: 'expired_enrollment_token',
-              mensagem: 'Token de inscrição Push expirado. Solicite novo token de inscrição no portal.'
+              status: 'invalid_enrollment_token',
+              mensagem: `Token de inscrição Push inválido: ${verification.error || portalSession.error}`
             });
           }
-          return res.status(403).json({
-            sucesso: false,
-            status: 'invalid_enrollment_token',
-            mensagem: `Token de inscrição Push inválido: ${verification.error}`
-          });
         }
-        effectiveClienteId = verification.clienteId!;
       } else if (isAdmin && cliente_id) {
         // Administrador autenticado no painel pode associar push ao cliente
         effectiveClienteId = Number(cliente_id);
@@ -252,30 +267,67 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
   });
 
   // 1.2 Emissão de Push Enrollment Token para o Portal do Assinante
+  // BLOQUEADOR CRÍTICO P0 V10: Exige autenticação prévia (Sessão do Portal ou Operador RBAC)
+  // O navegador NUNCA pode simplesmente enviar { cliente_id: 999 } e obter autorização!
   router.post(['/cliente/push-enrollment-token', '/portal/push-enrollment-token'], async (req, res) => {
     try {
-      const { cliente_id, cpf } = req.body;
-      let targetClienteId = cliente_id ? Number(cliente_id) : null;
+      const { cliente_id } = req.body;
+      const authHeader = req.headers.authorization;
+      const portalHeader = req.headers['x-portal-token'] as string;
+      const rawToken = (authHeader && authHeader.startsWith('Bearer '))
+        ? authHeader.substring(7).trim()
+        : portalHeader;
 
+      let authenticatedClienteId: number | null = null;
+      let isAuthorizedOperator = false;
+
+      // 1. Tenta autenticar como operador interno (RBAC)
       const currentUser = (req as any).user;
-      if (!targetClienteId && currentUser?.clienteId) {
-        targetClienteId = Number(currentUser.clienteId);
-      }
-
-      if (!targetClienteId && cpf) {
-        const cleanCpf = String(cpf).replace(/\D/g, '');
-        const rows = await db.select().from(clientes).where(eq(clientes.documento, cleanCpf)).limit(1);
-        if (rows.length > 0) {
-          targetClienteId = rows[0].id;
+      if (currentUser) {
+        const userRole = (currentUser.cargo || currentUser.role || '').toUpperCase();
+        if (['ADMIN', 'SUPERADMIN', 'SUPORTE', 'ATENDIMENTO', 'GESTOR'].includes(userRole)) {
+          isAuthorizedOperator = true;
         }
       }
 
-      if (!targetClienteId || isNaN(targetClienteId)) {
-        return res.status(400).json({
+      // 2. Tenta autenticar como sessão legítima do Portal do Assinante
+      if (!isAuthorizedOperator && rawToken) {
+        const portalSession = verifyPortalSessionToken(rawToken);
+        if (portalSession.valid && portalSession.clienteId) {
+          authenticatedClienteId = portalSession.clienteId;
+        }
+      }
+
+      // 3. Se nenhuma identidade for comprovada: Rejeita imediatamente (NUNCA gera token para anônimos)
+      if (!isAuthorizedOperator && !authenticatedClienteId) {
+        return res.status(401).json({
           sucesso: false,
-          status: 'failed',
-          mensagem: 'Identificador cliente_id ou CPF válido obrigatório para emitir push enrollment token.'
+          status: 'authentication_required',
+          mensagem: 'Autenticação necessária. A emissão de Push Enrollment Token exige sessão autenticada do portal ou credencial de operador.'
         });
+      }
+
+      // 4. Se for cliente autenticado no portal, valida cross-client (não pode solicitar para outro)
+      let targetClienteId: number;
+      if (authenticatedClienteId) {
+        if (cliente_id && Number(cliente_id) !== authenticatedClienteId) {
+          return res.status(403).json({
+            sucesso: false,
+            status: 'forbidden',
+            mensagem: 'Tentativa não autorizada de emitir push enrollment token para outro cliente. Mismatch de identidade.'
+          });
+        }
+        targetClienteId = authenticatedClienteId;
+      } else {
+        // Operador autenticado com RBAC pode emitir para o cliente solicitado
+        if (!cliente_id || isNaN(Number(cliente_id))) {
+          return res.status(400).json({
+            sucesso: false,
+            status: 'failed',
+            mensagem: 'Identificador cliente_id obrigatório para emissão administrativa de push enrollment token.'
+          });
+        }
+        targetClienteId = Number(cliente_id);
       }
 
       const clienteRows = await db.select().from(clientes).where(eq(clientes.id, targetClienteId)).limit(1);

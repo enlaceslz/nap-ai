@@ -4,6 +4,8 @@ import { db, isDatabaseConnected } from '../../src/db/index';
 import { incident_notifications, incidentes_rede, clientes, conversas, mensagens, push_subscriptions } from '../../src/db/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { webPushService } from '../push/webPushService';
+import { requireAuth, requirePermission } from '../auth/rbacMiddleware';
+import { recordMandatoryAuditLog } from '../security/httpSecurity';
 
 export interface IncidenteRede {
   id: string;
@@ -53,7 +55,7 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
   const router = express.Router();
 
   // 1. Listar Incidentes (100% Persistente no PostgreSQL — BLOQUEADOR: ZERO Fallback Operacional em Memória)
-  router.get('/incidentes', async (req, res) => {
+  router.get('/incidentes', requireAuth, requirePermission('ZABBIX_READ'), async (req, res) => {
     if (!isDatabaseConnected) {
       return res.status(503).json({
         sucesso: false,
@@ -81,7 +83,7 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
   });
 
   // 2. Criar novo Incidente (Persistência Exclusiva PostgreSQL com UUID Criptográfico)
-  router.post('/incidentes', async (req, res) => {
+  router.post('/incidentes', requireAuth, requirePermission('ZABBIX_ACK'), async (req, res) => {
     if (!isDatabaseConnected) {
       return res.status(503).json({
         sucesso: false,
@@ -117,6 +119,17 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
 
       const novoIncidente = mapDbToIncidente(inserted);
 
+      recordMandatoryAuditLog({
+        usuario: (req as any).user?.email || "operador_noc",
+        userId: String((req as any).user?.id || 1),
+        modulo: 'NOC & Incidentes',
+        acao: 'INCIDENT_CREATE',
+        status: 'sucesso',
+        detalhes: `Incidente registrado no PostgreSQL: ${novoIncidente.titulo}. Regiões: ${novoIncidente.regioesAfetadas.join(', ')}.`,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'] as string
+      });
+
       if (registrarAuditoria) {
         registrarAuditoria({
           usuario: (req as any).user?.email || "operador_noc",
@@ -143,7 +156,7 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
   });
 
   // 3. Atualizar Incidente (Persistência Exclusiva PostgreSQL)
-  router.patch('/incidentes/:id', async (req, res) => {
+  router.patch('/incidentes/:id', requireAuth, requirePermission('ZABBIX_ACK'), async (req, res) => {
     if (!isDatabaseConnected) {
       return res.status(503).json({
         sucesso: false,
@@ -173,6 +186,17 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
 
       const incidenteAtualizado = mapDbToIncidente(updated);
 
+      recordMandatoryAuditLog({
+        usuario: (req as any).user?.email || "operador_noc",
+        userId: String((req as any).user?.id || 1),
+        modulo: 'NOC & Incidentes',
+        acao: 'INCIDENT_UPDATE',
+        status: 'sucesso',
+        detalhes: `Status atualizado: ${status || 'inalterado'}. Previsão: ${previsaoRetorno || 'inalterada'}.`,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'] as string
+      });
+
       if (registrarAuditoria) {
         registrarAuditoria({
           usuario: (req as any).user?.email || "operador_noc",
@@ -199,7 +223,7 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
 
   // 4. Disparo Real de Notificações com Seleção Geográfica Real e Status Individual
   // BLOQUEADORES: Clientes reais sem .limit() artificial; Status individual; WebPush sem fabricar providerMessageId.
-  router.post('/incidentes/:id/notificar-massa', async (req, res) => {
+  router.post('/incidentes/:id/notificar-massa', requireAuth, requirePermission('ZABBIX_ACK'), async (req, res) => {
     if (!isDatabaseConnected) {
       return res.status(503).json({
         sucesso: false,

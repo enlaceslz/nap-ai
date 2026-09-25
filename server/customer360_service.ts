@@ -184,7 +184,7 @@ export class Customer360Store {
       }
     }
 
-    const numericId = dbCustomerId || (Date.now() % 100000);
+    const numericId = dbCustomerId || crypto.randomInt(1000, 99999);
     let existingC360: NapCustomer360 | undefined;
     for (const c of this.customers.values()) {
       if (c.document.replace(/\D/g, '') === cleanDoc || c.document === erpCliente.documento) {
@@ -268,7 +268,7 @@ export class Customer360Store {
       const faturasErp = await adapter.buscarFaturasEmAberto(erpCliente.id);
       if (faturasErp && faturasErp.length > 0) {
         for (const f of faturasErp) {
-          const invId = Number(f.id) || (Date.now() % 100000);
+          const invId = Number(f.id) || crypto.randomInt(1000, 99999);
           const invoiceItem: NapInvoice = {
             id: invId,
             napInvoiceId: `inv_erp_${f.id}`,
@@ -298,7 +298,7 @@ export class Customer360Store {
   public addCustomerEvent(event: Omit<NapCustomerEvent, 'id'>): NapCustomerEvent {
     const fullEvent: NapCustomerEvent = {
       ...event,
-      id: `EVT_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`
+      id: `EVT_${crypto.randomUUID()}`
     };
     this.events.unshift(fullEvent);
     const customer = this.customers.get(event.customerId);
@@ -325,7 +325,7 @@ export class Customer360Store {
     transaction?: NapPaymentTransaction;
     erpBaixaResult?: any;
   }> {
-    const { txid, valor, idTransacaoBancaria = `C6_${Date.now()}`, banco = 'C6', webhookId = `WBK_${Date.now()}`, dataPagamento = new Date().toISOString() } = payload;
+    const { txid, valor, idTransacaoBancaria = `C6_${crypto.randomUUID()}`, banco = 'C6', webhookId = `WBK_${crypto.randomUUID()}`, dataPagamento = new Date().toISOString() } = payload;
 
     // 1. Idempotência do Webhook
     const idempotencyKey = `${txid}_${idTransacaoBancaria}`;
@@ -350,7 +350,7 @@ export class Customer360Store {
     if (!targetInvoice) {
       console.warn(`[Divergência] TXID ${txid} não localizado no cadastro de faturas do NAP.`);
       this.reconciliationQueue.push({
-        id: `DIV_${Date.now()}`,
+        id: `DIV_${crypto.randomUUID()}`,
         txid,
         receivedAmount: valor,
         status: 'divergent',
@@ -368,7 +368,7 @@ export class Customer360Store {
     if (Math.abs(Number(targetInvoice.amount) - Number(valor)) > 0.01) {
       console.warn(`[Divergência de Valor] Fatura: R$ ${targetInvoice.amount}, Recebido: R$ ${valor}`);
       this.reconciliationQueue.push({
-        id: `DIV_${Date.now()}`,
+        id: `DIV_${crypto.randomUUID()}`,
         txid,
         invoiceId: targetInvoice.id,
         expectedAmount: Number(targetInvoice.amount),
@@ -388,7 +388,7 @@ export class Customer360Store {
 
     // 4. Registrar Transação Oficial Bancária
     const transaction: NapPaymentTransaction = {
-      id: `TXN_${Date.now()}`,
+      id: `TXN_${crypto.randomUUID()}`,
       txid,
       invoiceId: targetInvoice.id,
       amount: valor,
@@ -470,7 +470,7 @@ export class Customer360Store {
       targetInvoice.erpBaixaStatus = 'pending_queue';
       
       this.erpSyncQueue.push({
-        id: `SYNC_${Date.now()}`,
+        id: `SYNC_${crypto.randomUUID()}`,
         invoiceId: targetInvoice.id,
         externalInvoiceId: targetInvoice.externalInvoiceId,
         externalSystem: targetInvoice.externalSystem || 'sgp',
@@ -529,7 +529,7 @@ export class Customer360Store {
           details.push({ txid, invoiceId: inv.id, status: 'DIVERGENT', reason: 'Divergência de status ou valor' });
           if (!this.reconciliationQueue.some(r => r.txid === txid)) {
             this.reconciliationQueue.push({
-              id: `DIV_${Date.now()}_${txid.slice(-4)}`,
+              id: `DIV_${crypto.randomUUID()}`,
               txid,
               invoiceId: inv.id,
               expectedAmount: Number(inv.amount),
@@ -546,7 +546,7 @@ export class Customer360Store {
         details.push({ txid, status: 'DIVERGENT', reason: 'Fatura inexistente para a transação' });
         if (!this.reconciliationQueue.some(r => r.txid === txid)) {
           this.reconciliationQueue.push({
-            id: `DIV_${Date.now()}_${txid.slice(-4)}`,
+            id: `DIV_${crypto.randomUUID()}`,
             txid,
             receivedAmount: Number(txn.amount),
             status: 'divergent',

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { AuthenticatedUser, Permission, UserRole, ROLE_PERMISSIONS } from './types';
+import { getJwtSecret } from '../security/secretManager';
 
 // Declaração de tipo estendido para o Express Request
 declare global {
@@ -11,18 +12,11 @@ declare global {
   }
 }
 
-// Chave secreta de sessão interna (gerada aleatoriamente no boot ou carregada do ambiente seguro)
-const JWT_SECRET = process.env.NAP_JWT_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('[SEGURANÇA CRÍTICA] NAP_JWT_SECRET, JWT_SECRET ou SESSION_SECRET deve estar configurado no ambiente de produção.');
-  }
-  return crypto.randomBytes(32).toString('hex');
-})();
-
 /**
  * Cria token de autenticação assinado (HMAC-SHA256)
  */
 export function generateAuthToken(user: { id: string; email: string; nome: string; role: UserRole }): string {
+  const secret = getJwtSecret();
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(JSON.stringify({
     sub: user.id,
@@ -33,7 +27,7 @@ export function generateAuthToken(user: { id: string; email: string; nome: strin
     exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24h
   })).toString('base64url');
 
-  const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${payload}`).digest('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
   return `${header}.${payload}.${signature}`;
 }
 
@@ -46,7 +40,8 @@ export function verifyAuthToken(token: string): AuthenticatedUser | null {
     if (parts.length !== 3) return null;
 
     const [header, payload, signature] = parts;
-    const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${payload}`).digest('base64url');
+    const secret = getJwtSecret();
+    const expectedSig = crypto.createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
 
     if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
       return null;
