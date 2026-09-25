@@ -3,7 +3,7 @@ import { webPushService } from './webPushService';
 import { requireAuth } from '../auth/rbacMiddleware';
 import { recordMandatoryAuditLog } from '../security/httpSecurity';
 import { db } from '../../src/db/index';
-import { users, push_subscriptions } from '../../src/db/schema';
+import { users, push_subscriptions, clientes } from '../../src/db/schema';
 import { eq, and } from 'drizzle-orm';
 
 export const setupOperatorPushRoutes = (app: express.Express) => {
@@ -90,6 +90,77 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
         sucesso: false,
         status: 'failed',
         mensagem: `Erro ao registrar subscrição: ${err.message}`
+      });
+    }
+  });
+
+  // 1.1 Inscrição do Portal do Assinante / Cliente ISP (PWA)
+  // REGRA CRÍTICA V8: NUNCA assumir clientes.id == users.id.
+  // Push do assinante DEVE ser vinculado exclusivamente a cliente_id, mantendo user_id = null.
+  router.post(['/cliente/subscribe', '/portal/subscribe'], async (req, res) => {
+    try {
+      const { subscription, cliente_id, cliente_nome, dispositivo } = req.body;
+      const endpoint = subscription?.endpoint || req.body.endpoint;
+
+      if (!endpoint) {
+        return res.status(400).json({
+          sucesso: false,
+          status: 'failed',
+          mensagem: 'Endpoint de subscrição Push obrigatório.'
+        });
+      }
+
+      if (!cliente_id) {
+        return res.status(400).json({
+          sucesso: false,
+          status: 'failed',
+          mensagem: 'Identificador cliente_id é obrigatório para registrar subscrição do assinante.'
+        });
+      }
+
+      const clienteNum = Number(cliente_id);
+      if (isNaN(clienteNum)) {
+        return res.status(400).json({
+          sucesso: false,
+          status: 'invalid_client_id',
+          mensagem: 'cliente_id deve ser um identificador numérico válido.'
+        });
+      }
+
+      // Validação estrita na tabela clientes (PostgreSQL)
+      const clienteRows = await db.select().from(clientes).where(eq(clientes.id, clienteNum)).limit(1);
+      if (clienteRows.length === 0) {
+        return res.status(404).json({
+          sucesso: false,
+          status: 'cliente_not_found',
+          mensagem: `Cliente ISP #${clienteNum} não encontrado no cadastro.`
+        });
+      }
+
+      const clienteReal = clienteRows[0];
+
+      const subItem = await webPushService.registerSubscription({
+        endpoint,
+        keys: subscription?.keys,
+        clienteId: clienteReal.id,
+        clienteNome: cliente_nome || clienteReal.nome,
+        userId: null,
+        operadorNome: null,
+        dispositivo: dispositivo || 'Portal do Assinante PWA',
+        userAgent: (req.headers['user-agent'] as string) || undefined
+      });
+
+      return res.status(201).json({
+        sucesso: true,
+        status: 'subscribed',
+        mensagem: `Subscrição WebPush vinculada com sucesso ao cliente ISP #${clienteReal.id} (${clienteReal.nome}).`,
+        subscription: subItem
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        sucesso: false,
+        status: 'failed',
+        mensagem: `Erro ao registrar subscrição do assinante: ${err.message}`
       });
     }
   });
@@ -218,7 +289,7 @@ export const setupOperatorPushRoutes = (app: express.Express) => {
 
       return res.json({
         sucesso: true,
-        status: 'sent',
+        status: result.status,
         mensagem: result.mensagem
       });
     } catch (err: any) {

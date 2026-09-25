@@ -503,12 +503,14 @@ export const campanhas_chamadas_voz = pgTable('campanhas_chamadas_voz', {
 export const push_subscriptions = pgTable('push_subscriptions', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id),
+  clienteId: integer('cliente_id').references(() => clientes.id),
   endpoint: text('endpoint').notNull().unique(),
   p256dh: text('p256dh'),
   auth: text('auth'),
   userAgent: text('user_agent'),
   deviceName: varchar('device_name', { length: 150 }),
   operadorNome: varchar('operador_nome', { length: 150 }),
+  clienteNome: varchar('cliente_nome', { length: 150 }),
   active: boolean('active').default(true).notNull(),
   lastUsedAt: timestamp('last_used_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -517,6 +519,7 @@ export const push_subscriptions = pgTable('push_subscriptions', {
   return {
     endpointIdx: index('idx_push_sub_endpoint').on(table.endpoint),
     userIdIdx: index('idx_push_sub_user_id').on(table.userId),
+    clienteIdIdx: index('idx_push_sub_cliente_id').on(table.clienteId),
     activeIdx: index('idx_push_sub_active').on(table.active)
   };
 });
@@ -531,11 +534,13 @@ export const incident_notifications = pgTable('incident_notifications', {
   customerId: integer('customer_id').references(() => clientes.id),
   recipientType: varchar('recipient_type', { length: 50 }).default('cliente').notNull(), // 'cliente' | 'operador'
   recipientId: integer('recipient_id'),
+  subscriptionId: integer('subscription_id').references(() => push_subscriptions.id),
   channel: varchar('channel', { length: 50 }).notNull(), // 'whatsapp', 'push', 'sms'
-  status: varchar('status', { length: 50 }).default('queued').notNull(), // 'queued', 'processing', 'sending', 'sent', 'failed', 'cancelled'
+  status: varchar('status', { length: 50 }).default('queued').notNull(), // 'queued', 'processing', 'accepted', 'sent', 'failed', 'expired', 'cancelled'
   providerMessageId: varchar('provider_message_id', { length: 255 }),
   requestedAt: timestamp('requested_at').defaultNow().notNull(),
   acceptedAt: timestamp('accepted_at'),
+  deliveredAt: timestamp('delivered_at'),
   attemptedAt: timestamp('attempted_at').defaultNow().notNull(),
   sentAt: timestamp('sent_at'),
   failedAt: timestamp('failed_at'),
@@ -547,7 +552,8 @@ export const incident_notifications = pgTable('incident_notifications', {
   return {
     incidentIdx: index('idx_incident_notif_incident_id').on(table.incidentId),
     statusIdx: index('idx_incident_notif_status').on(table.status),
-    customerIdx: index('idx_incident_notif_customer_id').on(table.customerId)
+    customerIdx: index('idx_incident_notif_customer_id').on(table.customerId),
+    subscriptionIdx: index('idx_incident_notif_subscription_id').on(table.subscriptionId)
   };
 });
 

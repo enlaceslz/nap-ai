@@ -12,7 +12,9 @@ export interface PushSubscriptionItem {
     auth: string;
   };
   userId?: number | null;
+  clienteId?: number | null;
   operadorNome?: string | null;
+  clienteNome?: string | null;
   dispositivo?: string | null;
   userAgent?: string | null;
   criadoEm?: string;
@@ -21,7 +23,7 @@ export interface PushSubscriptionItem {
 
 export interface PushSendResult {
   sucesso: boolean;
-  status: 'sent' | 'delivered' | 'failed' | 'not_configured' | 'subscription_not_found' | 'expired' | 'unavailable';
+  status: 'accepted' | 'sent' | 'delivered' | 'failed' | 'not_configured' | 'subscription_not_found' | 'expired' | 'unavailable' | 'cancelled';
   mensagem: string;
   detalhes?: any;
 }
@@ -44,11 +46,21 @@ class WebPushService {
   private initVapid(): void {
     const publicKey = process.env.VAPID_PUBLIC_KEY;
     const privateKey = process.env.VAPID_PRIVATE_KEY;
-    const subject = process.env.VAPID_SUBJECT || process.env.VAPID_EMAIL || 'mailto:admin@nap.local';
+    const subject = process.env.VAPID_SUBJECT || process.env.VAPID_EMAIL;
+    const isProd = process.env.NODE_ENV === 'production';
 
     if (publicKey && privateKey) {
+      if (!subject) {
+        if (isProd) {
+          console.warn('[WebPush] VAPID_SUBJECT não configurado em ambiente de produção. WebPush desabilitado (not_configured).');
+          this.vapidConfigured = false;
+          return;
+        }
+        console.warn('[WebPush] [DEV ONLY] VAPID_SUBJECT ausente em desenvolvimento local. Utilizando placeholder.');
+      }
+      const effectiveSubject = subject || 'mailto:admin@nap.local';
       try {
-        webpush.setVapidDetails(subject, publicKey, privateKey);
+        webpush.setVapidDetails(effectiveSubject, publicKey, privateKey);
         this.vapidConfigured = true;
       } catch (err: any) {
         console.warn('[WebPush] Falha ao configurar VAPID:', err.message);
@@ -68,13 +80,15 @@ class WebPushService {
   }
 
   /**
-   * Registra ou atualiza uma subscrição WebPush com persistência estrita no PostgreSQL
+   * Registra ou atualiza uma subscrição WebPush com separação estrita entre usuário NAP (users.id) e assinante ISP (clientes.id)
    */
   public async registerSubscription(sub: {
     endpoint: string;
     keys?: { p256dh: string; auth: string };
-    userId?: number;
-    operadorNome?: string;
+    userId?: number | null;
+    clienteId?: number | null;
+    operadorNome?: string | null;
+    clienteNome?: string | null;
     dispositivo?: string;
     userAgent?: string;
   }): Promise<PushSubscriptionItem> {
@@ -88,24 +102,28 @@ class WebPushService {
 
     const [saved] = await db.insert(push_subscriptions).values({
       userId: sub.userId || null,
+      clienteId: sub.clienteId || null,
       endpoint: sub.endpoint,
       p256dh: sub.keys?.p256dh || null,
       auth: sub.keys?.auth || null,
       userAgent: sub.userAgent || null,
       deviceName: sub.dispositivo || 'Navegador Web / PWA',
       operadorNome: sub.operadorNome || null,
+      clienteNome: sub.clienteNome || null,
       active: true,
       lastUsedAt: new Date(),
       updatedAt: new Date()
     }).onConflictDoUpdate({
       target: push_subscriptions.endpoint,
       set: {
-        userId: sub.userId || null,
+        userId: sub.userId !== undefined ? sub.userId : sql`${push_subscriptions.userId}`,
+        clienteId: sub.clienteId !== undefined ? sub.clienteId : sql`${push_subscriptions.clienteId}`,
         p256dh: sub.keys?.p256dh || null,
         auth: sub.keys?.auth || null,
         userAgent: sub.userAgent || null,
         deviceName: sub.dispositivo || 'Navegador Web / PWA',
         operadorNome: sub.operadorNome || null,
+        clienteNome: sub.clienteNome || null,
         active: true,
         lastUsedAt: new Date(),
         updatedAt: new Date()
@@ -120,7 +138,9 @@ class WebPushService {
         auth: saved.auth || ''
       },
       userId: saved.userId,
+      clienteId: saved.clienteId,
       operadorNome: saved.operadorNome,
+      clienteNome: saved.clienteNome,
       dispositivo: saved.deviceName,
       criadoEm: saved.createdAt.toISOString(),
       active: saved.active
@@ -236,8 +256,8 @@ class WebPushService {
 
       return {
         sucesso: true,
-        status: 'sent',
-        mensagem: `Notificação enviada com sucesso para ${targetSub.operadorNome || 'destinatário'}.`
+        status: 'accepted',
+        mensagem: `Notificação aceita pelo serviço WebPush para encaminhamento a ${targetSub.operadorNome || targetSub.clienteNome || 'destinatário'}.`
       };
     } catch (err: any) {
       if (err.statusCode === 404 || err.statusCode === 410) {
@@ -259,6 +279,116 @@ class WebPushService {
         sucesso: false,
         status: 'failed',
         mensagem: `Falha ao transmitir push: ${err.message || 'Erro no serviço de push'}`
+      };
+    }
+  }
+
+  /**
+   * Envio direcionado exclusivamente para Cliente ISP (clientes.id)
+   * NUNCA busca por users.id ou faz confusão de identidade.
+   */
+  public async sendToCliente(clienteId: number, payload: {
+    title: string;
+    body: string;
+    icon?: string;
+    data?: any;
+  }): Promise<PushSendResult & { subscriptionId?: number }> {
+    if (!this.vapidConfigured) {
+      return {
+        sucesso: false,
+        status: 'not_configured',
+        mensagem: 'Serviço WebPush VAPID não configurado.'
+      };
+    }
+
+    if (!isDatabaseConnected) {
+      return {
+        sucesso: false,
+        status: 'unavailable',
+        mensagem: 'Banco de dados indisponível para consulta de subscriptions.'
+      };
+    }
+
+    try {
+      const rows = await db.select().from(push_subscriptions)
+        .where(and(eq(push_subscriptions.clienteId, clienteId), eq(push_subscriptions.active, true)))
+        .orderBy(desc(push_subscriptions.updatedAt))
+        .limit(1);
+
+      if (rows.length === 0) {
+        return {
+          sucesso: false,
+          status: 'subscription_not_found',
+          mensagem: `Nenhuma subscrição ativa encontrada para o cliente ISP #${clienteId}.`
+        };
+      }
+
+      const sub = rows[0];
+      const res = await this.sendNotification(sub.endpoint, payload);
+      return {
+        ...res,
+        subscriptionId: sub.id
+      };
+    } catch (err: any) {
+      return {
+        sucesso: false,
+        status: 'failed',
+        mensagem: `Erro ao enviar push para cliente #${clienteId}: ${err.message}`
+      };
+    }
+  }
+
+  /**
+   * Envio direcionado exclusivamente para Operador/Usuário NAP (users.id)
+   * NUNCA busca por clientes.id.
+   */
+  public async sendToUser(userId: number, payload: {
+    title: string;
+    body: string;
+    icon?: string;
+    data?: any;
+  }): Promise<PushSendResult & { subscriptionId?: number }> {
+    if (!this.vapidConfigured) {
+      return {
+        sucesso: false,
+        status: 'not_configured',
+        mensagem: 'Serviço WebPush VAPID não configurado.'
+      };
+    }
+
+    if (!isDatabaseConnected) {
+      return {
+        sucesso: false,
+        status: 'unavailable',
+        mensagem: 'Banco de dados indisponível para consulta de subscriptions.'
+      };
+    }
+
+    try {
+      const rows = await db.select().from(push_subscriptions)
+        .where(and(eq(push_subscriptions.userId, userId), eq(push_subscriptions.active, true)))
+        .orderBy(desc(push_subscriptions.updatedAt))
+        .limit(1);
+
+      if (rows.length === 0) {
+        return {
+          sucesso: false,
+          status: 'subscription_not_found',
+          mensagem: `Nenhuma subscrição ativa encontrada para o usuário NAP #${userId}.`
+        };
+      }
+
+      const sub = rows[0];
+      const res = await this.sendNotification(sub.endpoint, payload);
+      return {
+        ...res,
+        subscriptionId: sub.id
+      };
+    } catch (err: any) {
+      return {
+        sucesso: false,
+        status: 'failed',
+        mensagem: `Erro ao enviar push para usuário #${userId}: ${err.message}`
       };
     }
   }

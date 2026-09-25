@@ -174,15 +174,16 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
   router.post('/regua/simular-teste', async (req, res) => {
     const { telefone = "", fase = "d_menos_3", executarEnvioReal = false } = req.body;
     const template = globalReguaConfig.templates[fase as keyof typeof globalReguaConfig.templates] || "";
+    const portalUrl = process.env.PORTAL_URL || process.env.BASE_URL || "";
     
     const mensagemRenderizada = template
       .replace(/{{nome_cliente}}/g, "Assinante")
-      .replace(/{{plano}}/g, "Fibra Óptica")
+      .replace(/{{plano}}/g, "[Nome do Plano Contratado]")
       .replace(/{{valor_fatura}}/g, "99,90")
       .replace(/{{data_vencimento}}/g, new Date().toLocaleDateString('pt-BR'))
       .replace(/{{desconto_pontualidade}}/g, Number(globalReguaConfig.descontoPontualidade || 0).toFixed(2).replace('.', ','))
       .replace(/{{chave_pix}}/g, "[Chave PIX da Fatura / Boleto]")
-      .replace(/{{link_segunda_via}}/g, "https://central.provedor.com.br/faturas");
+      .replace(/{{link_segunda_via}}/g, portalUrl ? `${portalUrl}/faturas` : "/portal/faturas");
 
     // Se o operador não solicitou disparo de rede, retorna apenas a renderização sem fingir envio
     if (!executarEnvioReal) {
@@ -324,13 +325,16 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
           const telefoneLimpo = cliente.telefone.replace(/\D/g, "");
           if (telefoneLimpo.length < 10) continue;
 
+          const linkSegundaVia = (fatura as any).linkBoleto || (process.env.PORTAL_URL ? `${process.env.PORTAL_URL}/faturas/${fatura.id}` : `/portal/faturas/${fatura.id}`);
+          const planoDescricao = cliente.plano || "plano ausente";
+
           const textoFinal = template
             .replace(/{{nome_cliente}}/g, cliente.nome)
-            .replace(/{{plano}}/g, cliente.plano || "Fibra Óptica")
+            .replace(/{{plano}}/g, planoDescricao)
             .replace(/{{valor_fatura}}/g, Number(fatura.valor || 0).toFixed(2).replace('.', ','))
             .replace(/{{data_vencimento}}/g, fatura.vencimento ? new Date(fatura.vencimento).toLocaleDateString('pt-BR') : 'A vencer')
             .replace(/{{chave_pix}}/g, fatura.pixCopiaECola || 'Chave PIX no boleto bancário')
-            .replace(/{{link_segunda_via}}/g, `https://central.provedor.com.br/faturas/${fatura.id}`);
+            .replace(/{{link_segunda_via}}/g, linkSegundaVia);
 
           // Disparo real via API do WhatsApp / Meta
           const metaRes = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
@@ -524,14 +528,16 @@ export const setupReguaRoutes = (app: express.Express, { registrarAuditoria }: a
         });
       }
 
+      const linkSegundaVia = (fatura as any).linkBoleto || (process.env.PORTAL_URL ? `${process.env.PORTAL_URL}/faturas/${fatura.id}` : `/portal/faturas/${fatura.id}`);
+      const planoDescricao = cliente.plano || "plano ausente";
       const template = globalReguaConfig.templates[fase as keyof typeof globalReguaConfig.templates] || globalReguaConfig.templates.d_menos_3;
       const textoFinal = template
         .replace(/{{nome_cliente}}/g, cliente.nome)
-        .replace(/{{plano}}/g, cliente.plano || "Fibra Óptica")
+        .replace(/{{plano}}/g, planoDescricao)
         .replace(/{{valor_fatura}}/g, Number(fatura.valor || 0).toFixed(2).replace('.', ','))
         .replace(/{{data_vencimento}}/g, fatura.vencimento ? new Date(fatura.vencimento).toLocaleDateString('pt-BR') : 'A vencer')
         .replace(/{{chave_pix}}/g, fatura.pixCopiaECola || 'Chave PIX no boleto bancário')
-        .replace(/{{link_segunda_via}}/g, `https://central.provedor.com.br/faturas/${fatura.id}`);
+        .replace(/{{link_segunda_via}}/g, linkSegundaVia);
 
       // Chamada real HTTPS à Meta
       const metaRes = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {

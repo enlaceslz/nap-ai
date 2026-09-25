@@ -1622,7 +1622,7 @@ export default function Campanhas() {
  .replace(/{{data_vencimento}}/g, "15/10/2026")
  .replace(/{{desconto_pontualidade}}/g, "10,00")
  .replace(/{{chave_pix}}/g, "00020126580014BR.GOV.BCB.PIX0136pix-cobranca@isp.com.br520400005303986540599.905802BR5912CARLOS SILVA6009SAO PAULO62070503***6304E8A1")
- .replace(/{{link_segunda_via}}/g, "https://central.provedor.com.br/faturas/123")}
+ .replace(/{{link_segunda_via}}/g, `${window.location.origin}/portal/faturas/123`)}
  </div>
  <div className="text-[10px] text-emerald-200/60 text-right flex items-center justify-end gap-1">
  <span>10:42</span>

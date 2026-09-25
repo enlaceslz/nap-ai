@@ -289,6 +289,66 @@ export interface OriginateCallResult {
 export async function originateCampaignVoiceCall(params: OriginateCallParams): Promise<OriginateCallResult> {
   const { campaignId, recipientId, telefone, idempotencyKey, audioText, timeoutSeconds = 30 } = params;
 
+  // 1. Sanitização estrita do telefone
+  const cleanPhone = (telefone || '').replace(/\D/g, '');
+  if (!cleanPhone || cleanPhone.length < 10) {
+    const errResult: OriginateCallResult = {
+      status: 'failed',
+      errorCode: 'INVALID_PHONE_NUMBER',
+      errorMessage: `Número telefônico inválido para originação SIP: "${telefone}".`,
+      result: 'failed'
+    };
+    if (isDatabaseConnected) {
+      try {
+        await db.insert(campanhas_chamadas_voz).values({
+          campaignId,
+          recipientId,
+          telefone: cleanPhone || telefone,
+          status: 'failed',
+          result: 'failed',
+          errorCode: errResult.errorCode,
+          errorMessage: errResult.errorMessage,
+          idempotencyKey,
+          updatedAt: new Date()
+        }).onConflictDoUpdate({
+          target: campanhas_chamadas_voz.idempotencyKey,
+          set: { status: 'failed', result: 'failed', errorCode: errResult.errorCode, errorMessage: errResult.errorMessage, updatedAt: new Date() }
+        });
+      } catch {}
+    }
+    return errResult;
+  }
+
+  // 2. Verificação de Runtime do Asterisk
+  const health = await checkAsteriskRuntimeHealth();
+  if (!health.responsive) {
+    const errResult: OriginateCallResult = {
+      status: 'failed',
+      errorCode: 'ASTERISK_UNAVAILABLE',
+      errorMessage: health.error || 'Servidor Asterisk de Voz/WebRTC indisponível ou inacessível nas portas de telefonia.',
+      result: 'failed'
+    };
+    if (isDatabaseConnected) {
+      try {
+        await db.insert(campanhas_chamadas_voz).values({
+          campaignId,
+          recipientId,
+          telefone: cleanPhone,
+          status: 'failed',
+          result: 'failed',
+          errorCode: errResult.errorCode,
+          errorMessage: errResult.errorMessage,
+          idempotencyKey,
+          updatedAt: new Date()
+        }).onConflictDoUpdate({
+          target: campanhas_chamadas_voz.idempotencyKey,
+          set: { status: 'failed', result: 'failed', errorCode: errResult.errorCode, errorMessage: errResult.errorMessage, updatedAt: new Date() }
+        });
+      } catch {}
+    }
+    return errResult;
+  }
+
   // BLOQUEADOR V7 - ITEM 11: Erro ou indisponibilidade do PostgreSQL DEVE impedir a originação
   if (!isDatabaseConnected) {
     return {
@@ -299,7 +359,7 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
     };
   }
 
-  // 1. Verificação de Idempotência: não duplicar chamadas em execução ou já atendidas
+  // 3. Verificação de Idempotência: não duplicar chamadas em execução ou já atendidas
   try {
     const existing = await db.select().from(campanhas_chamadas_voz)
       .where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey))
@@ -331,60 +391,6 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
       errorMessage: `Falha na verificação de persistência no PostgreSQL: ${dbErr.message}. Originação cancelada.`,
       result: 'failed'
     };
-  }
-
-  // 2. Sanitização estrita do telefone
-  const cleanPhone = (telefone || '').replace(/\D/g, '');
-  if (!cleanPhone || cleanPhone.length < 10) {
-    const errResult: OriginateCallResult = {
-      status: 'failed',
-      errorCode: 'INVALID_PHONE_NUMBER',
-      errorMessage: `Número telefônico inválido para originação SIP: "${telefone}".`
-    };
-    try {
-      await db.insert(campanhas_chamadas_voz).values({
-        campaignId,
-        recipientId,
-        telefone: cleanPhone || telefone,
-        status: 'failed',
-        result: 'failed',
-        errorCode: errResult.errorCode,
-        errorMessage: errResult.errorMessage,
-        idempotencyKey,
-        updatedAt: new Date()
-      }).onConflictDoUpdate({
-        target: campanhas_chamadas_voz.idempotencyKey,
-        set: { status: 'failed', result: 'failed', errorCode: errResult.errorCode, errorMessage: errResult.errorMessage, updatedAt: new Date() }
-      });
-    } catch {}
-    return errResult;
-  }
-
-  // 3. Verificação de Runtime do Asterisk
-  const health = await checkAsteriskRuntimeHealth();
-  if (!health.responsive) {
-    const errResult: OriginateCallResult = {
-      status: 'failed',
-      errorCode: 'ASTERISK_UNAVAILABLE',
-      errorMessage: health.error || 'Servidor Asterisk de Voz/WebRTC indisponível ou inacessível nas portas de telefonia.'
-    };
-    try {
-      await db.insert(campanhas_chamadas_voz).values({
-        campaignId,
-        recipientId,
-        telefone: cleanPhone,
-        status: 'failed',
-        result: 'failed',
-        errorCode: errResult.errorCode,
-        errorMessage: errResult.errorMessage,
-        idempotencyKey,
-        updatedAt: new Date()
-      }).onConflictDoUpdate({
-        target: campanhas_chamadas_voz.idempotencyKey,
-        set: { status: 'failed', result: 'failed', errorCode: errResult.errorCode, errorMessage: errResult.errorMessage, updatedAt: new Date() }
-      });
-    } catch {}
-    return errResult;
   }
 
   // Se ARI não estiver conectado mas as portas estão ativas, tenta reconectar
@@ -474,7 +480,7 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
         } catch {}
 
         try {
-          activeChannel.hangup(() => {});
+          activeChannel.hangup();
         } catch (hangupErr: any) {
           console.warn(`[Asterisk ARI] Falha ao solicitar hangup por timeout: ${hangupErr.message}`);
         }
@@ -515,31 +521,36 @@ export async function originateCampaignVoiceCall(params: OriginateCallParams): P
         }, 5000);
       } else {
         // Canal nem chegou a ser aceito pela central antes do timeout
+        // Exigência 4.3: Não marcar imediatamente no_answer se o originate ainda não retornou canal.
+        // Utilizar estado intermediário (originating_timeout / reconciliation_required).
         if (callResolved) return;
         callResolved = true;
         const endedAt = new Date();
-        const noChannelResult: OriginateCallResult = {
-          status: 'no_answer',
+        const pendingResult: OriginateCallResult = {
+          status: 'failed',
           startedAt,
           endedAt,
           durationSeconds: 0,
-          hangupCause: 'TIMEOUT_BEFORE_CHANNEL',
-          result: 'no_answer',
-          errorMessage: `Tempo limite (${timeoutSeconds}s) expirado sem resposta da central.`
+          hangupCause: 'RECONCILIATION_REQUIRED',
+          result: 'reconciliation_required',
+          errorCode: 'ORIGINATING_TIMEOUT',
+          errorMessage: `Tempo limite (${timeoutSeconds}s) expirado antes de confirmação de canal pelo Asterisk. Reconciliação necessária.`
         };
 
         try {
           await db.update(campanhas_chamadas_voz).set({
-            status: 'no_answer',
-            result: 'no_answer',
+            status: 'failed',
+            result: 'reconciliation_required',
             endedAt,
             durationSeconds: 0,
-            hangupCause: noChannelResult.hangupCause,
+            hangupCause: 'RECONCILIATION_REQUIRED',
+            errorCode: 'ORIGINATING_TIMEOUT',
+            errorMessage: pendingResult.errorMessage,
             updatedAt: new Date()
           }).where(eq(campanhas_chamadas_voz.idempotencyKey, idempotencyKey));
         } catch {}
 
-        resolve(noChannelResult);
+        resolve(pendingResult);
       }
     }, timeoutSeconds * 1000);
 

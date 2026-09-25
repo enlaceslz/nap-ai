@@ -200,7 +200,7 @@ export class Customer360Store {
       document: erpCliente.documento,
       phone: erpCliente.telefone,
       whatsapp: erpCliente.telefone.replace(/\D/g, ''),
-      email: `${erpCliente.nome.toLowerCase().replace(/\s+/g, '.')}@cliente.provedor.com.br`,
+      email: (erpCliente as any).email || "",
       address: erpCliente.endereco,
       status: erpCliente.status === 'ativo' ? 'active' : 'blocked',
       createdAt: new Date().toISOString(),

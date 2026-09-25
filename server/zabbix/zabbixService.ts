@@ -412,10 +412,10 @@ export class ZabbixService {
         const isAck = p.acknowledged === '1' || p.acknowledged === true;
         const isResolved = Boolean(resolvedAt);
 
-        // Host real retornado pelo Zabbix. Se ausente, usar null e registrar a limitação.
-        const realHost = Array.isArray(p.hosts) && p.hosts.length > 0 ? p.hosts[0] : null;
-        const hostId = realHost?.hostid ? String(realHost.hostid) : (p.hostid ? String(p.hostid) : null);
-        const hostName = realHost?.name || realHost?.host || (this.hosts.find(h => String(h.id) === String(p.hostid))?.name) || p.hostname || null;
+        // Host real retornado pelo Zabbix. Se ausente, usar null (sem substituição silenciosa por cache local)
+        const primaryHost = Array.isArray(p.hosts) && p.hosts.length > 0 ? p.hosts[0] : null;
+        const hostId = primaryHost?.hostid ? String(primaryHost.hostid) : null;
+        const hostName = primaryHost?.name || primaryHost?.host || null;
 
         if (!hostId || !hostName) {
           console.log(`[ZabbixService] Alerta de segurança [EventID #${p.eventid}] sem host associado retornado pela API Zabbix. host_id e host_name definidos como null.`);
@@ -426,7 +426,7 @@ export class ZabbixService {
           source: 'zabbix',
           source_event_id: String(p.eventid),
           source_problem_id: p.problemid ? String(p.problemid) : String(p.eventid),
-          host_id: hostId,
+          host_id: hostId, // host_id: primaryHost?.hostid || null
           host_name: hostName,
           severity: this.mapZabbixSeverity(p.severity),
           category,

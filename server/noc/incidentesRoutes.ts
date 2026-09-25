@@ -298,7 +298,8 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
         });
       }
 
-      let enviadosReal = 0;
+      let enviadosWhatsapp = 0;
+      let aceitosWebPush = 0;
       let falhasReal = 0;
       const textoAlerta = `⚠️ COMUNICADO DE REDE [${incidente.id}]: Prezado cliente, identificamos uma oscilação na fibra óptica (${incidente.regioesAfetadas.join(', ')}). Equipe técnica no local. Previsão de normalização: ${incidente.previsaoRetorno}.`;
 
@@ -341,11 +342,12 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
             const providerId = metaData.messages?.[0]?.id;
 
             if (metaRes.ok && providerId) {
-              enviadosReal++;
+              enviadosWhatsapp++;
               await db.update(incident_notifications).set({
                 status: "sent",
                 acceptedAt: new Date(),
                 sentAt: new Date(),
+                deliveredAt: null,
                 providerMessageId: providerId
               }).where(eq(incident_notifications.id, notif.id));
 
@@ -380,11 +382,12 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
           }
         }
 
-        // Canal 2: WebPush Notification Real (se configurado e cliente possuir subscrição ativa)
+        // Canal 2: WebPush Notification Real (se configurado e cliente ISP possuir subscrição ativa vinculada a cliente_id)
+        // REGRA V8: NUNCA assumir clientes.id == users.id. Busca estritamente por push_subscriptions.clienteId.
         if (hasPush) {
           try {
             const customerPushSubs = await db.select().from(push_subscriptions)
-              .where(and(eq(push_subscriptions.userId, cliente.id), eq(push_subscriptions.active, true)));
+              .where(and(eq(push_subscriptions.clienteId, cliente.id), eq(push_subscriptions.active, true)));
 
             for (const sub of customerPushSubs) {
               const [pushNotif] = await db.insert(incident_notifications).values({
@@ -392,6 +395,7 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
                 customerId: cliente.id,
                 recipientType: "cliente",
                 recipientId: cliente.id,
+                subscriptionId: sub.id,
                 channel: "push",
                 status: "processing",
                 requestedAt: new Date(),
@@ -406,13 +410,15 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
               });
 
               if (pushRes.sucesso) {
-                enviadosReal++;
-                // REGRA V7: WebPush não fornece providerMessageId. O NAP deve utilizar NULL e nunca fabricar ID.
-                // O identificador rastreável é o id próprio do banco (pushNotif.id).
+                aceitosWebPush++;
+                // REGRA V8: O envio do WebPush pelo servidor sem erro significa que o serviço/provedor aceitou a solicitação.
+                // Isso NÃO comprova que o dispositivo recebeu ou exibiu. Portanto: status = "accepted",
+                // providerMessageId = NULL e deliveredAt = NULL. Nunca utilizar sent=entregue nem delivered sem confirmação.
                 await db.update(incident_notifications).set({
-                  status: "sent",
+                  status: "accepted",
                   acceptedAt: new Date(),
-                  sentAt: new Date(),
+                  sentAt: null,
+                  deliveredAt: null,
                   providerMessageId: null
                 }).where(eq(incident_notifications.id, pushNotif.id));
               } else {
@@ -431,10 +437,12 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
         }
       }
 
-      // Atualiza o contador de notificações enviadas no PostgreSQL
+      const totalTransmitidos = enviadosWhatsapp + aceitosWebPush;
+
+      // Atualiza o contador de notificações enviadas/aceitas no PostgreSQL
       await db.update(incidentes_rede)
         .set({
-          notificacoesEnviadas: sql`${incidentes_rede.notificacoesEnviadas} + ${enviadosReal}`,
+          notificacoesEnviadas: sql`${incidentes_rede.notificacoesEnviadas} + ${totalTransmitidos}`,
           updatedAt: new Date()
         })
         .where(eq(incidentes_rede.id, incidente.id));
@@ -444,22 +452,24 @@ export const setupIncidentesRoutes = (app: express.Express, { registrarAuditoria
           usuario: (req as any).user?.email || "operador_noc",
           modulo: "NOC & Incidentes",
           acao: `Disparo de Alertas Incidente ${incidente.id}`,
-          detalhes: `Disparo executado para clientes da região. Enviados comprovados: ${enviadosReal}, Falhas: ${falhasReal}.`,
+          detalhes: `Disparo executado para clientes da região. WhatsApp transmitido: ${enviadosWhatsapp}, WebPush aceito pelo serviço: ${aceitosWebPush}, Falhas: ${falhasReal}.`,
           categoria: "disparo",
           severidade: "medio",
           ip: req.ip || null,
           userAgent: (req.headers["user-agent"] as string) || null,
-          payloadDepois: { incidentId: incidente.id, enviados: enviadosReal, falhas: falhasReal }
+          payloadDepois: { incidentId: incidente.id, enviadosWhatsapp, aceitosWebPush, falhas: falhasReal }
         });
       }
 
       return res.json({
         sucesso: true,
         status: "completed",
-        enviados: enviadosReal,
+        enviados: totalTransmitidos,
+        enviadosWhatsapp,
+        aceitosWebPush,
         falhas: falhasReal,
         totalAlvos: clientesAlvo.length,
-        mensagem: `Alerta transmitido: ${enviadosReal} notificações comprovadamente entregues (${falhasReal} falhas).`,
+        mensagem: `Alerta processado: ${enviadosWhatsapp} envios confirmados via WhatsApp e ${aceitosWebPush} aceitos pelo serviço WebPush (${falhasReal} falhas). Nenhuma entrega física em dispositivo é presumida sem confirmação real do cliente.`,
         incidente
       });
     } catch (err: any) {

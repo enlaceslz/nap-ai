@@ -44,7 +44,7 @@ export function setupPaymentRoutes(app: any) {
           cpf_limpo: cleanCpf,
           email: matched.email,
           telefone: matched.phone,
-          plano: matched.contract?.planName || "Fibra Óptica Simétrica",
+          plano: matched.contract?.planName || "Plano Contratado",
           status_conexao: matched.status === 'active' ? 'conectado' : 'bloqueado',
           contrato: matched.contract?.contractId || `CT-${matched.id}`,
           endereco: matched.address || '',
