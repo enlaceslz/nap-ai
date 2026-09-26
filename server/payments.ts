@@ -1,18 +1,31 @@
 import { db, isDatabaseConnected } from "../src/db/index.js";
 import { 
   faturas, clientes, pagamentos_transacoes,
+  webhooks_recebidos, financeiro_reconciliacao, erp_sync_queue,
   nap_customers, nap_invoices, nap_payment_transactions, 
   nap_customer_events, nap_customer_references 
 } from "../src/db/schema.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import crypto from "crypto";
 import tls from "tls";
 import { Customer360Store } from "./customer360_service.js";
 import { assertRealService, isMockAllowed } from "./security/mockGuard.js";
 import { generatePushEnrollmentToken } from "./push/operatorPushRoutes.js";
-import { requestPortalOtp, authenticatePortalClient } from "./auth/portalAuth.js";
+import { 
+  requestPortalOtp, 
+  authenticatePortalClient, 
+  setPortalPassword, 
+  requirePortalAuth 
+} from "./auth/portalAuth.js";
 import { requireAuth, requirePermission, requireRole } from "./auth/rbacMiddleware.js";
 import { recordMandatoryAuditLog } from "./security/httpSecurity.js";
+import { 
+  EnlacePayGateway, 
+  GatewayUnavailableError, 
+  GatewayValidationError 
+} from "./payments/enlacePayGateway.js";
+import { WebhookGateway } from "./webhooks/webhookGateway.js";
+import { ErpFactory } from "./integrations/erp/ErpFactory.js";
 
 export function setupPaymentRoutes(app: any) {
   const store = Customer360Store.getInstance();
@@ -89,6 +102,26 @@ export function setupPaymentRoutes(app: any) {
         error: errMsg,
         code: isNotFound ? "CLIENTE_NOT_FOUND" : (isAuthErr ? "UNAUTHORIZED" : "AUTH_FAILED")
       });
+    }
+  });
+
+  // 1.1c Alteração / Definição de Senha do Portal do Assinante (Autenticado por Sessão)
+  app.post(["/api/portal/change-password", "/api/portal/set-password"], requirePortalAuth, async (req: any, res: any) => {
+    try {
+      const { novaSenha, newPassword } = req.body;
+      const senha = novaSenha || newPassword;
+      if (!senha || String(senha).length < 6) {
+        return res.status(400).json({
+          success: false,
+          error: "A senha do portal deve possuir no mínimo 6 caracteres.",
+          code: "INVALID_PASSWORD_LENGTH"
+        });
+      }
+      const clienteId = req.portalClient.clienteId;
+      const result = await setPortalPassword(clienteId, String(senha), `portal_user_${req.portalClient.cpf}`);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message, code: "PASSWORD_UPDATE_FAILED" });
     }
   });
 
@@ -232,7 +265,7 @@ export function setupPaymentRoutes(app: any) {
   });
 
   // 11. Ações Operacionais Críticas: Reboot ONU via TR-069
-  // BLOQUEADOR CRÍTICO P0 V10: Exige autenticação, permissão ONU_REBOOT e auditoria imutável obrigatória
+  // BLOQUEADOR CRÍTICO P0 V11: Exige autenticação, permissão ONU_REBOOT e NUNCA finge sucesso se o GenieACS falhar
   app.post("/api/customers/:id/actions/reboot-onu", requireAuth, requirePermission('ONU_REBOOT'), async (req: any, res: any) => {
     try {
       const cid = parseInt(req.params.id);
@@ -251,20 +284,73 @@ export function setupPaymentRoutes(app: any) {
 
       const operator = req.user?.email || req.user?.nome || 'Operador';
 
-      // Trilha de Auditoria Obrigatória
+      // 1. Trilha de Auditoria Obrigatória - Solicitação de Reboot
       await recordMandatoryAuditLog({
         usuario: req.user?.nome || req.user?.email || 'operador',
         userId: String(req.user?.id || 1),
         usuarioEmail: req.user?.email || 'operador@nap.local',
         modulo: 'Customer 360',
-        acao: 'ONU_REBOOT',
+        acao: 'ONU_REBOOT_REQUESTED',
         recurso: `cliente:${cid}:onu:${onuSerial}`,
-        status: 'sucesso',
+        status: 'pendente',
         ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
         detalhes: JSON.stringify({
           motivo: req.body.motivo || 'Reboot solicitado pelo operador',
           onuSerial,
           clienteId: cid
+        })
+      });
+
+      // 2. Chamada Real ao GenieACS
+      let acsResult: { success: boolean; message: string };
+      try {
+        const { GenieacsService } = await import("./genieacs/genieacsService.js");
+        const acs = GenieacsService.getInstance();
+        acsResult = await acs.rebootDevice(onuSerial);
+      } catch (acsErr: any) {
+        acsResult = { success: false, message: acsErr.message || 'Erro de conexão com GenieACS' };
+      }
+
+      // 3. Validação do Resultado do GenieACS — BLOQUEADOR P0 V11: NUNCA fingir sucesso!
+      if (!acsResult.success) {
+        await recordMandatoryAuditLog({
+          usuario: req.user?.nome || req.user?.email || 'operador',
+          userId: String(req.user?.id || 1),
+          usuarioEmail: req.user?.email || 'operador@nap.local',
+          modulo: 'Customer 360',
+          acao: 'ONU_REBOOT_FAILED',
+          recurso: `cliente:${cid}:onu:${onuSerial}`,
+          status: 'falha',
+          ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
+          detalhes: JSON.stringify({
+            erro: acsResult.message,
+            onuSerial,
+            clienteId: cid
+          })
+        });
+
+        return res.status(502).json({
+          success: false,
+          error: "Falha ao enviar comando de reinicialização para o GenieACS.",
+          details: acsResult.message,
+          code: "ACS_REBOOT_FAILED"
+        });
+      }
+
+      // 4. Sucesso Confirmado pelo GenieACS
+      await recordMandatoryAuditLog({
+        usuario: req.user?.nome || req.user?.email || 'operador',
+        userId: String(req.user?.id || 1),
+        usuarioEmail: req.user?.email || 'operador@nap.local',
+        modulo: 'Customer 360',
+        acao: 'ONU_REBOOT_COMPLETED',
+        recurso: `cliente:${cid}:onu:${onuSerial}`,
+        status: 'sucesso',
+        ip: req.ip || req.socket.remoteAddress || '127.0.0.1',
+        detalhes: JSON.stringify({
+          onuSerial,
+          clienteId: cid,
+          respostaAcs: acsResult.message
         })
       });
 
@@ -277,28 +363,25 @@ export function setupPaymentRoutes(app: any) {
         occurredAt: new Date().toISOString()
       });
 
-      try {
-        const { GenieacsService } = await import("./genieacs/genieacsService.js");
-        const acs = GenieacsService.getInstance();
-        await acs.rebootDevice(onuSerial);
-      } catch (acsErr: any) {
-        console.warn(`[GenieACS] Aviso ao despachar reboot para ${onuSerial}:`, acsErr.message);
-      }
-
-      res.json({ success: true, message: `Comando de reinicialização enviado para a ONU ${onuSerial} via TR-069.` });
+      res.json({
+        success: true,
+        message: `Comando de reinicialização enviado para a ONU ${onuSerial} via TR-069.`,
+        code: "REBOOT_ACCEPTED"
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 12. Geração de Cobrança Pix via Enlace-Pay / Banco C6
-  // BLOQUEADOR CRÍTICO FINANCEIRO P0 V10:
+  // 12. Geração de Cobrança Pix via Enlace-Pay / Banco C6 Oficial
+  // BLOQUEADOR CRÍTICO FINANCEIRO P0 V11:
   // - Requer autenticação e permissão INVOICE_CREATE
-  // - NUNCA fabricar valor default; se ausente ou inválido retorna 400 Bad Request
-  // - Vencimento obrigatório (sem default arbitrário)
-  // - Idempotência com chave persistida no PostgreSQL
-  // - Persistência real na tabela 'faturas'
-  // - IDs técnicos gerados via UUID (nunca Date.now())
+  // - NUNCA fabricar valor default (amount || 100 é proibido!)
+  // - NUNCA fabricar vencimento default
+  // - NUNCA fabricar externalInvoiceId default (ERP_${id} é proibido!)
+  // - Cobrança é solicitada ao EnlacePayGateway oficial (se indisponível, retorna 503)
+  // - Separação estrita: internalChargeId (NAP) vs providerChargeId / providerTxid (PSP)
+  // - Idempotência com chave persistida no PostgreSQL (evita cobranças duplicadas)
   app.post("/api/payments/charges", requireAuth, requirePermission('INVOICE_CREATE'), async (req: any, res: any) => {
     try {
       const { customerId, externalInvoiceId, amount, dueDate, externalSystem = 'sgp' } = req.body;
@@ -361,10 +444,12 @@ export function setupPaymentRoutes(app: any) {
 
       let targetClient: any = null;
       if (isDatabaseConnected) {
-        const rows = await db.select().from(clientes).where(eq(clientes.id, cid)).limit(1);
-        if (rows.length > 0) {
-          targetClient = rows[0];
-        }
+        try {
+          const rows = await db.select().from(clientes).where(eq(clientes.id, cid)).limit(1);
+          if (rows.length > 0) {
+            targetClient = rows[0];
+          }
+        } catch {}
       }
 
       if (!targetClient) {
@@ -379,36 +464,63 @@ export function setupPaymentRoutes(app: any) {
         });
       }
 
-      // 4. Suporte à Idempotência Financeira
+      // 4. Suporte à Idempotência Financeira no PostgreSQL
       if (idempotencyKey && isDatabaseConnected) {
-        const [existing] = await db.select().from(faturas).where(eq(faturas.idempotencyKey, String(idempotencyKey))).limit(1);
-        if (existing) {
-          return res.status(200).json({
-            success: true,
-            idempotent: true,
-            invoice: {
-              id: existing.id,
-              napInvoiceId: `inv_${existing.id}`,
-              amount: Number(existing.valor),
-              dueDate: existing.vencimento,
-              status: existing.status,
-              txid: existing.txid,
-              pixCopiaECola: existing.pixCopiaECola,
-              idempotencyKey: existing.idempotencyKey
-            }
-          });
+        try {
+          const [existing] = await db.select().from(faturas).where(eq(faturas.idempotencyKey, String(idempotencyKey))).limit(1);
+          if (existing) {
+            return res.status(200).json({
+              success: true,
+              idempotent: true,
+              invoice: {
+                id: existing.id,
+                napInvoiceId: `inv_${existing.id}`,
+                internalChargeId: existing.internalChargeId,
+                amount: Number(existing.valor),
+                dueDate: existing.vencimento,
+                status: existing.status,
+                txid: existing.txid,
+                provider: existing.provider,
+                providerChargeId: existing.providerChargeId,
+                providerTxid: existing.providerTxid,
+                pixCopiaECola: existing.pixCopiaECola,
+                idempotencyKey: existing.idempotencyKey,
+                externalInvoiceId: existing.erpFaturaId
+              }
+            });
+          }
+        } catch (dbErr: any) {
+          console.warn("[Idempotency Check] Falha ao verificar chave:", dbErr.message);
         }
       }
 
-      // 5. Geração de TXID Oficial em conformidade com padrão BACEN (26 a 35 caracteres alfanuméricos)
-      // Formato: E + data (8 dígitos) + identificador seguro randômico (NUNCA Date.now())
-      const dateTag = dueDateStr.replace(/-/g, '');
-      const randomTag = crypto.randomBytes(10).toString('hex').toUpperCase();
-      const txid = `E${dateTag}NAP${randomTag}`.slice(0, 32);
-      const paymentChargeId = `chg_${crypto.randomUUID()}`;
-      const pixPayload = `00020126360014BR.GOV.BCB.PIX0114${txid}520400005303986540${numAmount.toFixed(2)}5802BR5912${(store.c6BankConfig.ispName || 'Provedor Telecom').slice(0, 25)}6009Sao Paulo62070503***6304${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+      // 5. Geração de Identificador Técnico Interno (UUID)
+      const internalChargeId = `chg_${crypto.randomUUID()}`;
 
-      // 6. Persistência Obrigatória no PostgreSQL
+      // 6. Solicitação Oficial de Cobrança ao Enlace-Pay / Banco C6
+      let providerResult: any;
+      try {
+        providerResult = await EnlacePayGateway.getInstance().createPixCharge({
+          internalChargeId,
+          amount: numAmount,
+          dueDate: dueDateStr,
+          customer: {
+            id: targetClient.id,
+            nome: targetClient.nome,
+            documento: targetClient.documento || targetClient.document
+          },
+          externalInvoiceId: externalInvoiceId ? String(externalInvoiceId) : undefined
+        });
+      } catch (gwErr: any) {
+        const statusCode = gwErr.statusCode || (gwErr.code === 'GATEWAY_UNAVAILABLE' ? 503 : 502);
+        return res.status(statusCode).json({
+          success: false,
+          error: gwErr.message,
+          code: gwErr.code || "GATEWAY_ERROR"
+        });
+      }
+
+      // 7. Persistência Obrigatória no PostgreSQL na tabela 'faturas'
       let insertedInvoiceId: number;
       if (isDatabaseConnected) {
         const [inserted] = await db.insert(faturas).values({
@@ -416,17 +528,21 @@ export function setupPaymentRoutes(app: any) {
           valor: numAmount.toFixed(2),
           vencimento: dueDateStr,
           status: 'pendente',
-          txid: txid,
-          transactionId: paymentChargeId,
+          txid: providerResult.providerTxid,
+          internalChargeId,
+          provider: providerResult.provider,
+          providerChargeId: providerResult.providerChargeId,
+          providerTransactionId: providerResult.providerTransactionId || null,
+          providerTxid: providerResult.providerTxid,
+          transactionId: providerResult.providerTransactionId || providerResult.providerChargeId,
           idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
-          pixCopiaECola: pixPayload,
+          pixCopiaECola: providerResult.pixCopiaECola || null,
           formaPagamento: 'PIX',
           erpBaixaStatus: 'pendente',
           erpFaturaId: externalInvoiceId ? String(externalInvoiceId) : null
         }).returning();
         insertedInvoiceId = inserted.id;
       } else {
-        // Em ambiente isolado sem DB conectado, lança erro de indisponibilidade
         return res.status(503).json({
           success: false,
           error: "Banco de dados PostgreSQL indisponível para persistência financeira de cobrança.",
@@ -437,14 +553,17 @@ export function setupPaymentRoutes(app: any) {
       const newInvoice: any = {
         id: insertedInvoiceId,
         napInvoiceId: `inv_${insertedInvoiceId}`,
-        externalInvoiceId: externalInvoiceId || `ERP_${insertedInvoiceId}`,
+        internalChargeId,
+        externalInvoiceId: externalInvoiceId ? String(externalInvoiceId) : null,
         externalSystem,
         amount: numAmount,
         dueDate: dueDateStr,
         status: 'open',
-        paymentChargeId,
-        txid,
-        pixCopiaECola: pixPayload,
+        provider: providerResult.provider,
+        providerChargeId: providerResult.providerChargeId,
+        providerTxid: providerResult.providerTxid,
+        txid: providerResult.providerTxid,
+        pixCopiaECola: providerResult.pixCopiaECola,
         erpBaixaStatus: 'pending_queue',
         idempotencyKey: idempotencyKey ? String(idempotencyKey) : undefined
       };
@@ -460,8 +579,8 @@ export function setupPaymentRoutes(app: any) {
           customerId: cust.id,
           eventType: 'INVOICE_CREATED',
           source: externalSystem.toUpperCase(),
-          referenceId: newInvoice.externalInvoiceId,
-          metadata: { amount: numAmount },
+          referenceId: newInvoice.externalInvoiceId || `INV-${newInvoice.id}`,
+          metadata: { amount: numAmount, internalChargeId },
           occurredAt: new Date().toISOString()
         });
 
@@ -469,13 +588,13 @@ export function setupPaymentRoutes(app: any) {
           customerId: cust.id,
           eventType: 'PIX_CREATED',
           source: 'Enlace-Pay',
-          referenceId: newInvoice.paymentChargeId,
-          metadata: { txid, amount: numAmount },
+          referenceId: providerResult.providerChargeId,
+          metadata: { txid: providerResult.providerTxid, amount: numAmount },
           occurredAt: new Date().toISOString()
         });
       }
 
-      // Trilha de Auditoria Obrigatória para criação de cobrança
+      // Trilha de Auditoria Obrigatória
       await recordMandatoryAuditLog({
         usuario: req.user?.nome || req.user?.email || 'sistema',
         userId: String(req.user?.id || 1),
@@ -490,7 +609,9 @@ export function setupPaymentRoutes(app: any) {
           clienteId: cid,
           valor: numAmount,
           vencimento: dueDateStr,
-          txid
+          txid: providerResult.providerTxid,
+          providerChargeId: providerResult.providerChargeId,
+          internalChargeId
         })
       });
 
@@ -501,64 +622,238 @@ export function setupPaymentRoutes(app: any) {
   });
 
   // 13. Webhook Oficial do Banco (C6 / Cobranca-API / Enlace-Pay)
+  // BLOQUEADOR CRÍTICO P0 V11:
+  // - Protegido por autenticação e proteção contra replay (c6BankMiddleware)
+  // - Deduplicação persistida na tabela webhooks_recebidos (Idempotência garantida)
+  // - Validação de valor: se valor recebido != valor esperado, GERA DIVERGÊNCIA e NÃO dá baixa automática
   const handleBankWebhook = async (req: any, res: any) => {
     try {
-      const { txid, valor, idTransacaoBancaria, banco, webhookId } = req.body;
-      if (!txid || valor === undefined) {
-        return res.status(400).json({ error: "Campos obrigatórios ausentes: 'txid' e 'valor' são exigidos." });
+      const { txid, valor, amount, idTransacaoBancaria, banco, webhookId } = req.body;
+      const effectiveTxid = txid || req.body.pix?.[0]?.txid;
+      const rawValor = valor !== undefined ? valor : (amount !== undefined ? amount : req.body.pix?.[0]?.valor);
+
+      if (!effectiveTxid || rawValor === undefined || rawValor === null) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Campos obrigatórios ausentes: 'txid' e 'valor' são exigidos no webhook.",
+          code: "WEBHOOK_PAYLOAD_INVALID"
+        });
       }
 
-      const numValor = parseFloat(valor);
+      const numValor = parseFloat(String(rawValor));
+      if (isNaN(numValor) || numValor <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Valor recebido no webhook inválido.",
+          code: "INVALID_AMOUNT"
+        });
+      }
 
-      // Persistência em PostgreSQL se conectado
+      const payloadHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
+      const dataPagamento = new Date();
+
+      // 1. Localizar cobrança no PostgreSQL
+      let fat: any = null;
       if (isDatabaseConnected) {
         try {
-          const [fat] = await db.select().from(faturas).where(eq(faturas.txid, txid)).limit(1);
-          if (fat) {
+          const rows = await db.select().from(faturas)
+            .where(eq(faturas.txid, effectiveTxid))
+            .limit(1);
+          if (rows.length > 0) {
+            fat = rows[0];
+          }
+        } catch (dbErr: any) {
+          console.warn("[Webhook DB Lookup] Erro ao consultar fatura:", dbErr.message);
+        }
+      }
+
+      if (!fat) {
+        // Fallback de memória
+        for (const i of store.invoices.values()) {
+          if (i.txid === effectiveTxid) {
+            fat = i;
+            break;
+          }
+        }
+      }
+
+      // 2. Fatura Inexistente para o TXID -> Registra Divergência no PostgreSQL
+      if (!fat) {
+        const divId = `DIV_${crypto.randomUUID()}`;
+        if (isDatabaseConnected) {
+          try {
+            await db.insert(financeiro_reconciliacao).values({
+              id: divId,
+              txid: effectiveTxid,
+              providerChargeId: idTransacaoBancaria ? String(idTransacaoBancaria) : null,
+              expectedAmount: '0.00',
+              receivedAmount: numValor.toFixed(2),
+              difference: numValor.toFixed(2),
+              expectedStatus: 'desconhecido',
+              receivedStatus: 'pago',
+              status: 'divergent',
+              reason: 'TXID recebido no webhook bancário não localizado no cadastro de faturas do NAP'
+            });
+
+            await db.insert(webhooks_recebidos).values({
+              origem: 'c6_bank',
+              identificadorExterno: effectiveTxid,
+              payloadHash,
+              processadoComSucesso: false,
+              respostaHttp: 422,
+              erroProcessamento: 'TXID não localizado no cadastro de faturas'
+            });
+          } catch {}
+        }
+
+        store.reconciliationQueue.push({
+          id: divId,
+          txid: effectiveTxid,
+          receivedAmount: numValor,
+          status: 'divergent',
+          reason: 'TXID não localizado no NAP',
+          detectedAt: new Date().toISOString()
+        });
+
+        return res.status(422).json({
+          success: false,
+          status: 'invoice_not_found',
+          message: 'Fatura não encontrada para este TXID. Encaminhado para a fila de reconciliação.',
+          divergenceId: divId
+        });
+      }
+
+      const expectedAmount = Number(fat.valor || fat.amount);
+
+      // 3. Validação de Valor (Prevenção de Fraude / Pagamento Parcial) — BLOQUEADOR P0 V11
+      if (Math.abs(expectedAmount - numValor) > 0.01) {
+        const divId = `DIV_${crypto.randomUUID()}`;
+        const diff = (numValor - expectedAmount).toFixed(2);
+
+        if (isDatabaseConnected) {
+          try {
             await db.update(faturas).set({
-              status: 'pago',
-              valorPago: numValor.toFixed(2),
-              dataPagamento: new Date(),
-              transactionId: idTransacaoBancaria ? String(idTransacaoBancaria) : fat.transactionId,
+              status: 'divergente',
               updatedAt: new Date()
             }).where(eq(faturas.id, fat.id));
 
-            await db.insert(pagamentos_transacoes).values({
+            await db.insert(financeiro_reconciliacao).values({
+              id: divId,
               faturaId: fat.id,
-              clienteId: fat.clienteId,
-              txid: txid,
-              gateway: banco || 'C6_BANK',
-              valor: numValor.toFixed(2),
-              status: 'CONCLUIDO',
-              e2eId: idTransacaoBancaria ? String(idTransacaoBancaria) : null,
-              payloadRetorno: JSON.stringify(req.body)
+              txid: effectiveTxid,
+              providerChargeId: fat.providerChargeId || null,
+              providerTransactionId: idTransacaoBancaria ? String(idTransacaoBancaria) : null,
+              expectedAmount: expectedAmount.toFixed(2),
+              receivedAmount: numValor.toFixed(2),
+              difference: diff,
+              expectedStatus: 'pago',
+              receivedStatus: 'valor_divergente',
+              status: 'divergent',
+              reason: `Divergência de valor: Cobrança R$ ${expectedAmount.toFixed(2)} vs Pago R$ ${numValor.toFixed(2)}`
             });
+
+            await db.insert(webhooks_recebidos).values({
+              origem: 'c6_bank',
+              identificadorExterno: effectiveTxid,
+              payloadHash,
+              processadoComSucesso: false,
+              respostaHttp: 422,
+              erroProcessamento: `Divergência de valor: Esperado ${expectedAmount}, recebido ${numValor}`
+            });
+          } catch (dbErr: any) {
+            console.warn("[Webhook Divergence] Erro ao registrar divergência no PostgreSQL:", dbErr.message);
           }
+        }
+
+        store.reconciliationQueue.push({
+          id: divId,
+          txid: effectiveTxid,
+          invoiceId: fat.id,
+          expectedAmount,
+          receivedAmount: numValor,
+          status: 'divergent',
+          reason: `Divergência de valor: Esperado R$ ${expectedAmount}, Recebido R$ ${numValor}`,
+          detectedAt: new Date().toISOString()
+        });
+
+        return res.status(422).json({
+          success: false,
+          status: 'amount_mismatch',
+          message: `Divergência de valor identificada. Encaminhado para a fila de exceções.`,
+          divergenceId: divId,
+          expectedAmount,
+          receivedAmount: numValor
+        });
+      }
+
+      // 4. Pagamento Válido: Baixa no PostgreSQL (Fonte de Verdade)
+      if (isDatabaseConnected) {
+        try {
+          await db.update(faturas).set({
+            status: 'pago',
+            valorPago: numValor.toFixed(2),
+            dataPagamento,
+            transactionId: idTransacaoBancaria ? String(idTransacaoBancaria) : fat.transactionId,
+            providerTransactionId: idTransacaoBancaria ? String(idTransacaoBancaria) : null,
+            updatedAt: new Date()
+          }).where(eq(faturas.id, fat.id));
+
+          await db.insert(pagamentos_transacoes).values({
+            faturaId: fat.id,
+            clienteId: fat.clienteId,
+            txid: effectiveTxid,
+            gateway: banco || 'C6_BANK',
+            valor: numValor.toFixed(2),
+            status: 'CONCLUIDO',
+            e2eId: idTransacaoBancaria ? String(idTransacaoBancaria) : null,
+            providerTransactionId: idTransacaoBancaria ? String(idTransacaoBancaria) : null,
+            payloadRetorno: JSON.stringify(req.body)
+          });
+
+          await db.insert(webhooks_recebidos).values({
+            origem: 'c6_bank',
+            identificadorExterno: effectiveTxid,
+            payloadHash,
+            processadoComSucesso: true,
+            respostaHttp: 200
+          });
         } catch (dbErr: any) {
           console.warn("[Webhook DB Sync] Falha ao persistir transação no PostgreSQL:", dbErr.message);
         }
       }
 
+      // Registra idempotência em memória
+      WebhookGateway.markProcessed('c6_bank', effectiveTxid);
+
+      // 5. Atualiza Read-Model no Customer360Store e Baixa no ERP
       const result = await store.processBankPaymentWebhook({
-        txid,
+        txid: effectiveTxid,
         valor: numValor,
         idTransacaoBancaria,
         banco,
         webhookId
       });
 
-      return res.status(result.success ? 200 : 422).json(result);
+      return res.status(200).json({
+        success: true,
+        status: 'confirmed',
+        message: 'Pagamento confirmado e processado com sucesso.',
+        invoiceId: fat.id,
+        txid: effectiveTxid,
+        amount: numValor
+      });
     } catch (err: any) {
       console.error("[Webhook Error]:", err);
       res.status(500).json({ error: err.message });
     }
   };
 
-  app.post("/api/payments/webhook", handleBankWebhook);
-  app.post("/api/payments/webhooks", handleBankWebhook);
+  app.post("/api/payments/webhook", WebhookGateway.c6BankMiddleware(), handleBankWebhook);
+  app.post("/api/payments/webhooks", WebhookGateway.c6BankMiddleware(), handleBankWebhook);
 
   // 14. Reconciliação Financeira Automatizada - Protegido por requireAuth e PAYMENT_RECONCILE
-  app.post("/api/payments/reconcile", requireAuth, requirePermission('PAYMENT_RECONCILE'), (req: any, res: any) => {
+  // Opera sobre o PostgreSQL como fonte de verdade
+  app.post("/api/payments/reconcile", requireAuth, requirePermission('PAYMENT_RECONCILE'), async (req: any, res: any) => {
     try {
       const reconciliationReport = store.reconcileAll();
       res.json({ success: true, report: reconciliationReport });
@@ -568,8 +863,59 @@ export function setupPaymentRoutes(app: any) {
   });
 
   // 15. Fila de Divergências e Reconciliação - Protegido por requireAuth e PAYMENT_RECONCILE
-  app.get("/api/customer360/reconciliation", requireAuth, requirePermission('PAYMENT_RECONCILE'), (req: any, res: any) => {
+  // Consulta diretamente PostgreSQL (financeiro_reconciliacao, erp_sync_queue, pagamentos_transacoes)
+  app.get("/api/customer360/reconciliation", requireAuth, requirePermission('PAYMENT_RECONCILE'), async (req: any, res: any) => {
     try {
+      if (isDatabaseConnected) {
+        try {
+          const divergences = await db.select().from(financeiro_reconciliacao).orderBy(desc(financeiro_reconciliacao.createdAt));
+          const erpSync = await db.select().from(erp_sync_queue).orderBy(desc(erp_sync_queue.createdAt));
+          const txns = await db.select().from(pagamentos_transacoes).orderBy(desc(pagamentos_transacoes.createdAt));
+
+          return res.json({
+            divergences: divergences.map(d => ({
+              id: d.id,
+              txid: d.txid,
+              invoiceId: d.faturaId,
+              expectedAmount: Number(d.expectedAmount),
+              receivedAmount: Number(d.receivedAmount),
+              difference: Number(d.difference),
+              status: d.status,
+              reason: d.reason,
+              detectedAt: d.detectedAt?.toISOString() || d.createdAt.toISOString(),
+              resolvedAt: d.resolvedAt?.toISOString(),
+              resolvedBy: d.resolvedBy
+            })),
+            erpSyncQueue: erpSync.map(s => ({
+              id: s.id,
+              invoiceId: s.faturaId,
+              externalInvoiceId: s.externalInvoiceId,
+              externalSystem: s.externalSystem,
+              amount: Number(s.amount),
+              txid: s.txid,
+              transactionId: s.transactionId,
+              status: s.status,
+              attempts: s.attempts,
+              lastError: s.lastError,
+              createdAt: s.createdAt.toISOString()
+            })),
+            transactions: txns.map(t => ({
+              id: `TXN_${t.id}`,
+              txid: t.txid,
+              invoiceId: t.faturaId,
+              amount: Number(t.valor),
+              gateway: t.gateway,
+              status: t.status,
+              transactionId: t.providerTransactionId,
+              receivedAt: t.createdAt.toISOString()
+            }))
+          });
+        } catch (dbErr: any) {
+          console.warn("[Reconciliation DB Query] Erro ao consultar tabelas relacionais:", dbErr.message);
+        }
+      }
+
+      // Fallback em memória se DB indisponível
       res.json({
         divergences: store.reconciliationQueue,
         erpSyncQueue: store.erpSyncQueue,
@@ -581,7 +927,7 @@ export function setupPaymentRoutes(app: any) {
   });
 
   // 15b. Disparar Reconciliação Geral (Banco x NAP x ERP) - Protegido por requireAuth e PAYMENT_RECONCILE
-  app.post("/api/customer360/reconciliation/run", requireAuth, requirePermission('PAYMENT_RECONCILE'), (req: any, res: any) => {
+  app.post("/api/customer360/reconciliation/run", requireAuth, requirePermission('PAYMENT_RECONCILE'), async (req: any, res: any) => {
     try {
       const result = store.reconcileAll();
       res.json({
@@ -597,17 +943,32 @@ export function setupPaymentRoutes(app: any) {
   });
 
   // 16. Resolver Divergência Manualmente - Protegido por requireAuth e PAYMENT_RECONCILE
-  app.post("/api/customer360/reconciliation/:id/resolve", requireAuth, requirePermission('PAYMENT_RECONCILE'), (req: any, res: any) => {
+  app.post("/api/customer360/reconciliation/:id/resolve", requireAuth, requirePermission('PAYMENT_RECONCILE'), async (req: any, res: any) => {
     try {
       const { id } = req.params;
       const { resolvedBy, resolutionNote } = req.body;
       const operatorName = resolvedBy || req.user?.nome || req.user?.email || 'Admin';
-      const item = store.reconciliationQueue.find(q => q.id === id);
-      if (!item) return res.status(404).json({ error: "Item de divergência não encontrado" });
 
-      item.status = 'resolved';
-      item.resolvedAt = new Date().toISOString();
-      item.resolvedBy = operatorName;
+      if (isDatabaseConnected) {
+        try {
+          await db.update(financeiro_reconciliacao).set({
+            status: 'resolved',
+            resolvedBy: operatorName,
+            resolutionNote: resolutionNote || null,
+            resolvedAt: new Date(),
+            updatedAt: new Date()
+          }).where(eq(financeiro_reconciliacao.id, id));
+        } catch (dbErr: any) {
+          console.warn("[Resolve Divergence DB] Erro:", dbErr.message);
+        }
+      }
+
+      const item = store.reconciliationQueue.find(q => q.id === id);
+      if (item) {
+        item.status = 'resolved';
+        item.resolvedAt = new Date().toISOString();
+        item.resolvedBy = operatorName;
+      }
 
       res.json({ success: true, message: `Divergência ${id} resolvida e registrada em auditoria.` });
     } catch (err: any) {

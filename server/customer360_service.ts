@@ -325,10 +325,10 @@ export class Customer360Store {
     transaction?: NapPaymentTransaction;
     erpBaixaResult?: any;
   }> {
-    const { txid, valor, idTransacaoBancaria = `C6_${crypto.randomUUID()}`, banco = 'C6', webhookId = `WBK_${crypto.randomUUID()}`, dataPagamento = new Date().toISOString() } = payload;
+    const { txid, valor, idTransacaoBancaria, banco = 'C6', webhookId, dataPagamento = new Date().toISOString() } = payload;
 
     // 1. Idempotência do Webhook
-    const idempotencyKey = `${txid}_${idTransacaoBancaria}`;
+    const idempotencyKey = idTransacaoBancaria ? `${txid}_${idTransacaoBancaria}` : txid;
     if (this.processedWebhooks.has(idempotencyKey)) {
       console.log(`[Idempotência] Webhook ${idempotencyKey} já processado anteriormente.`);
       return {

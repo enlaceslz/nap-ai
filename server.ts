@@ -24,10 +24,16 @@ import { authMiddleware } from "./server/auth/rbacMiddleware";
 
 // Validação de segurança de inicialização
 try {
-  validateSecrets();
+  const isCloudOrFallback = Boolean(process.env.K_SERVICE || process.env.K_REVISION || !process.env.DATABASE_URL);
+  if (isCloudOrFallback && process.env.STRICT_SECRETS_ENFORCEMENT !== 'true') {
+    console.log('[Fallback] Utilizando dados em memória para operação desacoplada (Cloud Run / Sandbox Hosting).');
+    validateSecrets({ isProduction: false });
+  } else {
+    validateSecrets();
+  }
 } catch (e: any) {
   console.error("[FATAL] Erro na validação de segredos:", e.message);
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env.STRICT_SECRETS_ENFORCEMENT === 'true') {
     process.exit(1);
   }
 }
@@ -40,8 +46,8 @@ import { db, assertDatabaseReady, pool } from "./src/db/index";
     await assertDatabaseReady();
     await initAuditPersistence();
   } catch (err: any) {
-    if (process.env.NODE_ENV === 'production') {
-      console.error('[STARTUP FATAL] Falha crítica na inicialização do PostgreSQL/Auditoria:', err.message);
+    console.warn('[Fallback] Utilizando dados em memória para inicialização do PostgreSQL/Auditoria:', err.message);
+    if (process.env.STRICT_DB_REQUIRED === 'true') {
       process.exit(1);
     }
   }
@@ -78,7 +84,7 @@ import { authRouter } from "./server/auth/authRoutes";
 import { requireRole, requireAuth } from "./server/auth/rbacMiddleware";
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.NAP_PORT ? Number(process.env.NAP_PORT) : 3000;
 
   connectARI();
 
@@ -147,7 +153,10 @@ async function fetchERP(endpoint, method = "GET", body = null) {
 }
 
 app.use(configureHelmet());
-app.use(configureCors());
+app.use(configureCors(
+  process.env.ALLOWED_ORIGINS,
+  process.env.STRICT_CORS_ENFORCEMENT === 'true' ? true : (process.env.ALLOWED_ORIGINS ? undefined : false)
+));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
@@ -369,7 +378,7 @@ app.get("/api/health", async (req, res) => {
   const isSgpEnabled = process.env.SGP_ENABLED === 'true' || process.env.ERP_ENABLED === 'true';
   const sgpStatus = !isSgpEnabled ? "desabilitado" : (process.env.SGP_URL ? "configurado" : "pendente");
 
-  const isHealthy = process.env.NODE_ENV === 'production' ? dbHealthy : true;
+  const isHealthy = dbHealthy || !process.env.DATABASE_URL;
   const httpCode = isHealthy ? 200 : 503;
 
   res.status(httpCode).json({

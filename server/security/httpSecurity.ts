@@ -265,7 +265,7 @@ export interface AppendOnlyAuditLog {
   severidade?: 'info' | 'atencao' | 'critico';
   ip?: string;
   userAgent?: string;
-  status: 'sucesso' | 'falha' | 'bloqueado';
+  status: 'sucesso' | 'falha' | 'bloqueado' | 'pendente';
   persistenceStatus?: 'queued' | 'persisted' | 'failed';
   previousHash: string;
   entryHash: string;

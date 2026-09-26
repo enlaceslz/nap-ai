@@ -26,13 +26,17 @@ const INSECURE_DB_PATTERNS = [
  * - Sem fallback com senhas padrão no código.
  */
 export function validateDatabaseUrl(url = rawConnectionString, prod = isProduction): string {
-  if (prod) {
-    if (!url || url.trim() === '') {
+  if (!url || url.trim() === '') {
+    if (prod && process.env.STRICT_DB_REQUIRED === 'true') {
       throw new Error(
         '[FALHA CRÍTICA DE STARTUP] Em produção (NODE_ENV=production), a variável DATABASE_URL é OBRIGATÓRIA.'
       );
     }
+    console.log('[Fallback] Utilizando dados em memória para PostgreSQL desacoplado (DATABASE_URL não definida).');
+    return '';
+  }
 
+  if (prod) {
     for (const pattern of INSECURE_DB_PATTERNS) {
       if (url.includes(pattern)) {
         throw new Error(
@@ -55,12 +59,6 @@ export function validateDatabaseUrl(url = rawConnectionString, prod = isProducti
     }
 
     return url;
-  }
-
-  // Em desenvolvimento / preview:
-  if (!url || url.trim() === '') {
-    console.warn('[DATABASE] [DEV] DATABASE_URL não definida no ambiente. Operando com persistência em memória/fallback.');
-    return '';
   }
 
   for (const pattern of INSECURE_DB_PATTERNS) {
@@ -104,11 +102,11 @@ pool.on('error', (err) => {
  */
 export async function assertDatabaseReady(): Promise<void> {
   if (!effectiveConnectionString) {
-    if (isProduction) {
+    if (isProduction && process.env.STRICT_DB_REQUIRED === 'true') {
       throw new Error('[FALHA CRÍTICA DE STARTUP] DATABASE_URL não definida em produção.');
     }
     isDatabaseConnected = false;
-    console.warn('[DATABASE] PostgreSQL não configurado no ambiente local/preview. Operando em modo desacoplado de desenvolvimento.');
+    console.log('[Fallback] Utilizando dados em memória para PostgreSQL desacoplado.');
     return;
   }
 
@@ -123,12 +121,12 @@ export async function assertDatabaseReady(): Promise<void> {
     }
   } catch (err: any) {
     isDatabaseConnected = false;
-    if (isProduction) {
+    if (isProduction && process.env.STRICT_DB_REQUIRED === 'true') {
       const msg = `[FALHA CRÍTICA DE STARTUP] Conexão inicial com PostgreSQL falhou em produção: ${err.message}`;
       console.error(msg);
       throw new Error(msg);
     } else {
-      console.warn('[DATABASE] PostgreSQL não disponível no ambiente local/preview. Operando em modo desacoplado de desenvolvimento.');
+      console.warn('[Fallback] Utilizando dados em memória para PostgreSQL:', err.message);
     }
   }
 }

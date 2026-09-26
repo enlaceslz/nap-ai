@@ -41,6 +41,9 @@ export const clientes = pgTable('clientes', {
   erpId: varchar('erp_id', { length: 100 }),
   ultimaSincronizacao: timestamp('ultima_sincronizacao'),
 
+  // Autenticação do Portal do Assinante
+  senhaHash: varchar('senha_hash', { length: 255 }), // Hash Bcrypt (12 rounds) da senha do Portal
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'), // Soft delete LGPD
@@ -95,6 +98,14 @@ export const faturas = pgTable('faturas', {
   txid: varchar('txid', { length: 255 }).unique(), // TXID Oficial PIX (Banco C6)
   transactionId: varchar('transaction_id', { length: 255 }).unique(), // ID da transação no Gateway
   idempotencyKey: varchar('idempotency_key', { length: 255 }).unique(),
+  
+  // P0 V11: Separação de Identificadores Internos e do Provedor (Item 8)
+  internalChargeId: varchar('internal_charge_id', { length: 255 }).unique(), // UUID interno gerado pelo NAP
+  provider: varchar('provider', { length: 50 }).default('C6_BANK'), // Gateway oficial (C6_BANK / ENLACE_PAY)
+  providerChargeId: varchar('provider_charge_id', { length: 255 }), // ID oficial fornecido pelo PSP
+  providerTransactionId: varchar('provider_transaction_id', { length: 255 }), // ID da transação fornecido pelo PSP
+  providerTxid: varchar('provider_txid', { length: 255 }), // TXID fornecido pelo PSP
+
   dataPagamento: timestamp('data_pagamento'),
   formaPagamento: varchar('forma_pagamento', { length: 50 }), // 'PIX', 'BOLETO', 'CARTAO'
   erpFaturaId: varchar('erp_fatura_id', { length: 100 }),
@@ -106,7 +117,8 @@ export const faturas = pgTable('faturas', {
     clienteIdx: index('idx_faturas_cliente_id').on(table.clienteId),
     vencimentoIdx: index('idx_faturas_vencimento').on(table.vencimento),
     statusIdx: index('idx_faturas_status').on(table.status),
-    txidIdx: index('idx_faturas_txid').on(table.txid)
+    txidIdx: index('idx_faturas_txid').on(table.txid),
+    internalChargeIdx: index('idx_faturas_internal_charge_id').on(table.internalChargeId)
   };
 });
 
@@ -122,12 +134,16 @@ export const pagamentos_transacoes = pgTable('pagamentos_transacoes', {
   valor: numeric('valor', { precision: 15, scale: 2 }).notNull(),
   status: varchar('status', { length: 50 }).default('CONCLUIDO').notNull(),
   e2eId: varchar('e2e_id', { length: 255 }), // End-to-End ID do Banco Central
+  providerEventId: varchar('provider_event_id', { length: 255 }).unique(),
+  providerTransactionId: varchar('provider_transaction_id', { length: 255 }),
+  idempotencyKey: varchar('idempotency_key', { length: 255 }),
   payloadRetorno: text('payload_retorno'),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, (table) => {
   return {
     faturaTransacaoIdx: index('idx_transacoes_fatura_id').on(table.faturaId),
-    txidTransacaoIdx: index('idx_transacoes_txid').on(table.txid)
+    txidTransacaoIdx: index('idx_transacoes_txid').on(table.txid),
+    providerEventIdx: index('idx_transacoes_provider_event_id').on(table.providerEventId)
   };
 });
 
@@ -628,6 +644,90 @@ export const regua_disparos = pgTable('regua_disparos', {
     faturaIdx: index('idx_regua_disp_fatura_id').on(table.faturaId),
     clienteIdx: index('idx_regua_disp_cliente_id').on(table.clienteId),
     statusIdx: index('idx_regua_disp_status').on(table.status)
+  };
+});
+
+/**
+ * 19. AUTENTICAÇÃO REAL & OTP PERSISTENTE DO PORTAL DO ASSINANTE (POSTGRESQL)
+ * Substitui o Map em memória por persistência em banco relacional com TTL, limites e rastreabilidade.
+ */
+export const portal_otps = pgTable('portal_otps', {
+  id: serial('id').primaryKey(),
+  clienteId: integer('cliente_id').references(() => clientes.id).notNull(),
+  challengeId: varchar('challenge_id', { length: 64 }).notNull().unique(),
+  otpHash: varchar('otp_hash', { length: 64 }).notNull(),
+  status: varchar('status', { length: 20 }).default('pending').notNull(), // 'pending', 'consumed', 'expired', 'failed', 'blocked'
+  attempts: integer('attempts').default(0).notNull(),
+  maxAttempts: integer('max_attempts').default(5).notNull(),
+  requestIp: varchar('request_ip', { length: 50 }),
+  userAgent: text('user_agent'),
+  providerMessageId: varchar('provider_message_id', { length: 255 }),
+  failureReason: text('failure_reason'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  consumedAt: timestamp('consumed_at'),
+}, (table) => {
+  return {
+    clienteOtpIdx: index('idx_portal_otps_cliente_id').on(table.clienteId),
+    challengeIdx: index('idx_portal_otps_challenge_id').on(table.challengeId),
+    statusIdx: index('idx_portal_otps_status').on(table.status),
+    expiresIdx: index('idx_portal_otps_expires_at').on(table.expiresAt)
+  };
+});
+
+/**
+ * 20. RECONCILIAÇÃO FINANCEIRA PERSISTENTE (POSTGRESQL)
+ * Substitui filas voláteis em memória (store.reconciliationQueue). Sobrevive a restarts de container/VPS.
+ */
+export const financeiro_reconciliacao = pgTable('financeiro_reconciliacao', {
+  id: varchar('id', { length: 100 }).primaryKey(), // 'DIV_uuid' ou 'REC_uuid'
+  faturaId: integer('fatura_id').references(() => faturas.id),
+  txid: varchar('txid', { length: 255 }),
+  providerChargeId: varchar('provider_charge_id', { length: 255 }),
+  providerTransactionId: varchar('provider_transaction_id', { length: 255 }),
+  expectedAmount: numeric('expected_amount', { precision: 15, scale: 2 }).notNull(),
+  receivedAmount: numeric('received_amount', { precision: 15, scale: 2 }).notNull(),
+  difference: numeric('difference', { precision: 15, scale: 2 }).default('0.00'),
+  expectedStatus: varchar('expected_status', { length: 50 }),
+  receivedStatus: varchar('received_status', { length: 50 }),
+  reason: text('reason').notNull(),
+  status: varchar('status', { length: 50 }).default('divergent').notNull(), // 'pending', 'matched', 'divergent', 'resolved', 'cancelled'
+  resolvedBy: varchar('resolved_by', { length: 150 }),
+  resolutionNote: text('resolution_note'),
+  resolvedAt: timestamp('resolved_at'),
+  detectedAt: timestamp('detected_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, (table) => {
+  return {
+    faturaReconcIdx: index('idx_reconciliacao_fatura_id').on(table.faturaId),
+    txidReconcIdx: index('idx_reconciliacao_txid').on(table.txid),
+    statusReconcIdx: index('idx_reconciliacao_status').on(table.status)
+  };
+});
+
+/**
+ * 21. FILA DE SINCRONIZAÇÃO RESILIENTE COM ERP (POSTGRESQL)
+ * Substitui o array volátil em memória (store.erpSyncQueue).
+ */
+export const erp_sync_queue = pgTable('erp_sync_queue', {
+  id: varchar('id', { length: 100 }).primaryKey(), // 'SYNC_uuid'
+  faturaId: integer('fatura_id').references(() => faturas.id).notNull(),
+  externalInvoiceId: varchar('external_invoice_id', { length: 100 }),
+  externalSystem: varchar('external_system', { length: 50 }).default('sgp').notNull(),
+  amount: numeric('amount', { precision: 15, scale: 2 }).notNull(),
+  txid: varchar('txid', { length: 255 }).notNull(),
+  transactionId: varchar('transaction_id', { length: 255 }),
+  paymentDate: timestamp('payment_date').notNull(),
+  status: varchar('status', { length: 50 }).default('pending').notNull(), // 'pending', 'synced', 'failed'
+  attempts: integer('attempts').default(0).notNull(),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, (table) => {
+  return {
+    faturaSyncIdx: index('idx_erp_sync_fatura_id').on(table.faturaId),
+    statusSyncIdx: index('idx_erp_sync_status').on(table.status)
   };
 });
 

@@ -10,6 +10,7 @@ export const setupCampanhasRoutes = (app: express.Express, { registrarAuditoria 
   // Recuperação de integridade pós-restart: limpa execuções órfãs e chamadas intermediárias sem inventar sucesso
   (async () => {
     try {
+      if (!isDatabaseConnected) return;
       // 1. Reconcilia execuções de campanhas interrompidas
       const orphanExecs = await db.select().from(campanhas_execucoes)
         .where(eq(campanhas_execucoes.status, 'running'));

@@ -1,5 +1,8 @@
 import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
+import { db, isDatabaseConnected } from '../../src/db/index';
+import { webhooks_recebidos } from '../../src/db/schema';
+import { eq, and } from 'drizzle-orm';
 
 interface ProcessedWebhookRecord {
   id: string;
@@ -19,7 +22,7 @@ setInterval(() => {
       processedWebhooks.delete(key);
     }
   }
-}, 60 * 60 * 1000);
+}, 60 * 60 * 1000).unref();
 
 export interface WebhookValidationOptions {
   source: 'waba' | 'c6_bank' | 'zabbix' | 'zammad' | 'generic';
@@ -110,15 +113,34 @@ export class WebhookGateway {
 
   /**
    * Middleware de validação do Gateway para C6 Bank / Enlace-Pay
+   * Protege contra Replay, Webhooks falsos sem autenticação e Duplicações (Idempotência)
    */
   public static c6BankMiddleware() {
-    return (req: Request, res: Response, next: NextFunction) => {
+    return async (req: Request, res: Response, next: NextFunction) => {
       const webhookSecret = process.env.C6_WEBHOOK_SECRET || process.env.C6_CLIENT_SECRET;
       const authToken = req.headers['authorization'] || req.headers['x-webhook-token'];
       const timestamp = req.headers['x-timestamp'] as string;
-      const nonce = req.headers['x-nonce'] as string || req.body.webhookId || req.body.txid;
+      const nonce = (req.headers['x-nonce'] as string) || req.body?.webhookId || req.body?.txid;
 
-      // Validação de Replay Attack por Timestamp
+      // 1. Validação de Token de Autenticidade do Gateway
+      if (webhookSecret) {
+        const expectedHeader = `Bearer ${webhookSecret}`;
+        if (!authToken || (authToken !== expectedHeader && authToken !== webhookSecret)) {
+          return res.status(401).json({
+            success: false,
+            error: 'Autenticação do webhook do Banco C6 falhou. Token inválido ou ausente.',
+            code: 'UNAUTHORIZED_WEBHOOK'
+          });
+        }
+      } else if (process.env.NODE_ENV === 'production') {
+        return res.status(401).json({
+          success: false,
+          error: 'Segredo de autenticação de webhook (C6_WEBHOOK_SECRET) não configurado em produção.',
+          code: 'UNAUTHORIZED_WEBHOOK'
+        });
+      }
+
+      // 2. Validação de Replay Attack por Timestamp
       if (timestamp && !WebhookGateway.validateTimestamp(timestamp)) {
         return res.status(400).json({
           success: false,
@@ -127,25 +149,32 @@ export class WebhookGateway {
         });
       }
 
-      // Validação de Idempotência
-      if (nonce && WebhookGateway.isDuplicate('c6_bank', nonce)) {
-        console.log(`[WEBHOOK_GATEWAY] Webhook C6 duplicado ignorado (Nonce: ${nonce}).`);
-        return res.status(200).json({
-          success: true,
-          message: 'Webhook já processado anteriormente (Idempotency Key válida).',
-          duplicated: true
-        });
-      }
-
-      // Validação de Token de Autenticidade em Produção
-      if (process.env.NODE_ENV === 'production' && webhookSecret) {
-        const expectedHeader = `Bearer ${webhookSecret}`;
-        if (authToken !== expectedHeader && authToken !== webhookSecret) {
-          return res.status(401).json({
-            success: false,
-            error: 'Autenticação do webhook do Banco C6 falhou.',
-            code: 'UNAUTHORIZED_WEBHOOK'
+      // 3. Validação de Idempotência no PostgreSQL (webhooks_recebidos) e em memória
+      if (nonce) {
+        if (WebhookGateway.isDuplicate('c6_bank', String(nonce))) {
+          return res.status(200).json({
+            success: true,
+            message: 'Webhook já processado anteriormente (Idempotency Key válida).',
+            duplicated: true
           });
+        }
+
+        if (isDatabaseConnected) {
+          try {
+            const rows = await db.select().from(webhooks_recebidos)
+              .where(and(eq(webhooks_recebidos.origem, 'c6_bank'), eq(webhooks_recebidos.identificadorExterno, String(nonce))))
+              .limit(1);
+            if (rows.length > 0) {
+              WebhookGateway.markProcessed('c6_bank', String(nonce));
+              return res.status(200).json({
+                success: true,
+                message: 'Webhook já processado anteriormente no PostgreSQL (Idempotency Key válida).',
+                duplicated: true
+              });
+            }
+          } catch (dbErr: any) {
+            console.warn('[WEBHOOK_GATEWAY] Falha ao verificar idempotência no PostgreSQL:', dbErr.message);
+          }
         }
       }
 

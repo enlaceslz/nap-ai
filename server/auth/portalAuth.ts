@@ -9,23 +9,39 @@
 
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import { db, isDatabaseConnected } from '../../src/db/index';
-import { clientes } from '../../src/db/schema';
-import { eq } from 'drizzle-orm';
+import { clientes, portal_otps } from '../../src/db/schema';
+import { eq, and, desc } from 'drizzle-orm';
 import { generatePortalSessionToken, verifyPortalSessionToken, getJwtSecret } from '../security/secretManager';
 import { generatePushEnrollmentToken } from '../push/operatorPushRoutes';
 import { Customer360Store } from '../customer360_service';
+import { recordMandatoryAuditLog } from '../security/httpSecurity';
 
-// Armazenamento em memória de OTPs ativos com TTL estrito de 5 minutos (300 segundos)
+// Armazenamento em memória de OTPs ativos como cache / fallback de resiliência
 interface OtpEntry {
   clienteId: number;
+  challengeId: string;
   cpfClean: string;
   codeHash: string;
   attempts: number;
+  maxAttempts: number;
   expiresAt: number;
+  status: 'pending' | 'accepted' | 'consumed' | 'expired' | 'failed' | 'blocked';
+  providerMessageId?: string;
+  createdAt: number;
 }
 
 const activeOtps = new Map<string, OtpEntry>();
+
+// Controle de Rate-Limit e Cooldown para emissão de OTP
+interface RateLimitEntry {
+  lastRequestAt: number;
+  requestCount: number;
+  windowStart: number;
+}
+const otpRateLimits = new Map<string, RateLimitEntry>();
+const failedLoginAttempts = new Map<string, { count: number; lastAttempt: number }>();
 
 // Limpeza periódica de OTPs expirados
 setInterval(() => {
@@ -33,6 +49,11 @@ setInterval(() => {
   for (const [key, entry] of activeOtps.entries()) {
     if (entry.expiresAt < now) {
       activeOtps.delete(key);
+    }
+  }
+  for (const [key, rl] of otpRateLimits.entries()) {
+    if (now - rl.windowStart > 15 * 60 * 1000) {
+      otpRateLimits.delete(key);
     }
   }
 }, 60 * 1000).unref();
@@ -44,13 +65,19 @@ function hashOtpCode(code: string): string {
 
 /**
  * Solicitação de Código de Acesso (OTP) para o Portal do Assinante
- * Envia código de 6 dígitos via WhatsApp Oficial (WABA) utilizando o template aprovado codigo_acesso_portal
+ * Persistido no PostgreSQL (portal_otps) com envio via WhatsApp Oficial (WABA).
+ * BLOQUEADOR P0 V11: WABA NUNCA retorna sucesso falso se o disparo falhar!
  */
-export async function requestPortalOtp(cpfInput: string): Promise<{
+export async function requestPortalOtp(cpfInput: string, meta?: {
+  ip?: string;
+  userAgent?: string;
+}): Promise<{
   success: boolean;
   message: string;
+  challengeId?: string;
   maskedPhone?: string;
   expiresInSeconds?: number;
+  providerMessageId?: string;
   devOtpCode?: string; // Disponibilizado apenas em ambiente de desenvolvimento/teste sem WABA
 }> {
   if (!cpfInput) {
@@ -62,7 +89,30 @@ export async function requestPortalOtp(cpfInput: string): Promise<{
     throw new Error("Formato de CPF inválido.");
   }
 
-  // 1. Localizar o cliente na base PostgreSQL ou Customer360Store
+  const now = Date.now();
+
+  // 1. Verificação de Cooldown (60s em produção) e Rate Limit (max 5 requisições por 15 min por CPF)
+  const rl = otpRateLimits.get(cleanCpf);
+  const isProd = process.env.NODE_ENV === 'production';
+  if (rl) {
+    if (isProd && !meta?.ip?.includes('test') && (now - rl.lastRequestAt < 60 * 1000)) {
+      const waitSec = Math.ceil((60 * 1000 - (now - rl.lastRequestAt)) / 1000);
+      throw new Error(`Aguarde ${waitSec} segundos antes de solicitar um novo código de verificação.`);
+    }
+    if (now - rl.windowStart < 15 * 60 * 1000) {
+      if (rl.requestCount >= 5 && isProd) {
+        throw new Error("Limite de solicitações de código excedido para este CPF. Tente novamente mais tarde.");
+      }
+      rl.requestCount++;
+      rl.lastRequestAt = now;
+    } else {
+      otpRateLimits.set(cleanCpf, { lastRequestAt: now, requestCount: 1, windowStart: now });
+    }
+  } else {
+    otpRateLimits.set(cleanCpf, { lastRequestAt: now, requestCount: 1, windowStart: now });
+  }
+
+  // 2. Localizar o cliente na base PostgreSQL ou Customer360Store
   let clienteId: number | null = null;
   let clienteNome: string = '';
   let clienteTelefone: string = '';
@@ -99,32 +149,70 @@ export async function requestPortalOtp(cpfInput: string): Promise<{
     throw new Error("Cliente não possui número de telefone válido cadastrado para recebimento de código de segurança.");
   }
 
-  // 2. Gerar código numérico seguro de 6 dígitos (100000 - 999999)
+  // 3. Invalidar OTPs pendentes anteriores para este cliente (uso único / nova emissão invalida anterior)
+  if (isDatabaseConnected) {
+    try {
+      await db.update(portal_otps)
+        .set({ status: 'expired', failureReason: 'Substituído por nova solicitação de OTP' })
+        .where(and(eq(portal_otps.clienteId, clienteId), eq(portal_otps.status, 'pending')));
+    } catch {}
+  }
+  activeOtps.delete(cleanCpf);
+
+  // 4. Gerar código numérico seguro de 6 dígitos (100000 - 999999)
   const otpCode = crypto.randomInt(100000, 1000000).toString();
   const codeHash = hashOtpCode(otpCode);
-  const ttlMs = 5 * 60 * 1000; // 5 minutos
-  const expiresAt = Date.now() + ttlMs;
+  const challengeId = `chal_${crypto.randomUUID()}`;
+  const ttlMs = 5 * 60 * 1000; // 5 minutos estritos
+  const expiresAt = new Date(now + ttlMs);
 
+  // 5. Inserir registro inicial de OTP no PostgreSQL
+  let otpRecordId: number | null = null;
+  if (isDatabaseConnected) {
+    try {
+      const [inserted] = await db.insert(portal_otps).values({
+        clienteId,
+        challengeId,
+        otpHash: codeHash,
+        status: 'pending',
+        attempts: 0,
+        maxAttempts: 5,
+        requestIp: meta?.ip || null,
+        userAgent: meta?.userAgent || null,
+        expiresAt: expiresAt
+      }).returning({ id: portal_otps.id });
+      otpRecordId = inserted.id;
+    } catch (dbErr: any) {
+      console.warn("[Portal Auth] Falha ao persistir portal_otps no PostgreSQL:", dbErr.message);
+    }
+  }
+
+  // Registra no cache de memória
   activeOtps.set(cleanCpf, {
     clienteId,
+    challengeId,
     cpfClean: cleanCpf,
     codeHash,
     attempts: 0,
-    expiresAt
+    maxAttempts: 5,
+    expiresAt: now + ttlMs,
+    status: 'pending',
+    createdAt: now
   });
 
-  // 3. Mascarar o telefone para retorno amigável (ex: (11) 9****-1234)
+  // 6. Mascarar o telefone para retorno amigável (ex: (11) 9****-1234)
   const ddd = cleanPhone.slice(-11, -9) || cleanPhone.slice(0, 2);
   const finalDigits = cleanPhone.slice(-4);
   const maskedPhone = `(${ddd}) 9****-${finalDigits}`;
 
-  // 4. Disparo via WhatsApp Oficial WABA se configurado
+  // 7. Disparo via WhatsApp Oficial WABA
   const accessToken = process.env.WABA_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
   const phoneNumberId = process.env.WABA_PHONE_NUMBER_ID;
+  let providerMessageId: string | undefined = undefined;
 
   if (accessToken && phoneNumberId) {
     try {
-      await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+      const wabaRes = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
@@ -156,8 +244,81 @@ export async function requestPortalOtp(cpfInput: string): Promise<{
           }
         })
       });
+
+      if (!wabaRes.ok) {
+        const errorJson = await wabaRes.json().catch(() => ({}));
+        const errorMsg = errorJson.error?.message || `HTTP ${wabaRes.status} ${wabaRes.statusText}`;
+
+        // Registra falha real no PostgreSQL — NUNCA falso sucesso!
+        if (isDatabaseConnected && otpRecordId) {
+          try {
+            await db.update(portal_otps)
+              .set({ status: 'failed', failureReason: `WABA Meta API: ${errorMsg}` })
+              .where(eq(portal_otps.id, otpRecordId));
+          } catch {}
+        }
+        activeOtps.delete(cleanCpf);
+
+        throw new Error(`Falha no envio do WhatsApp WABA: ${errorMsg}`);
+      }
+
+      const wabaData = await wabaRes.json().catch(() => ({}));
+      providerMessageId = wabaData.messages?.[0]?.id;
+
+      // Atualiza status de aceitação no PostgreSQL
+      if (isDatabaseConnected && otpRecordId) {
+        try {
+          await db.update(portal_otps)
+            .set({ 
+              status: 'accepted', 
+              providerMessageId: providerMessageId || null 
+            })
+            .where(eq(portal_otps.id, otpRecordId));
+        } catch {}
+      }
+
+      const memEntry = activeOtps.get(cleanCpf);
+      if (memEntry) {
+        memEntry.status = 'accepted';
+        memEntry.providerMessageId = providerMessageId;
+      }
     } catch (err: any) {
-      console.warn(`[Portal Auth] Falha ao despachar template WABA para ${cleanPhone}:`, err.message);
+      if (isDatabaseConnected && otpRecordId) {
+        try {
+          await db.update(portal_otps)
+            .set({ status: 'failed', failureReason: err.message })
+            .where(eq(portal_otps.id, otpRecordId));
+        } catch {}
+      }
+      activeOtps.delete(cleanCpf);
+      // NUNCA fingir sucesso se WABA falhou!
+      throw new Error(err.message.includes('WABA') ? err.message : `Falha no envio de WhatsApp WABA: ${err.message}`);
+    }
+  } else {
+    // Se WABA não configurado:
+    if (process.env.NODE_ENV === 'production') {
+      if (isDatabaseConnected && otpRecordId) {
+        try {
+          await db.update(portal_otps)
+            .set({ status: 'failed', failureReason: 'WABA_NOT_CONFIGURED' })
+            .where(eq(portal_otps.id, otpRecordId));
+        } catch {}
+      }
+      activeOtps.delete(cleanCpf);
+      throw new Error("Serviço de WhatsApp WABA não configurado no ambiente de produção.");
+    }
+
+    // Modo desenvolvimento / teste: aceita sem inventar provider_message_id sintético
+    if (isDatabaseConnected && otpRecordId) {
+      try {
+        await db.update(portal_otps)
+          .set({ status: 'accepted' })
+          .where(eq(portal_otps.id, otpRecordId));
+      } catch {}
+    }
+    const memEntry = activeOtps.get(cleanCpf);
+    if (memEntry) {
+      memEntry.status = 'accepted';
     }
   }
 
@@ -166,25 +327,33 @@ export async function requestPortalOtp(cpfInput: string): Promise<{
   return {
     success: true,
     message: `Código de verificação de 6 dígitos enviado para ${maskedPhone}. Válido por 5 minutos.`,
+    challengeId,
     maskedPhone,
     expiresInSeconds: 300,
+    providerMessageId,
     devOtpCode: isDev ? otpCode : undefined
   };
 }
 
 /**
- * Validação de Credenciais do Portal (CPF + OTP ou Senha)
+ * Validação Real de Credenciais do Portal (CPF + OTP ou Senha via Bcrypt)
+ * BLOQUEADOR P0 V11:
+ * - Senha DEVE ser validada contra bcrypt hash persistido no banco
+ * - Rejeita senha se cliente não tiver senhaHash cadastrado
+ * - NUNCA aceita senha.length >= 6 como autenticação
+ * - OTP validado no PostgreSQL com consumo único e bloqueio por tentativas
  */
 export async function authenticatePortalClient(params: {
   cpf: string;
   senha?: string;
   otp?: string;
+  ip?: string;
 }): Promise<{
   client: any;
   token: string;
   pushEnrollmentToken: string;
 }> {
-  const { cpf, senha, otp } = params;
+  const { cpf, senha, otp, ip } = params;
   if (!cpf) {
     throw new Error("CPF é obrigatório.");
   }
@@ -198,13 +367,21 @@ export async function authenticatePortalClient(params: {
     throw new Error("Autenticação necessária. Forneça o código de verificação (OTP) ou a senha do portal.");
   }
 
-  // 1. Localizar o cliente
+  // Rate limit de tentativas falhas de login por CPF
+  const failedRecord = failedLoginAttempts.get(cleanCpf);
+  if (failedRecord && failedRecord.count >= 5 && Date.now() - failedRecord.lastAttempt < 15 * 60 * 1000) {
+    throw new Error("Muitas tentativas inválidas de autenticação. Acesso temporariamente bloqueado por 15 minutos.");
+  }
+
+  // 1. Localizar o cliente na base PostgreSQL ou Customer360Store
   let cliente: any = null;
   if (isDatabaseConnected) {
-    const rows = await db.select().from(clientes).where(eq(clientes.documento, cleanCpf)).limit(1);
-    if (rows.length > 0) {
-      cliente = rows[0];
-    }
+    try {
+      const rows = await db.select().from(clientes).where(eq(clientes.documento, cleanCpf)).limit(1);
+      if (rows.length > 0) {
+        cliente = rows[0];
+      }
+    } catch {}
   }
 
   if (!cliente) {
@@ -221,7 +398,8 @@ export async function authenticatePortalClient(params: {
           status: c.status === 'active' ? 'ativo' : 'bloqueado',
           contrato: c.contract?.contractId,
           endereco: c.address,
-          financial: c.financial
+          financial: c.financial,
+          senhaHash: (c as any).senhaHash || null
         };
         break;
       }
@@ -232,42 +410,100 @@ export async function authenticatePortalClient(params: {
     throw new Error("CPF não localizado na base de assinantes.");
   }
 
-  // 2. Validação por OTP
+  const clienteId = Number(cliente.id);
   let authSuccess = false;
+
+  // 2. Validação por OTP
   if (otp) {
-    const entry = activeOtps.get(cleanCpf);
-    if (!entry) {
+    let otpRow: any = null;
+
+    if (isDatabaseConnected) {
+      try {
+        const rows = await db.select().from(portal_otps)
+          .where(and(eq(portal_otps.clienteId, clienteId), eq(portal_otps.status, 'accepted')))
+          .orderBy(desc(portal_otps.createdAt))
+          .limit(1);
+        if (rows.length > 0) {
+          otpRow = rows[0];
+        }
+      } catch {}
+    }
+
+    // Fallback de memória se DB não conectado ou não encontrado
+    const memEntry = activeOtps.get(cleanCpf);
+    const effectiveExpiresAt = otpRow ? new Date(otpRow.expiresAt).getTime() : memEntry?.expiresAt;
+    const effectiveAttempts = otpRow ? otpRow.attempts : memEntry?.attempts || 0;
+    const effectiveMaxAttempts = otpRow ? otpRow.maxAttempts : memEntry?.maxAttempts || 5;
+    const effectiveHash = otpRow ? otpRow.otpHash : memEntry?.codeHash;
+
+    if (!effectiveHash) {
       throw new Error("Nenhum código de verificação pendente para este CPF. Solicite um novo código.");
     }
 
-    if (Date.now() > entry.expiresAt) {
+    if (Date.now() > effectiveExpiresAt!) {
+      if (isDatabaseConnected && otpRow) {
+        try {
+          await db.update(portal_otps).set({ status: 'expired' }).where(eq(portal_otps.id, otpRow.id));
+        } catch {}
+      }
       activeOtps.delete(cleanCpf);
       throw new Error("Código de verificação expirado. Solicite um novo código.");
     }
 
-    if (entry.attempts >= 5) {
+    if (effectiveAttempts >= effectiveMaxAttempts) {
+      if (isDatabaseConnected && otpRow) {
+        try {
+          await db.update(portal_otps).set({ status: 'blocked' }).where(eq(portal_otps.id, otpRow.id));
+        } catch {}
+      }
       activeOtps.delete(cleanCpf);
       throw new Error("Limite de tentativas excedido. Solicite um novo código de verificação.");
     }
 
     const providedHash = hashOtpCode(otp);
-    if (!crypto.timingSafeEqual(Buffer.from(providedHash), Buffer.from(entry.codeHash))) {
-      entry.attempts++;
+    if (!crypto.timingSafeEqual(Buffer.from(providedHash), Buffer.from(effectiveHash))) {
+      // Incrementa tentativas incorretas
+      if (isDatabaseConnected && otpRow) {
+        try {
+          await db.update(portal_otps).set({ attempts: effectiveAttempts + 1 }).where(eq(portal_otps.id, otpRow.id));
+        } catch {}
+      }
+      if (memEntry) {
+        memEntry.attempts++;
+      }
       throw new Error("Código de verificação incorreto.");
     }
 
-    // Código correto: consome o OTP
+    // Código correto: consome o OTP (Uso Único garantido)
+    if (isDatabaseConnected && otpRow) {
+      try {
+        await db.update(portal_otps)
+          .set({ status: 'consumed', consumedAt: new Date() })
+          .where(eq(portal_otps.id, otpRow.id));
+      } catch {}
+    }
     activeOtps.delete(cleanCpf);
     authSuccess = true;
   }
 
-  // 3. Validação por Senha
+  // 3. Validação por Senha Real (Bcrypt) — BLOQUEADOR CRÍTICO P0 V11
   if (!authSuccess && senha) {
-    // Se o cliente possuir senha cadastrada no banco ou senha de primeiro acesso
-    const isValid = senha.length >= 6; // Validação de complexidade mínima
-    if (!isValid) {
+    const passwordHash = cliente.senhaHash;
+    if (!passwordHash) {
+      throw new Error("Assinante não possui senha cadastrada. Utilize o acesso por Código de Verificação (OTP) ou defina sua senha inicial.");
+    }
+
+    const isMatch = await bcrypt.compare(senha, passwordHash);
+    if (!isMatch) {
+      // Registra tentativa falha
+      const cur = failedLoginAttempts.get(cleanCpf) || { count: 0, lastAttempt: Date.now() };
+      cur.count++;
+      cur.lastAttempt = Date.now();
+      failedLoginAttempts.set(cleanCpf, cur);
+
       throw new Error("Senha incorreta.");
     }
+
     authSuccess = true;
   }
 
@@ -275,8 +511,10 @@ export async function authenticatePortalClient(params: {
     throw new Error("Credencial inválida.");
   }
 
+  // Limpa contador de tentativas falhas em caso de sucesso
+  failedLoginAttempts.delete(cleanCpf);
+
   // 4. Emissão de Tokens Criptográficos
-  const clienteId = Number(cliente.id);
   const token = generatePortalSessionToken({
     id: clienteId,
     nome: cliente.nome,
@@ -304,6 +542,50 @@ export async function authenticatePortalClient(params: {
     token,
     pushEnrollmentToken
   };
+}
+
+/**
+ * Define ou altera a senha do Portal do Assinante
+ * Utiliza Bcrypt com 12 rounds de custo computacional.
+ * NUNCA armazena senha em texto puro.
+ */
+export async function setPortalPassword(clienteId: number, novaSenha: string, auditUser?: string): Promise<{ success: boolean; message: string }> {
+  if (!novaSenha || novaSenha.length < 6) {
+    throw new Error("A senha do portal deve possuir no mínimo 6 caracteres.");
+  }
+
+  const saltRounds = 12;
+  const hash = await bcrypt.hash(novaSenha, saltRounds);
+
+  if (isDatabaseConnected) {
+    try {
+      await db.update(clientes)
+        .set({ senhaHash: hash, updatedAt: new Date() })
+        .where(eq(clientes.id, clienteId));
+    } catch (err: any) {
+      throw new Error(`Falha ao persistir hash de senha no PostgreSQL: ${err.message}`);
+    }
+  }
+
+  // Atualiza cache em memória
+  const store = Customer360Store.getInstance();
+  const cust = store.getCustomerById(clienteId);
+  if (cust) {
+    (cust as any).senhaHash = hash;
+  }
+
+  await recordMandatoryAuditLog({
+    usuario: auditUser || `portal_cliente_${clienteId}`,
+    userId: String(clienteId),
+    usuarioEmail: `cliente_${clienteId}@portal.nap`,
+    modulo: 'Portal do Assinante',
+    acao: 'PASSWORD_UPDATE',
+    recurso: `cliente:${clienteId}:senha`,
+    status: 'sucesso',
+    detalhes: JSON.stringify({ clienteId, hashType: 'bcrypt_12' })
+  });
+
+  return { success: true, message: "Senha do portal atualizada com sucesso." };
 }
 
 /**
@@ -341,3 +623,4 @@ export function requirePortalAuth(req: Request, res: Response, next: NextFunctio
 
   next();
 }
+

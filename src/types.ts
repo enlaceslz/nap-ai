@@ -124,7 +124,7 @@ export interface NapPaymentTransaction {
   amount: number;
   method: string;
   bank: string;
-  transactionId: string;
+  transactionId?: string;
   source: string;
   status: 'confirmed' | 'reconciled' | 'divergent';
   receivedAt: string;
