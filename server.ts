@@ -78,13 +78,14 @@ import { setupIpamRoutes } from "./server/ipam/routes";
 import { setupCorrelationRoutes } from "./server/correlation/routes";
 import { setupCommunicationRoutes } from "./server/communications/routes";
 import { setupPaymentRoutes } from "./server/payments";
+import { setupMaiaRoutes } from "./server/maia/routes/maiaRoutes";
 import { GenieacsService } from "./server/genieacs/genieacsService";
 import { Customer360Store } from "./server/customer360_service";
 import { authRouter } from "./server/auth/authRoutes";
 import { requireRole, requireAuth } from "./server/auth/rbacMiddleware";
 
 const app = express();
-const PORT = process.env.NAP_PORT ? Number(process.env.NAP_PORT) : 3000;
+const PORT = process.env.PORT ? Number(process.env.PORT) : (process.env.NAP_PORT ? Number(process.env.NAP_PORT) : 3000);
 
   connectARI();
 
@@ -1700,6 +1701,7 @@ setupGenieacsRoutes(app, { registrarAuditoria });
 setupCommunicationsRoutes(app, { registrarAuditoria });
 setupFieldRoutes(app, { registrarAuditoria });
 setupWabaRoutes(app);
+setupMaiaRoutes(app);
 app.use("/api/gis", gisRoutes);
 app.use("/api/ai", aiRoutes);
 

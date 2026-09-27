@@ -3,6 +3,7 @@ import { mcpIpamTools } from "./ipamTools";
 import { AiPolicyEngine, RiskLevel, TOOL_POLICIES } from "./policyEngine";
 import { AuthenticatedUser } from "../auth/types";
 import { appendAuditLog } from "../security/httpSecurity";
+import { RealToolImplementations } from "../maia/tools/realToolImplementations";
 import crypto from "crypto";
 
 /**
@@ -281,49 +282,8 @@ agentToolRegistry.register({
       cpf_cnpj: { type: "STRING", description: "CPF ou CNPJ do assinante" }
     }
   },
-  execute: async ({ cpf_cnpj }) => {
-    try {
-      if (!cpf_cnpj) {
-        return {
-          toolExecutada: "sgp_gerar_pix",
-          toolDados: { status: "cpf_obrigatorio" },
-          respostaGerada: "Por favor, informe o CPF ou CNPJ do titular para que eu possa consultar suas faturas e emitir o código PIX."
-        };
-      }
-      const erp = ErpFactory.getInstance();
-      const cliente = await erp.buscarClientePorCpf(cpf_cnpj);
-      
-      let dados: any = { status: 'cliente_nao_encontrado' };
-      let resposta = "Infelizmente não consegui localizar um cliente com este documento no nosso sistema.";
-      
-      if (cliente) {
-        const faturas = await erp.buscarFaturasEmAberto(cliente.id);
-        if (faturas.length > 0) {
-          const pix = await erp.gerarPixCopiaECola(faturas[0].id);
-          dados = {
-            cliente: cliente.nome,
-            cpf: cliente.documento,
-            fatura_id: faturas[0].id,
-            valor: faturas[0].valor,
-            vencimento: faturas[0].vencimento,
-            status: faturas[0].status,
-            pix_copia_cola: pix
-          };
-          resposta = `Fatura encontrada no valor de R$ ${dados.valor} com vencimento em ${dados.vencimento}. Código PIX Copia e Cola gerado: ${dados.pix_copia_cola}`;
-        } else {
-          dados = { cliente: cliente.nome, faturas_abertas: 0 };
-          resposta = `Verifiquei no sistema e não encontrei nenhuma fatura em aberto para ${cliente.nome}. Todas as faturas estão quitadas!`;
-        }
-      }
-
-      return {
-        toolExecutada: "sgp_gerar_pix",
-        toolDados: dados,
-        respostaGerada: resposta
-      };
-    } catch (e) {
-      return { toolExecutada: "sgp_gerar_pix", toolDados: { error: true }, respostaGerada: "Ocorreu um erro ao consultar o sistema financeiro." };
-    }
+  execute: async (params: any) => {
+    return await RealToolImplementations.gerarPixFatura(params);
   }
 });
 
@@ -334,13 +294,8 @@ agentToolRegistry.register({
   description: "Consulta o NOC em tempo real para verificar se há rompimentos de fibra ou oscilações ativas na região do cliente.",
   category: "suporte_noc",
   keywords: ["queda", "rompimento", "bairro", "região", "manutenção", "fora do ar", "massiva", "ocorrência", "rompeu", "apagão"],
-  execute: async () => {
-    // Consulta em tempo real à infraestrutura do NOC
-    return {
-      toolExecutada: "verificar_incidente_rede",
-      toolDados: { incidentesAtivos: 0, status: "normal" },
-      respostaGerada: "Consultei o NOC em tempo real e não há nenhum rompimento massivo de fibra ou manutenção emergencial registrada para a sua região no momento. A rede troncal e as rotas ópticas estão operando normalmente."
-    };
+  execute: async (params: any) => {
+    return await RealToolImplementations.verificarIncidenteRede(params);
   }
 });
 
@@ -351,42 +306,8 @@ agentToolRegistry.register({
   description: "Lê a potência óptica (dBm RX/TX) da ONU na porta PON da OLT, uptime da sessão PPPoE e perda de pacotes.",
   category: "telemetria_tr069",
   keywords: ["lento", "lentidão", "sinal", "internet", "caindo", "status", "potência", "dbm", "oscilando", "velocidade"],
-  execute: async ({ serialNumber, cpf_cnpj }: any = {}) => {
-    try {
-      const { GenieacsService } = await import('../genieacs/genieacsService.js');
-      const acs = GenieacsService.getInstance();
-      const devices = await acs.getDevices();
-      
-      const targetDevice = serialNumber 
-        ? devices.find((d: any) => d.serialNumber === serialNumber || d._id?.includes(serialNumber))
-        : (devices.length > 0 ? devices[0] : null);
-
-      if (targetDevice) {
-        const dados = {
-          serialNumber: targetDevice.serialNumber || targetDevice._id,
-          sinal_optico_rx: targetDevice.rssi ? `${targetDevice.rssi} dBm` : 'N/A',
-          sinal_optico_tx: targetDevice.tempLaser ? `${targetDevice.tempLaser}` : 'N/A',
-          status: targetDevice.status || 'online',
-          uptime_pppoe: targetDevice.uptime || 'Ativo',
-          ip_publico: targetDevice.ip || 'Dinâmico',
-          modelo: targetDevice.model || targetDevice.vendor || 'CPE GPON'
-        };
-
-        return {
-          toolExecutada: "sgp_consultar_status_conexao",
-          toolDados: dados,
-          respostaGerada: `Telemetria óptica coletada em tempo real para a ONU ${dados.modelo} (${dados.serialNumber}):\n- Status: ${dados.status.toUpperCase()}\n- Sinal Óptico RX: ${dados.sinal_optico_rx}\n- IP: ${dados.ip_publico}\n- Uptime: ${dados.uptime_pppoe}`
-        };
-      }
-    } catch (e) {
-      console.warn('[ToolRegistry] Erro ao consultar telemetria TR-069:', e);
-    }
-
-    return {
-      toolExecutada: "sgp_consultar_status_conexao",
-      toolDados: { status: "indisponivel" },
-      respostaGerada: "Não foi possível coletar a telemetria óptica direta do seu equipamento no momento. O equipamento pode estar desligado da tomada ou o serviço TR-069 temporariamente inacessível."
-    };
+  execute: async (params: any) => {
+    return await RealToolImplementations.consultarStatusConexao(params);
   }
 });
 
@@ -397,29 +318,8 @@ agentToolRegistry.register({
   description: "Dispara comando remoto via GenieACS CWMP para reiniciar a ONU/roteador do assinante e otimizar frequências Wi-Fi.",
   category: "telemetria_tr069",
   keywords: ["reiniciar", "reboot", "resetar", "reinicia", "desligar roteador"],
-  execute: async ({ deviceId, serialNumber }: any = {}) => {
-    try {
-      const { GenieacsService } = await import('../genieacs/genieacsService.js');
-      const acs = GenieacsService.getInstance();
-      const targetId = deviceId || serialNumber;
-
-      if (targetId) {
-        await acs.rebootDevice(targetId);
-        return {
-          toolExecutada: "genieacs_reboot_cpe",
-          toolDados: { deviceId: targetId, status: "ENVIADO" },
-          respostaGerada: `Comando de reinicialização remota enviado com sucesso via TR-069 para o equipamento ${targetId}! Em cerca de 60 a 90 segundos o roteador restabelecerá a conexão.`
-        };
-      }
-    } catch (e: any) {
-      console.warn('[ToolRegistry] Erro ao enviar reboot TR-069:', e);
-    }
-
-    return {
-      toolExecutada: "genieacs_reboot_cpe",
-      toolDados: { error: true },
-      respostaGerada: "Não foi possível enviar o comando de reinicialização remota: identificador do equipamento não informado ou serviço GenieACS temporariamente indisponível."
-    };
+  execute: async (params: any) => {
+    return await RealToolImplementations.rebootCpe(params);
   }
 });
 
@@ -430,30 +330,8 @@ agentToolRegistry.register({
   description: "Aplica liberação provisória no servidor Radius/MikroTik por 48 horas enquanto o cliente quita a fatura pendente.",
   category: "radius_erp",
   keywords: ["desbloqueio", "desbloquear", "confiança", "promessa", "liberar internet", "desbloqueia"],
-  execute: async ({ clienteId, cpf_cnpj }: any = {}) => {
-    try {
-      const erp = ErpFactory.getInstance();
-      if (clienteId || cpf_cnpj) {
-        const id = String(clienteId || 1);
-        const liberado = await erp.desbloquearConfianca(id);
-        if (liberado) {
-          const proto = `CONF-${Date.now()}`;
-          return {
-            toolExecutada: "sgp_desbloqueio_confianca",
-            toolDados: { liberado: true, protocolo: proto },
-            respostaGerada: `Desbloqueio em Confiança ativado com sucesso! Sua conexão foi liberada no concentrador com protocolo ${proto}.`
-          };
-        }
-      }
-    } catch (e) {
-      console.warn('[ToolRegistry] Erro no desbloqueio em confiança:', e);
-    }
-
-    return {
-      toolExecutada: "sgp_desbloqueio_confianca",
-      toolDados: { liberado: false },
-      respostaGerada: "Não foi possível ativar o Desbloqueio em Confiança automaticamente no momento. Por favor, confirme seus dados com um de nossos atendentes."
-    };
+  execute: async (params: any) => {
+    return await RealToolImplementations.desbloqueioConfianca(params);
   }
 });
 
@@ -464,23 +342,8 @@ agentToolRegistry.register({
   description: "Verifica disponibilidade de portas livres na CTO mais próxima, distância em metros do cabo drop e planos com Wi-Fi 6.",
   category: "comercial",
   keywords: ["viabilidade", "cobertura", "tem fibra", "meu cep", "instalar", "disponibilidade", "assinar", "contratar plano"],
-  execute: async ({ prompt }) => {
-    const dados = {
-      status: "aprovado",
-      ctoProxima: "CTO-SP-CENTRO-018",
-      distanciaDropMetros: 68,
-      portasLivres: 4,
-      tecnologia: "GPON Fibra Óptica 100% Simétrica",
-      prazoInstalacao: "Em até 24 horas úteis"
-    };
-
-    const resposta = `Excelente notícia! Temos viabilidade técnica aprovada para seu endereço com fibra óptica direta na sua residência (CTO a 68m com portas livres disponíveis). Conseguimos agendar a instalação da sua fibra 100% simétrica com Wi-Fi 6 em até 24 horas úteis. Deseja escolher seu plano agora?`;
-
-    return {
-      toolExecutada: "consulta_viabilidade_tecnica",
-      toolDados: dados,
-      respostaGerada: resposta
-    };
+  execute: async (params: any) => {
+    return await RealToolImplementations.consultarViabilidade(params);
   }
 });
 
@@ -587,7 +450,7 @@ agentToolRegistry.register({
     properties: {
       nome: { type: "STRING", description: "Nome do potencial cliente" },
       telefone: { type: "STRING", description: "Telefone ou WhatsApp do cliente" },
-      plano_interesse: { type: "STRING", description: "Plano de internet que demonstrou interesse (ex: 500 Mega, 1 Giga)" },
+      plano_interesse: { type: "STRING", description: "Plano de internet que demonstrou interesse" },
       endereco_cep: { type: "STRING", description: "Endereço ou CEP informado pelo cliente" }
     },
     required: ["nome", "telefone"]

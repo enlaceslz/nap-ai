@@ -731,3 +731,92 @@ export const erp_sync_queue = pgTable('erp_sync_queue', {
   };
 });
 
+/**
+ * 22. SESSÕES, TURNOS, TOOLS E EVENTOS DA MAIA (POSTGRESQL OFICIAL)
+ * Núcleo de Auditoria e Persistência da MaIA V3 (Enlace Architecture)
+ */
+export const ai_sessions = pgTable('ai_sessions', {
+  id: serial('id').primaryKey(),
+  sessionId: varchar('session_id', { length: 120 }).notNull().unique(),
+  tenantId: varchar('tenant_id', { length: 100 }).default('default').notNull(),
+  userId: integer('user_id').references(() => users.id),
+  clienteId: integer('cliente_id').references(() => clientes.id),
+  agentId: varchar('agent_id', { length: 100 }).default('maia-core').notNull(),
+  channel: varchar('channel', { length: 50 }).notNull(), // 'waba', 'webchat', 'voice', 'portal', 'api'
+  asteriskChannelId: varchar('asterisk_channel_id', { length: 120 }),
+  asteriskUniqueId: varchar('asterisk_unique_id', { length: 120 }),
+  linkedId: varchar('linked_id', { length: 120 }),
+  callerNumber: varchar('caller_number', { length: 50 }),
+  provider: varchar('provider', { length: 100 }).notNull(),
+  model: varchar('model', { length: 100 }).notNull(),
+  status: varchar('status', { length: 50 }).default('active').notNull(), // 'active', 'completed', 'failed', 'transferred'
+  startedAt: timestamp('started_at').defaultNow().notNull(),
+  endedAt: timestamp('ended_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, (table) => {
+  return {
+    aiSessionIdIdx: index('idx_ai_sessions_session_id').on(table.sessionId),
+    aiSessionTenantIdx: index('idx_ai_sessions_tenant_id').on(table.tenantId),
+    aiSessionClienteIdx: index('idx_ai_sessions_cliente_id').on(table.clienteId),
+    aiSessionAsteriskIdx: index('idx_ai_sessions_asterisk_unique_id').on(table.asteriskUniqueId)
+  };
+});
+
+export const ai_session_turns = pgTable('ai_session_turns', {
+  id: serial('id').primaryKey(),
+  turnId: varchar('turn_id', { length: 120 }).notNull().unique(),
+  sessionId: varchar('session_id', { length: 120 }).references(() => ai_sessions.sessionId).notNull(),
+  role: varchar('role', { length: 50 }).notNull(), // 'user', 'assistant', 'system', 'tool'
+  content: text('content').notNull(),
+  tokensPrompt: integer('tokens_prompt'),
+  tokensCompletion: integer('tokens_completion'),
+  latencyMs: integer('latency_ms'),
+  costEstimated: numeric('cost_estimated', { precision: 10, scale: 6 }),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => {
+  return {
+    aiTurnsSessionIdx: index('idx_ai_session_turns_session_id').on(table.sessionId),
+    aiTurnsTurnIdIdx: index('idx_ai_session_turns_turn_id').on(table.turnId)
+  };
+});
+
+export const ai_tool_executions = pgTable('ai_tool_executions', {
+  id: serial('id').primaryKey(),
+  executionId: varchar('execution_id', { length: 120 }).notNull().unique(),
+  sessionId: varchar('session_id', { length: 120 }).references(() => ai_sessions.sessionId).notNull(),
+  toolName: varchar('tool_name', { length: 100 }).notNull(),
+  riskLevel: varchar('risk_level', { length: 50 }).notNull(),
+  policyDecision: varchar('policy_decision', { length: 50 }).notNull(), // 'APPROVED', 'CONFIRMATION_REQUIRED', 'FORBIDDEN'
+  confirmationRequired: boolean('confirmation_required').default(false).notNull(),
+  confirmationResult: varchar('confirmation_result', { length: 50 }), // 'CONFIRMED', 'CANCELLED', 'N/A'
+  executionStatus: varchar('execution_status', { length: 50 }).notNull(), // 'SUCCESS', 'FAILED', 'BLOCKED'
+  parameters: text('parameters'),
+  resultData: text('result_data'),
+  correlationId: varchar('correlation_id', { length: 120 }),
+  latencyMs: integer('latency_ms'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => {
+  return {
+    aiToolExecSessionIdx: index('idx_ai_tool_exec_session_id').on(table.sessionId),
+    aiToolExecToolIdx: index('idx_ai_tool_exec_tool_name').on(table.toolName),
+    aiToolExecCorrelationIdx: index('idx_ai_tool_exec_correlation_id').on(table.correlationId)
+  };
+});
+
+export const ai_session_events = pgTable('ai_session_events', {
+  id: serial('id').primaryKey(),
+  eventId: varchar('event_id', { length: 120 }).notNull().unique(),
+  sessionId: varchar('session_id', { length: 120 }).references(() => ai_sessions.sessionId).notNull(),
+  eventType: varchar('event_type', { length: 100 }).notNull(),
+  severity: varchar('severity', { length: 50 }).default('info').notNull(),
+  payload: text('payload'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, (table) => {
+  return {
+    aiSessionEventsSessionIdx: index('idx_ai_session_events_session_id').on(table.sessionId),
+    aiSessionEventsTypeIdx: index('idx_ai_session_events_type').on(table.eventType)
+  };
+});
+
+

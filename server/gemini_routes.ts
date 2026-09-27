@@ -1,6 +1,8 @@
 import { agentToolRegistry } from "./agent/toolRegistry.js";
 import { processGeminiAgentRun } from "./gemini.js";
 import { isMockAllowed } from "./security/mockGuard.js";
+import { MaiaSecurityContextManager } from "./maia/security/MaiaSecurityContext";
+import { MaiaToolExecutor } from "./maia/tools/MaiaToolExecutor";
 
 export let systemConfig: any = {
   erpAtivo: "sgp",
@@ -194,7 +196,7 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
         return res.json({
           sucesso: true,
           status: "online",
-          provedor: "9router Gateway (DJD Telecom Enterprise)",
+          provedor: "9router Gateway (Enlace Enterprise)",
           url: targetUrl,
           latenciaMs,
           temChave: Boolean(targetKey),
@@ -303,20 +305,18 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
       const matchedTool = agentToolRegistry.matchTool(prompt);
       let toolExec = undefined;
       let toolD = null;
-      let resp = "Olá! Sou a MaIA da DJD Telecom. Como posso te ajudar hoje?";
+      let resp = "Olá! Sou a assistente virtual oficial do provedor. Como posso te ajudar hoje?";
       if (matchedTool) {
-        const currentUser = (req as any).user || req.body.user || {
-          id: 'maia-agent',
-          email: 'maia@nap.local',
-          nome: 'MaIA Telecom Bot',
-          role: 'ATENDIMENTO',
-          permissions: ['CUSTOMER_READ', 'INVOICE_READ', 'ONU_READ', 'HELPDESK_WRITE', 'CUSTOMER_CREATE', 'FIELD_WRITE']
-        };
-        const exec = await agentToolRegistry.executeToolSecurely(matchedTool.name, req.body, {
-          user: currentUser,
-          isConfirmed: req.body.isConfirmed,
-          origem: 'Gemini Route Heuristic Fallback'
+        const secCtx = MaiaSecurityContextManager.buildContext({
+          tenantId: req.body.tenantId,
+          user: (req as any).user || req.body.user,
+          cliente: req.body.cliente,
+          clienteId: req.body.clienteId,
+          channel: 'api_fallback',
+          isConfirmed: req.body.isConfirmed
         });
+
+        const exec = await MaiaToolExecutor.execute(matchedTool.name, req.body, secCtx);
         toolExec = exec.toolExecutada;
         toolD = exec.toolDados;
         resp = exec.respostaGerada || (exec.status === 'CONFIRMATION_REQUIRED' ? exec.confirmationPrompt : exec.message) || resp;
@@ -569,7 +569,7 @@ export function setupGeminiRoutes(app: any, sharedContext?: { systemConfig?: any
       ],
       passoAPasso: [
         "No painel do ERP, vá em Configurações > Integrações > API ERP.",
-        "Crie ou recupere o App ID e Token de acesso do DJD Telecom.",
+        "Crie ou recupere o App ID e Token de acesso do Provedor.",
         "Habilite os módulos de atendimento, financeiro e desbloqueio.",
         "Preencha as credenciais no NAP e clique em Testar Conexão.",
         "Ative o ERP para sincronizar a base de assinantes."

@@ -3,6 +3,8 @@ import { db } from '../../src/db/index';
 import { faturas } from '../../src/db/schema';
 import { eq } from 'drizzle-orm';
 import { GenieacsService } from '../genieacs/genieacsService';
+import { ClientContextResolver } from '../maia/tools/clientContextResolver';
+import { RealToolImplementations } from '../maia/tools/realToolImplementations';
 
 export const setupPortalRoutes = (app: express.Express) => {
   const router = express.Router();
@@ -123,13 +125,35 @@ export const setupPortalRoutes = (app: express.Express) => {
         });
       }
 
-      const primaryDevice = queryRes.devices[0];
+      // Localiza equipamento pelo contexto do cliente ou serial vinculado
+      const clienteId = (req as any).client?.id || (req.query.clienteId ? Number(req.query.clienteId) : undefined);
+      let targetDevice = null;
+      if (clienteId) {
+        const resolved = await ClientContextResolver.resolve({ authenticatedClienteId: clienteId });
+        if (resolved.equipamentoSerial) {
+          targetDevice = queryRes.devices.find((d: any) =>
+            d.serialNumber === resolved.equipamentoSerial || d._id?.includes(resolved.equipamentoSerial)
+          );
+        }
+      }
+      if (!targetDevice && !clienteId && queryRes.devices.length > 0) {
+        targetDevice = queryRes.devices[0];
+      }
+
+      if (!targetDevice) {
+        return res.json({
+          sucesso: false,
+          config: null,
+          motivo: "Nenhum equipamento TR-069 vinculado localizado para o assinante"
+        });
+      }
+
       res.json({
         sucesso: true,
         config: {
-          ssid: primaryDevice.ssid || null,
-          canal: primaryDevice.wifiChannel || null,
-          status: primaryDevice.status
+          ssid: targetDevice.ssid || null,
+          canal: targetDevice.wifiChannel || null,
+          status: targetDevice.status
         }
       });
     } catch (err: any) {
@@ -137,12 +161,23 @@ export const setupPortalRoutes = (app: express.Express) => {
     }
   });
 
-  // Verificador de Incidentes Ativos na Região do Cliente
-  router.get('/incidentes/verificar-cliente', (req, res) => {
-    res.json({
-      afetado: false,
-      incidente: null
-    });
+  // Verificador de Incidentes Ativos na Região do Cliente via NOC / Zabbix / GIS
+  router.get('/incidentes/verificar-cliente', async (req, res) => {
+    try {
+      const clienteId = (req as any).client?.id || (req.query.clienteId ? Number(req.query.clienteId) : undefined);
+      const resultado = await RealToolImplementations.verificarIncidenteRede({ clienteId });
+      
+      const isIncident = resultado.toolDados.status === 'INCIDENT';
+      res.json({
+        afetado: isIncident,
+        status: resultado.toolDados.status,
+        incidentesAtivos: resultado.toolDados.incidentesAtivos || 0,
+        incidente: isIncident ? (resultado.toolDados.detalhes?.[0] || { motivo: resultado.respostaGerada }) : null,
+        mensagem: resultado.respostaGerada
+      });
+    } catch (err: any) {
+      res.status(500).json({ afetado: false, status: 'UNAVAILABLE', error: err.message });
+    }
   });
 
   // Montagem sob /api para compatibilidade com o Portal PWA

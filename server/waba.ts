@@ -1,7 +1,6 @@
 import { db, isDatabaseConnected } from "../src/db/index.js";
 import { conversas, mensagens } from "../src/db/schema.js";
 import { eq, desc } from "drizzle-orm";
-import { GoogleGenAI } from "@google/genai";
 import { processGeminiAgentRun } from "./gemini.js";
 
 export function setupWabaRoutes(app: any) {
@@ -128,8 +127,8 @@ export function setupWabaRoutes(app: any) {
                        estagio: 'Nova Oportunidade',
                        pipeline: 'Vendas',
                        prioridade: 1,
-                       valor: agentResult.tool_dados?.plano_interesse?.includes('1 Giga') ? 149.9 : 99.9,
-                       contexto_ia: `Handoff automático gerado via Áudio/Texto. Plano desejado: ${agentResult.tool_dados?.plano_interesse}. Endereço: ${agentResult.tool_dados?.endereco}`
+                       valor: agentResult.tool_dados?.valor ? Number(agentResult.tool_dados.valor) : (agentResult.tool_dados?.plano_valor ? Number(agentResult.tool_dados.plano_valor) : 0),
+                       contexto_ia: `Handoff automático gerado via Áudio/Texto. Plano desejado: ${agentResult.tool_dados?.plano_interesse || 'Consulta'}. Endereço: ${agentResult.tool_dados?.endereco || 'Não informado'}`
                      });
                    } catch (crmErr) {
                      console.error('Erro ao integrar Lead no CRM:', crmErr);
@@ -191,14 +190,12 @@ export function setupWabaRoutes(app: any) {
       if (isSolicitacaoHumano) {
         resposta_ia = `👤 Entendido, ${nome || 'Assinante'}! Estou pausando a automação e transferindo sua solicitação diretamente para nossos operadores humanos no Inbox Unificado. Um atendente estará com você em instantes.`;
       } else {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const prompt = `Você é a MaIA, assistente de suporte ultra-humanizada e gentil do provedor DJD Telecom. O cliente ${nome} (${telefone}) enviou no Webchat: "${texto}". O sinal da ONU dele está normal (-19.5 dBm). Responda de forma curta, prestativa e em português. Lembre-o que se desejar falar com um humano, basta solicitar a qualquer momento.`;
-        
-        const geminiResponse = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt
+        const agentResult: any = await processGeminiAgentRun({
+          prompt: texto,
+          telefone: telefone,
+          contexto: `O cliente se chama ${nome || 'Assinante'} e enviou mensagem no Webchat. Analise a intenção e responda cordialmente.`
         });
-        resposta_ia = geminiResponse.text;
+        resposta_ia = agentResult.resposta || "Olá! Como posso ajudar você hoje?";
       }
       
       // Salva resposta IA / Sistema
@@ -581,7 +578,12 @@ export function setupWabaRoutes(app: any) {
             if (isSolicitacaoHumano) {
               respostaIA = `Entendido, ${contactName}! Estou pausando o atendimento automático e transferindo você imediatamente para um de nossos operadores humanos. Um momento, por favor...`;
             } else {
-              respostaIA = `Olá, ${contactName}! Sou a MaIA, assistente virtual do DJD Telecom de internet. Recebi sua mensagem: "${msgText}". Como posso te ajudar hoje? Se precisar de suporte na sua fibra, segunda via ou falar com nossa equipe, estou à disposição 24h!`;
+              const agentResult: any = await processGeminiAgentRun({
+                prompt: msgText,
+                telefone: senderPhone,
+                contexto: `O contato se chama ${contactName} e enviou mensagem pelo WhatsApp. Analise a solicitação e atenda cordialmente.`
+              });
+              respostaIA = agentResult.resposta || "Olá! Como posso te ajudar hoje? Estou à disposição para suporte, faturas ou dúvidas sobre sua conexão.";
             }
 
             if (isDatabaseConnected) {
