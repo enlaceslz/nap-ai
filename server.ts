@@ -85,7 +85,29 @@ import { authRouter } from "./server/auth/authRoutes";
 import { requireRole, requireAuth } from "./server/auth/rbacMiddleware";
 
 const app = express();
-const PORT = process.env.PORT ? Number(process.env.PORT) : (process.env.NAP_PORT ? Number(process.env.NAP_PORT) : 3000);
+
+function resolvePort(): number {
+  const args = process.argv.slice(2);
+  const portIndex = args.indexOf('--port');
+  if (portIndex !== -1 && args[portIndex + 1] && !isNaN(Number(args[portIndex + 1]))) {
+    return Number(args[portIndex + 1]);
+  }
+  if (process.env.DEFAULT_APP_PORT && !isNaN(Number(process.env.DEFAULT_APP_PORT))) {
+    return Number(process.env.DEFAULT_APP_PORT);
+  }
+  if (process.env.APP_PORT && !isNaN(Number(process.env.APP_PORT))) {
+    return Number(process.env.APP_PORT);
+  }
+  if (process.env.NAP_PORT && !isNaN(Number(process.env.NAP_PORT))) {
+    return Number(process.env.NAP_PORT);
+  }
+  if (process.env.PORT && (!process.env.NGINX_PORT || process.env.PORT !== process.env.NGINX_PORT)) {
+    return Number(process.env.PORT);
+  }
+  return 3000;
+}
+
+const PORT = resolvePort();
 
   connectARI();
 
@@ -1962,7 +1984,10 @@ app.use("/api/ai", aiRoutes);
       try {
         const { createServer: createViteServer } = await import("vite");
         const vite = await createViteServer({
-          server: { middlewareMode: true },
+          server: {
+            middlewareMode: true,
+            hmr: process.env.DISABLE_HMR !== 'true'
+          },
           appType: "spa",
         });
         app.use(vite.middlewares);
@@ -1978,8 +2003,11 @@ app.use("/api/ai", aiRoutes);
     }
 
     if (!process.env.VERCEL) {
-      app.listen(PORT, "0.0.0.0", () => {
+      const server = app.listen(PORT, "0.0.0.0", () => {
         console.log(`NAP Telecom Server rodando na porta ${PORT} (${process.env.NODE_ENV || "development"})`);
+      });
+      server.on("error", (err: any) => {
+        console.error(`[SERVER FATAL] Erro ao iniciar na porta ${PORT}:`, err.message);
       });
     }
   }
